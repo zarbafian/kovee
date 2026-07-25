@@ -1,54 +1,29 @@
-//! The K1 slice-1 operation handlers. Reads answer from normalized state
-//! and never mutate (§11.2); mutations run §12.2 through
+//! The K1 core operation handlers (slice 1, updated for the slice-2
+//! branch tables). Reads answer from normalized state and never mutate
+//! (§11.2); mutations run §12.2 through
 //! [`kovee_store::Store::command_transaction`] — state, event(s),
 //! idempotency record, and outbox commit atomically or not at all.
 
-use kovee_core::branch;
 use kovee_core::canonical;
 use kovee_core::envelope::{CommandResult, RawCommand};
 use kovee_core::event::{EVENT_CONTRIBUTION_APPENDED, EVENT_PROJECT_CREATED, EVENT_SPACE_CREATED};
 use kovee_core::ops;
 use kovee_core::problem::{Problem, ProblemKind};
-use kovee_core::records::{Contribution, HelloResult, Project, Space};
-use kovee_core::time::rfc3339_utc;
+use kovee_core::records::{Contribution, ContributionPart, HelloResult, Project, Space};
 use kovee_store::{
-    new_id, Applied, CommandError, CommandScope, CrashHooks, NewEvent, Store, StoreError,
+    new_id, privacy, Applied, CommandError, CommandScope, CrashHooks, NewEvent, Store,
     OWNER_ACTOR_REF,
 };
-use rusqlite::{params, Connection, OptionalExtension as _};
+use rusqlite::{params, Connection};
 use serde_json::Value;
 
-/// The one authority surface this binding serves (§11.6.1): the local
-/// socket is an external client channel for the same-UID owner principal.
+use crate::state::*;
+
+/// The primary authority surface of the local socket (§11.6.1): an
+/// external client channel for the same-UID owner principal.
 pub const SURFACE: &str = "external_client";
-
-const DEFAULT_CLASSIFICATION: &str = "class-default";
-const DEFAULT_POLICY_SET: &str = "policy-default";
-const DEFAULT_RETENTION: &str = "ret-default";
-const CONTRIBUTION_SCHEMA_REF: &str = "schema:contribution-body-v1";
-const PROJECT_SCHEMA_REF: &str = "schema:project-v1";
-const SPACE_SCHEMA_REF: &str = "schema:space-v1";
-
-fn internal() -> Problem {
-    // §11.7: `internal` does not leak paths, tokens, policy internals,
-    // or peer existence — no detail at all.
-    Problem::new(ProblemKind::Internal, "internal fault")
-}
-
-fn store_problem(e: StoreError) -> Problem {
-    eprintln!("koveed: store fault: {e}");
-    internal()
-}
-
-fn not_found() -> Problem {
-    Problem::new(ProblemKind::NotFound, "no visible resource")
-}
-
-fn stale_revision(current: u64) -> Problem {
-    // §11.7: stale-revision includes the current visible revision.
-    Problem::new(ProblemKind::StaleRevision, "optimistic revision mismatch")
-        .with_detail(format!("current visible revision is {current}"))
-}
+/// The worker surface (§23.3): a separate socket, fenced attempt actors.
+pub const WORKER_SURFACE: &str = "worker";
 
 pub fn command_outcome_bytes(
     outcome: Result<kovee_store::CommandOutcome, CommandError>,
@@ -60,7 +35,7 @@ pub fn command_outcome_bytes(
     }
 }
 
-fn ok_reply(result: Value, revision: Option<u64>) -> Result<Vec<u8>, Problem> {
+pub fn ok_reply(result: Value, revision: Option<u64>) -> Result<Vec<u8>, Problem> {
     serde_json::to_vec(&CommandResult::Ok {
         result,
         revision,
@@ -69,7 +44,7 @@ fn ok_reply(result: Value, revision: Option<u64>) -> Result<Vec<u8>, Problem> {
     .map_err(|_| internal())
 }
 
-fn scope_for(cmd: &RawCommand, realm_id: &str) -> Result<CommandScope, Problem> {
+pub fn scope_for(cmd: &RawCommand, realm_id: &str) -> Result<CommandScope, Problem> {
     let meta = cmd.meta.as_ref().ok_or_else(internal)?;
     Ok(CommandScope {
         // §11.2: idempotency keys are scoped by authenticated actor,
@@ -80,6 +55,12 @@ fn scope_for(cmd: &RawCommand, realm_id: &str) -> Result<CommandScope, Problem> 
         request_digest: canonical::idempotency_request_digest(cmd, SURFACE)
             .map_err(|_| internal())?,
     })
+}
+
+pub fn scope_digest(meta: &kovee_core::envelope::CommandMeta) -> String {
+    // Body-free audit detail: the idempotency key names the command
+    // without carrying content.
+    format!("idem={}", meta.idempotency_key)
 }
 
 // ------------------------------------------------------------- hello ----
@@ -114,11 +95,13 @@ pub fn hello(store: &Store, args: &ops::HelloArgs, now: i64) -> Result<Vec<u8>, 
         selected_version: kovee_core::PROTOCOL_VERSION.to_owned(),
         implementation: "koveed".to_owned(),
         implementation_version: env!("CARGO_PKG_VERSION").to_owned(),
-        // Honesty (§11.6): bundles are atomic — this slice implements only
-        // part of core_v1/shared_space_v1, so nothing is advertised yet.
+        // Honesty (§11.6): bundles are atomic — K1 slice 2 still
+        // implements only part of shared_space_v1/developer_assistant_v1
+        // (no dispositions, lifecycle, participants CRUD, snapshots), so
+        // nothing is advertised yet.
         features: Vec::new(),
         limits_digest,
-        server_time: rfc3339_utc(now),
+        server_time: kovee_core::time::rfc3339_utc(now),
         installation_id: store.installation_id().map_err(store_problem)?,
     };
     ok_reply(serde_json::to_value(&result).map_err(|_| internal())?, None)
@@ -198,6 +181,7 @@ pub fn project_create(
             .append_event(NewEvent {
                 stream_id: project_id.clone(),
                 project_id: Some(project_id.clone()),
+                actor_ref: None,
                 event_type: EVENT_PROJECT_CREATED,
                 schema_ref: PROJECT_SCHEMA_REF.to_owned(),
                 resource_ref: project_id.clone(),
@@ -210,10 +194,7 @@ pub fn project_create(
             .map_err(store_problem)?;
         txn.audit(
             "command.project_created",
-            &format!(
-                "project={project_id};request_digest={}",
-                scope_digest(&meta)
-            ),
+            &format!("project={project_id};{}", scope_digest(&meta)),
         );
         let cursor = txn
             .mint_project_cursor(&project_id, event.project_sequence.unwrap_or(0))
@@ -225,12 +206,6 @@ pub fn project_create(
         })
     });
     command_outcome_bytes(outcome)
-}
-
-fn scope_digest(meta: &kovee_core::envelope::CommandMeta) -> String {
-    // Body-free audit detail: the idempotency key names the command
-    // without carrying content.
-    format!("idem={}", meta.idempotency_key)
 }
 
 // ------------------------------------------------------ space_create ----
@@ -258,7 +233,7 @@ pub fn space_create(
         }
         let space_id = new_id("space").map_err(store_problem)?;
         let main_branch_id = new_id("branch").map_err(store_problem)?;
-        let head = branch::genesis_head(&main_branch_id);
+        let head = kovee_core::branch::genesis_head(&main_branch_id);
         let space = Space {
             space_id: space_id.clone(),
             realm_id: txn.realm_id().to_owned(),
@@ -285,11 +260,9 @@ pub fn space_create(
             .execute(
                 "INSERT INTO spaces (space_id, realm_id, project_id, revision, title,
                      purpose_contribution_ref, visibility, status, main_branch_id,
-                     next_space_sequence, main_branch_head_digest,
-                     next_branch_sequence, default_classification_ref,
+                     next_space_sequence, default_classification_ref,
                      policy_set_ref, created_by, created_at)
-                 VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, 'open', ?7, 1, ?8, 1, ?9, ?10,
-                     ?11, ?12)",
+                 VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, 'open', ?7, 1, ?8, ?9, ?10, ?11)",
                 params![
                     space.space_id,
                     space.realm_id,
@@ -298,9 +271,26 @@ pub fn space_create(
                     space.purpose_contribution_ref,
                     space.visibility,
                     space.main_branch_id,
-                    head,
                     space.default_classification_ref,
                     space.policy_set_ref,
+                    space.created_by,
+                    space.created_at,
+                ],
+            )
+            .map_err(|e| store_problem(e.into()))?;
+        // §10.3: every space starts with a main branch; the head CAS
+        // lives on the branch row.
+        txn.conn()
+            .execute(
+                "INSERT INTO reasoning_branches (branch_id, space_id, revision,
+                     purpose_contribution_ref, parent_branch_id, base_frontier_ref,
+                     base_frontier_digest, next_branch_sequence, head_digest,
+                     status, created_by, created_at)
+                 VALUES (?1, ?2, 1, NULL, NULL, NULL, NULL, 1, ?3, 'open', ?4, ?5)",
+                params![
+                    space.main_branch_id,
+                    space.space_id,
+                    head,
                     space.created_by,
                     space.created_at,
                 ],
@@ -318,11 +308,39 @@ pub fn space_create(
                 params![participant_id, space.space_id, OWNER_ACTOR_REF],
             )
             .map_err(|e| store_problem(e.into()))?;
+        // §10.4/§10.7-in-plan: the two built-in presentation lenses with
+        // deterministic ids — saved query/presentation config, never a
+        // second content model and never authority.
+        for (kind, query, render) in [
+            ("stream", "contributions", "chronological"),
+            ("workbench", "typed_cards", "cards_with_relations"),
+        ] {
+            txn.conn()
+                .execute(
+                    "INSERT INTO space_lenses (lens_id, space_id, owner_ref,
+                         revision, kind, query_ast, sort_spec,
+                         presentation_options, visibility, status, created_at)
+                     VALUES (?1, ?2, ?3, 1, ?4, ?5,
+                         '{\"order_by\":\"branch_sequence\"}', ?6, ?7, 'active', ?8)",
+                    params![
+                        format!("lens-{kind}-{}", space.space_id),
+                        space.space_id,
+                        space.created_by,
+                        kind,
+                        format!("{{\"select\":\"{query}\"}}"),
+                        format!("{{\"render\":\"{render}\"}}"),
+                        space.visibility,
+                        space.created_at,
+                    ],
+                )
+                .map_err(|e| store_problem(e.into()))?;
+        }
         let payload = serde_json::to_value(&space).map_err(|_| internal())?;
         let event = txn
             .append_event(NewEvent {
                 stream_id: space_id.clone(),
                 project_id: Some(project_id.clone()),
+                actor_ref: None,
                 event_type: EVENT_SPACE_CREATED,
                 schema_ref: SPACE_SCHEMA_REF.to_owned(),
                 resource_ref: space_id.clone(),
@@ -356,10 +374,7 @@ pub fn space_show(
     project_id: &str,
     args: &ops::SpaceShowArgs,
 ) -> Result<Vec<u8>, Problem> {
-    let (space, _, _) = get_space(store.conn(), &args.space_id)
-        .map_err(store_problem)?
-        .filter(|(s, _, _)| s.project_id == project_id)
-        .ok_or_else(not_found)?;
+    let space = visible_space(store.conn(), project_id, &args.space_id)?;
     let revision = space.revision;
     ok_reply(
         serde_json::to_value(&space).map_err(|_| internal())?,
@@ -369,35 +384,71 @@ pub fn space_show(
 
 // ------------------------------------------------ contribution_append ----
 
-pub fn contribution_append(
+/// Who a contribution append is attributed to and bound by.
+pub struct AppendAuthor {
+    pub actor_ref: String,
+    pub invocation_ref: Option<String>,
+    pub context_assembly_ref: Option<String>,
+    /// The worker attempt binding `(attempt_id, fence_epoch)` (§15.2);
+    /// its currency is re-checked inside the command transaction, after
+    /// the idempotency replay check — a replayed result needs no live
+    /// lease.
+    pub binding: Option<(String, u64)>,
+}
+
+impl AppendAuthor {
+    pub fn owner() -> AppendAuthor {
+        AppendAuthor {
+            actor_ref: OWNER_ACTOR_REF.to_owned(),
+            invocation_ref: None,
+            context_assembly_ref: None,
+            binding: None,
+        }
+    }
+
+    /// Validates the attempt binding (when present) inside an open
+    /// command transaction.
+    pub fn check(&self, conn: &Connection) -> Result<(), Problem> {
+        if let Some((attempt_id, fence)) = &self.binding {
+            let (attempt, invocation) = crate::invoke::check_binding(conn, attempt_id, *fence)?;
+            if Some(&invocation.invocation_id) != self.invocation_ref.as_ref()
+                || attempt.invocation_id != invocation.invocation_id
+            {
+                return Err(Problem::new(
+                    ProblemKind::StaleLease,
+                    "attempt binding is not current",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The shared §10.2/§10.3 append core, used by both surfaces: validates
+/// same-space references, CASes the branch head, appends the branch
+/// entry, and advances the space aggregate.
+#[allow(clippy::too_many_arguments)]
+pub fn append_contribution(
     store: &mut Store,
-    cmd: &RawCommand,
-    args: &ops::ContributionAppendArgs,
+    scope: CommandScope,
+    project_id: String,
+    args: ops::ContributionAppendArgs,
+    meta: kovee_core::envelope::CommandMeta,
+    author: AppendAuthor,
     now: i64,
     hooks: CrashHooks,
 ) -> Result<Vec<u8>, Problem> {
-    // Registry rule (§11.6.1, gap note KG14): the worker-surface binding
-    // members are schema-valid but not acceptable on this surface.
-    if args.attempt_id.is_some() || args.fence_epoch.is_some() {
-        return Err(Problem::new(
-            ProblemKind::ForbiddenSurface,
-            "worker-surface binding on an external client channel",
-        ));
-    }
-    let realm_id = cmd.realm_id.clone().ok_or_else(internal)?;
-    let project_id = cmd.project_id.clone().ok_or_else(internal)?;
-    let scope = scope_for(cmd, &realm_id)?;
-    let args = args.clone();
-    let meta = cmd.meta.clone().ok_or_else(internal)?;
     let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        let (space, head, next_branch_sequence) = get_space(txn.conn(), &args.space_id)
-            .map_err(store_problem)?
-            .filter(|(s, _, _)| s.project_id == project_id)
-            .ok_or_else(not_found)?;
-        if args.branch_id != space.main_branch_id {
-            // Hidden or unknown branches are non-enumerable (§10.2).
-            return Err(not_found());
+        author.check(txn.conn())?;
+        let space = visible_space(txn.conn(), &project_id, &args.space_id)?;
+        if space.status != "open" {
+            return Err(Problem::new(
+                ProblemKind::StaleRevision,
+                "space is not open for contributions",
+            )
+            .with_detail(format!("space status is {}", space.status)));
         }
+        let branch = visible_branch(txn.conn(), &space, &args.branch_id)?;
         if let Some(expected) = meta.expected_revision {
             if expected != space.revision {
                 return Err(stale_revision(space.revision));
@@ -405,19 +456,35 @@ pub fn contribution_append(
         }
         // §10.3/§11.2: every branch append presents the expected head
         // digest and compare-and-swaps; a stale writer must rebase.
-        if args.expected_head_digest != head {
+        if args.expected_head_digest != branch.head_digest {
             return Err(stale_revision(space.revision)
                 .with_detail("expected_head_digest does not match the current branch head"));
         }
+        // §10.4: only services may append a system_notice; neither the
+        // external client nor a worker attempt is one.
+        if args.kind == "system_notice" {
+            return Err(Problem::new(
+                ProblemKind::Forbidden,
+                "system_notice is service-only (§10.4)",
+            ));
+        }
+        // §10.2: every referenced object must be visible in this space;
+        // an artifact part may only name an available artifact (§10.10).
+        validate_parts(txn.conn(), &space, &args.body_parts)?;
+        for refs in [&args.subject_refs, &args.source_refs] {
+            for object_ref in refs.iter().flatten() {
+                resolve_space_object(txn.conn(), &space.space_id, object_ref)?;
+            }
+        }
         let contribution_id = new_id("contrib").map_err(store_problem)?;
-        let branch_sequence = next_branch_sequence;
+        let branch_sequence = branch.next_branch_sequence;
         let space_sequence = space.next_space_sequence;
         let subject_refs = args.subject_refs.clone().unwrap_or_default();
         let source_refs = args.source_refs.clone().unwrap_or_default();
         // §11.8: the content digest projection is implementation-pinned
         // (recorded K0 gap). A5 note: this is a plaintext canonical-object
-        // digest; when contribution redaction lands (later K1 slice), the
-        // digest class must move to the family's erasure-safe class.
+        // digest; when contribution redaction lands, the digest class
+        // must move to the family's erasure-safe class.
         let content_projection = serde_json::json!({
             "space_id": args.space_id,
             "origin_branch_id": args.branch_id,
@@ -443,7 +510,7 @@ pub fn contribution_append(
             origin_branch_id: args.branch_id.clone(),
             origin_branch_sequence: branch_sequence,
             space_sequence,
-            author_actor_ref: OWNER_ACTOR_REF.to_owned(),
+            author_actor_ref: author.actor_ref.clone(),
             kind: args.kind.clone(),
             schema_ref: args
                 .schema_ref
@@ -453,8 +520,8 @@ pub fn contribution_append(
             subject_refs,
             source_refs,
             epistemic_posture: args.epistemic_posture.clone(),
-            invocation_ref: None,
-            context_assembly_ref: None,
+            invocation_ref: author.invocation_ref.clone(),
+            context_assembly_ref: author.context_assembly_ref.clone(),
             causation_ref: meta.causation_event_ref.clone(),
             classification_ref: args
                 .classification_ref
@@ -476,7 +543,7 @@ pub fn contribution_append(
                      context_assembly_ref, causation_ref, classification_ref,
                      retention_policy_ref, content_digest, created_at)
                  VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, NULL, NULL, ?15, ?16, ?17, ?18, ?19)",
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 params![
                     contribution.contribution_id,
                     contribution.realm_id,
@@ -492,6 +559,8 @@ pub fn contribution_append(
                     serde_json::to_string(&contribution.subject_refs).map_err(|_| internal())?,
                     serde_json::to_string(&contribution.source_refs).map_err(|_| internal())?,
                     contribution.epistemic_posture,
+                    contribution.invocation_ref,
+                    contribution.context_assembly_ref,
                     contribution.causation_ref,
                     contribution.classification_ref,
                     contribution.retention_policy_ref,
@@ -500,18 +569,21 @@ pub fn contribution_append(
                 ],
             )
             .map_err(|e| store_problem(e.into()))?;
-        // Advance the space: one dense branch sequence, one dense space
-        // sequence, the CASed head, and the aggregate revision (§11.2).
-        let new_head = branch::next_head(&head, branch_sequence, &content_digest);
+        advance_branch(
+            txn.conn(),
+            &branch,
+            &contribution_id,
+            1,
+            &content_digest,
+            &contribution.created_at,
+        )?;
         let new_revision = space.revision + 1;
         txn.conn()
             .execute(
                 "UPDATE spaces SET next_space_sequence = next_space_sequence + 1,
-                     next_branch_sequence = next_branch_sequence + 1,
-                     main_branch_head_digest = ?2,
-                     revision = ?3
+                     revision = ?2
                  WHERE space_id = ?1",
-                params![space.space_id, new_head, new_revision as i64],
+                params![space.space_id, new_revision as i64],
             )
             .map_err(|e| store_problem(e.into()))?;
         let payload = serde_json::to_value(&contribution).map_err(|_| internal())?;
@@ -519,6 +591,7 @@ pub fn contribution_append(
             .append_event(NewEvent {
                 stream_id: space.space_id.clone(),
                 project_id: Some(project_id.clone()),
+                actor_ref: Some(author.actor_ref.clone()),
                 event_type: EVENT_CONTRIBUTION_APPENDED,
                 schema_ref: CONTRIBUTION_SCHEMA_REF.to_owned(),
                 resource_ref: contribution_id.clone(),
@@ -549,21 +622,175 @@ pub fn contribution_append(
     command_outcome_bytes(outcome)
 }
 
+/// Advances one branch: inserts the dense branch entry and CASes the
+/// head fold (§10.3).
+pub fn advance_branch(
+    conn: &Connection,
+    branch: &BranchRow,
+    object_ref: &str,
+    object_revision: u64,
+    object_digest: &str,
+    created_at: &str,
+) -> Result<String, Problem> {
+    let sequence = branch.next_branch_sequence;
+    conn.execute(
+        "INSERT INTO branch_entries (branch_id, branch_sequence, object_ref,
+             object_revision, object_digest, origin_branch_id, admission,
+             merge_commit_ref, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?1, 'origin', NULL, ?6)",
+        params![
+            branch.branch_id,
+            sequence as i64,
+            object_ref,
+            object_revision as i64,
+            object_digest,
+            created_at,
+        ],
+    )
+    .map_err(|e| store_problem(e.into()))?;
+    let new_head = kovee_core::branch::next_head(&branch.head_digest, sequence, object_digest);
+    let changed = conn
+        .execute(
+            "UPDATE reasoning_branches SET head_digest = ?2,
+                 next_branch_sequence = next_branch_sequence + 1,
+                 revision = revision + 1
+             WHERE branch_id = ?1 AND head_digest = ?3",
+            params![branch.branch_id, new_head, branch.head_digest],
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    if changed != 1 {
+        return Err(
+            stale_revision(branch.revision).with_detail("branch head moved inside the transaction")
+        );
+    }
+    Ok(new_head)
+}
+
+/// §10.2/§10.10 body-part validation: artifact parts may only name an
+/// available artifact; a structured mention must resolve to a visible
+/// target (there is no alias registry in K1, so `assistant_alias`
+/// mentions resolve to nothing).
+fn validate_parts(
+    conn: &Connection,
+    space: &Space,
+    parts: &[ContributionPart],
+) -> Result<(), Problem> {
+    for part in parts {
+        match part {
+            ContributionPart::Artifact { artifact_ref, .. } => {
+                let artifact = kovee_artifacts::get_artifact(conn, artifact_ref)
+                    .map_err(store_problem)?
+                    .ok_or_else(not_found)?;
+                if artifact.state != "available" {
+                    // §10.10: no contribution may reference an artifact
+                    // as available until finalization completes.
+                    return Err(
+                        Problem::new(ProblemKind::Invalid, "artifact is not available")
+                            .with_detail(format!("artifact state is {}", artifact.state)),
+                    );
+                }
+            }
+            ContributionPart::Reference { object_ref, .. } => {
+                resolve_space_object(conn, &space.space_id, object_ref)?;
+            }
+            ContributionPart::Mention {
+                target_kind,
+                target_ref,
+                ..
+            } => match target_kind.as_str() {
+                "principal" if target_ref == OWNER_ACTOR_REF => {}
+                // No alias registry exists in K1; an unresolvable
+                // mention target is a uniform not-found (§10.4: a
+                // mention resolves an exact visible alias revision in
+                // the same transaction — or the append fails).
+                _ => return Err(not_found()),
+            },
+            ContributionPart::Text { .. } | ContributionPart::Data { .. } => {}
+        }
+    }
+    Ok(())
+}
+
 // -------------------------------------------------- contribution_show ----
 
 pub fn contribution_show(
-    store: &Store,
+    store: &mut Store,
     project_id: &str,
     args: &ops::ContributionShowArgs,
+    now: i64,
 ) -> Result<Vec<u8>, Problem> {
-    let contribution = get_contribution(store.conn(), &args.contribution_id)
-        .map_err(store_problem)?
-        .filter(|c| c.project_id == project_id)
-        .ok_or_else(not_found)?;
-    ok_reply(
-        serde_json::to_value(&contribution).map_err(|_| internal())?,
-        Some(1),
+    let found = get_contribution(store.conn(), &args.contribution_id).map_err(store_problem)?;
+    let query = serde_json::json!({"contribution_id": args.contribution_id});
+    match found {
+        Some(c) if c.project_id == project_id => {
+            let payload = serde_json::to_value(&c).map_err(|_| internal())?;
+            if c.classification_ref == privacy::SENSITIVE_CLASSIFICATION {
+                // PROFILE §7 release rule: the allowed record commits
+                // BEFORE sensitive bytes are released; a failed commit
+                // means the bytes are never served.
+                let bytes = serde_json::to_vec(&payload).map_err(|_| internal())?.len();
+                record_access(
+                    store,
+                    "contribution_show",
+                    query,
+                    1,
+                    bytes as u64,
+                    true,
+                    now,
+                )?;
+            }
+            ok_reply(payload, Some(1))
+        }
+        Some(c) => {
+            // A denied sensitive read still chains a record (PROFILE §7).
+            if c.classification_ref == privacy::SENSITIVE_CLASSIFICATION {
+                record_access(store, "contribution_show", query, 0, 0, false, now)?;
+            }
+            Err(not_found())
+        }
+        None => Err(not_found()),
+    }
+}
+
+/// Appends one privacy access record; on failure the caller must NOT
+/// release sensitive bytes (`privacy_access_record_commit_failed`).
+pub fn record_access(
+    store: &mut Store,
+    operation: &str,
+    query: Value,
+    count: u64,
+    bytes: u64,
+    allowed: bool,
+    now: i64,
+) -> Result<(), Problem> {
+    privacy::append_record(
+        store,
+        &privacy::Access {
+            operation: operation.to_owned(),
+            purpose_ref: "purpose-owner-read".to_owned(),
+            actor_scope: format!(
+                "{SURFACE}/{OWNER_ACTOR_REF}/{}",
+                kovee_store::PERSONAL_REALM_ID
+            ),
+            query,
+            result_object_count: count,
+            result_bytes: bytes,
+            outcome: if allowed {
+                privacy::Outcome::Allowed
+            } else {
+                privacy::Outcome::Denied
+            },
+        },
+        now,
     )
+    .map_err(|e| {
+        eprintln!("koveed: privacy_access_record_commit_failed: {e}");
+        Problem::new(
+            ProblemKind::Unavailable,
+            "privacy access record could not be committed; sensitive bytes withheld",
+        )
+    })?;
+    Ok(())
 }
 
 // -------------------------------------------------------- events_read ----
@@ -613,140 +840,4 @@ pub fn events_read(
         "snapshot_epoch": "epoch-1",
     });
     ok_reply(result, None)
-}
-
-// ------------------------------------------------------- row readers ----
-
-fn get_project(conn: &Connection, project_id: &str) -> Result<Option<Project>, StoreError> {
-    conn.query_row(
-        "SELECT project_id, realm_id, revision, name, status,
-                default_classification_ref, policy_set_ref, created_by, created_at
-         FROM projects WHERE project_id = ?1",
-        [project_id],
-        |r| {
-            Ok(Project {
-                project_id: r.get(0)?,
-                realm_id: r.get(1)?,
-                revision: r.get::<_, i64>(2)? as u64,
-                name: r.get(3)?,
-                status: r.get(4)?,
-                default_classification_ref: r.get(5)?,
-                policy_set_ref: r.get(6)?,
-                created_by: r.get(7)?,
-                created_at: r.get(8)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(StoreError::from)
-}
-
-/// One space row plus its main-branch CAS state
-/// `(space, head_digest, next_branch_sequence)`.
-fn get_space(
-    conn: &Connection,
-    space_id: &str,
-) -> Result<Option<(Space, String, u64)>, StoreError> {
-    conn.query_row(
-        "SELECT space_id, realm_id, project_id, revision, title,
-                purpose_contribution_ref, visibility, status, main_branch_id,
-                next_space_sequence, default_classification_ref, policy_set_ref,
-                created_by, created_at, main_branch_head_digest,
-                next_branch_sequence
-         FROM spaces WHERE space_id = ?1",
-        [space_id],
-        |r| {
-            Ok((
-                Space {
-                    space_id: r.get(0)?,
-                    realm_id: r.get(1)?,
-                    project_id: r.get(2)?,
-                    revision: r.get::<_, i64>(3)? as u64,
-                    title: r.get(4)?,
-                    purpose_contribution_ref: r.get(5)?,
-                    visibility: r.get(6)?,
-                    status: r.get(7)?,
-                    main_branch_id: r.get(8)?,
-                    next_space_sequence: r.get::<_, i64>(9)? as u64,
-                    default_classification_ref: r.get(10)?,
-                    policy_set_ref: r.get(11)?,
-                    created_by: r.get(12)?,
-                    created_at: r.get(13)?,
-                },
-                r.get::<_, String>(14)?,
-                r.get::<_, i64>(15)? as u64,
-            ))
-        },
-    )
-    .optional()
-    .map_err(StoreError::from)
-}
-
-fn get_contribution(
-    conn: &Connection,
-    contribution_id: &str,
-) -> Result<Option<Contribution>, StoreError> {
-    let row = conn
-        .query_row(
-            "SELECT contribution_id, revision, realm_id, project_id, space_id,
-                    origin_branch_id, origin_branch_sequence, space_sequence,
-                    author_actor_ref, kind, schema_ref, body_parts, subject_refs,
-                    source_refs, epistemic_posture, invocation_ref,
-                    context_assembly_ref, causation_ref, classification_ref,
-                    retention_policy_ref, content_digest, created_at
-             FROM contributions WHERE contribution_id = ?1",
-            [contribution_id],
-            |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, String>(4)?,
-                    r.get::<_, String>(5)?,
-                    r.get::<_, i64>(6)?,
-                    r.get::<_, i64>(7)?,
-                    r.get::<_, String>(8)?,
-                    r.get::<_, String>(9)?,
-                    r.get::<_, String>(10)?,
-                    r.get::<_, String>(11)?,
-                    r.get::<_, String>(12)?,
-                    r.get::<_, String>(13)?,
-                    r.get::<_, Option<String>>(14)?,
-                    r.get::<_, Option<String>>(15)?,
-                    r.get::<_, Option<String>>(16)?,
-                    r.get::<_, Option<String>>(17)?,
-                    r.get::<_, String>(18)?,
-                    r.get::<_, String>(19)?,
-                    r.get::<_, String>(20)?,
-                    r.get::<_, String>(21)?,
-                ))
-            },
-        )
-        .optional()?;
-    let Some(row) = row else { return Ok(None) };
-    Ok(Some(Contribution {
-        contribution_id: row.0,
-        revision: row.1 as u64,
-        realm_id: row.2,
-        project_id: row.3,
-        space_id: row.4,
-        origin_branch_id: row.5,
-        origin_branch_sequence: row.6 as u64,
-        space_sequence: row.7 as u64,
-        author_actor_ref: row.8,
-        kind: row.9,
-        schema_ref: row.10,
-        body_parts: serde_json::from_str(&row.11)?,
-        subject_refs: serde_json::from_str(&row.12)?,
-        source_refs: serde_json::from_str(&row.13)?,
-        epistemic_posture: row.14,
-        invocation_ref: row.15,
-        context_assembly_ref: row.16,
-        causation_ref: row.17,
-        classification_ref: row.18,
-        retention_policy_ref: row.19,
-        content_digest: row.20,
-        created_at: row.21,
-    }))
 }

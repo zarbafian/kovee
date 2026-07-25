@@ -34,6 +34,12 @@ pub fn socket_path() -> PathBuf {
     socket_dir().join("kovee.sock")
 }
 
+/// The separate worker-surface socket (§23.3): same hardening, disjoint
+/// operation set.
+pub fn worker_socket_path() -> PathBuf {
+    socket_dir().join("kovee-worker.sock")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum BindError {
     #[error("socket io: {0}")]
@@ -43,10 +49,18 @@ pub enum BindError {
 /// Creates the `0700` runtime directory, removes a stale socket file, and
 /// binds the listener with the socket file at `0600`.
 pub fn bind() -> Result<(UnixListener, PathBuf), BindError> {
+    bind_at(socket_path())
+}
+
+/// Binds the worker-surface socket with the same hardening.
+pub fn bind_worker() -> Result<(UnixListener, PathBuf), BindError> {
+    bind_at(worker_socket_path())
+}
+
+fn bind_at(path: PathBuf) -> Result<(UnixListener, PathBuf), BindError> {
     let dir = socket_dir();
     std::fs::create_dir_all(&dir)?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-    let path = socket_path();
     if path.exists() {
         std::fs::remove_file(&path)?;
     }

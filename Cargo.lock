@@ -133,6 +133,15 @@ version = "0.0.1"
 [[package]]
 name = "kovee-artifacts"
 version = "0.0.1"
+dependencies = [
+ "kovee-core",
+ "kovee-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
 
 [[package]]
 name = "kovee-attention"
@@ -201,11 +210,14 @@ dependencies = [
 name = "koveed"
 version = "0.0.1"
 dependencies = [
+ "kovee-artifacts",
  "kovee-core",
  "kovee-store",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 

@@ -42,11 +42,12 @@ pub struct OpSpec {
     pub project_id: FieldRule,
 }
 
-/// The slice-1 operation table. Every operation here has a registry row
-/// (`spec/registry.json`) on the `external_client` surface; an operation
-/// absent from the registry is not callable (§11.6.1) and dispatch answers
-/// `unknown-op`.
-pub const SLICE1_OPS: [OpSpec; 8] = [
+/// The K1 operation table (slice 1 + slice 2). Every operation here has a
+/// registry row (`spec/registry.json`); an operation absent from the
+/// registry is not callable (§11.6.1) and dispatch answers `unknown-op`.
+/// Surface acceptance (external_client vs worker) is enforced by the
+/// daemon's per-socket dispatch tables, not here.
+pub const K1_OPS: [OpSpec; 25] = [
     OpSpec {
         name: "hello",
         kind: OpKind::Read,
@@ -95,10 +96,113 @@ pub const SLICE1_OPS: [OpSpec; 8] = [
         realm_id: FieldRule::Required,
         project_id: FieldRule::Optional,
     },
+    // ------------------------------------------------ slice-2 additions ----
+    OpSpec {
+        name: "relation_assert",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "contribution_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "frontier_pin",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "frontier_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_read",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "context_assembly_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "context_assembly_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "events_wait",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_upload_begin",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_upload_credential",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_upload_finalize",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_upload_abort",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_upload_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "artifact_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "invocation_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "invocation_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
 ];
 
 pub fn op_spec(name: &str) -> Option<&'static OpSpec> {
-    SLICE1_OPS.iter().find(|s| s.name == name)
+    K1_OPS.iter().find(|s| s.name == name)
 }
 
 impl OpSpec {
@@ -533,9 +637,522 @@ impl EventsReadArgs {
     }
 }
 
-/// Validates an operation's args against its slice-1 schema mirror,
-/// discarding the parse — the shared schema-conformance gate the vector
-/// round-trip test drives directly.
+// ------------------------------------------------------ relation_assert ----
+
+/// Closed RelationKind enum, verbatim §10.2.
+pub const RELATION_KINDS: [&str; 11] = [
+    "addresses",
+    "supports",
+    "challenges",
+    "refines",
+    "qualifies",
+    "supersedes",
+    "depends_on",
+    "derived_from",
+    "produced_by",
+    "quotes",
+    "evaluates",
+];
+
+/// `objectRefTriple` args mirror.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefTripleArgs {
+    pub object_ref: String,
+    pub revision: u64,
+    pub digest: String,
+}
+
+fn check_ref_triple(field: &str, triple: &RefTripleArgs) -> Result<(), Problem> {
+    check_identifier(field, &triple.object_ref)?;
+    check_safe(field, triple.revision)?;
+    if !limits::is_digest_hex(&triple.digest) {
+        return Err(invalid(format!("{field}.digest is not 64 lowercase hex")));
+    }
+    Ok(())
+}
+
+/// `relation_assert` args: the public/worker schema excludes
+/// `relation_class` — an external caller cannot request, spoof, or
+/// upgrade a structural relation (§10.2).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationAssertArgs {
+    pub space_id: String,
+    pub branch_id: String,
+    pub expected_head_digest: String,
+    pub kind: String,
+    pub from_ref: RefTripleArgs,
+    pub to_ref: RefTripleArgs,
+    #[serde(default)]
+    pub rationale_ref: Option<String>,
+    #[serde(default)]
+    pub schema_ref: Option<String>,
+    /// Worker-surface binding (§15.2); refused on external_client.
+    #[serde(default)]
+    pub attempt_id: Option<String>,
+    #[serde(default)]
+    pub fence_epoch: Option<u64>,
+}
+
+impl RelationAssertArgs {
+    pub fn from_args(args: &JsonMap) -> Result<RelationAssertArgs, Problem> {
+        let parsed: RelationAssertArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("branch_id", &parsed.branch_id)?;
+        if !limits::is_digest_hex(&parsed.expected_head_digest) {
+            return Err(invalid("expected_head_digest is not 64 lowercase hex"));
+        }
+        if !RELATION_KINDS.contains(&parsed.kind.as_str()) {
+            return Err(invalid("kind is not in the closed RelationKind enum"));
+        }
+        check_ref_triple("from_ref", &parsed.from_ref)?;
+        check_ref_triple("to_ref", &parsed.to_ref)?;
+        check_opt_identifier("rationale_ref", &parsed.rationale_ref)?;
+        check_opt_identifier("schema_ref", &parsed.schema_ref)?;
+        check_opt_identifier("attempt_id", &parsed.attempt_id)?;
+        if let Some(fence) = parsed.fence_epoch {
+            check_safe("fence_epoch", fence)?;
+        }
+        Ok(parsed)
+    }
+}
+
+// ----------------------------------------------------------- list reads ----
+
+fn check_cursor(field: &str, value: &Option<String>) -> Result<(), Problem> {
+    if let Some(cursor) = value {
+        if cursor.is_empty() || cursor.chars().count() > limits::CURSOR_MAX_CHARS {
+            return Err(invalid(format!("{field} must hold 1-4096 characters")));
+        }
+    }
+    Ok(())
+}
+
+fn check_limit(limit: u64) -> Result<(), Problem> {
+    if (1..=limits::PAGE_MAX_LIMIT).contains(&limit) {
+        Ok(())
+    } else {
+        Err(invalid("limit must be 1-512"))
+    }
+}
+
+/// `space_list` args (§11.5 pagination shape).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceListArgs {
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl SpaceListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<SpaceListArgs, Problem> {
+        let parsed: SpaceListArgs = parse_args(args)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `contribution_list` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContributionListArgs {
+    pub space_id: String,
+    #[serde(default)]
+    pub branch_id: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl ContributionListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ContributionListArgs, Problem> {
+        let parsed: ContributionListArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_opt_identifier("branch_id", &parsed.branch_id)?;
+        if let Some(kind) = &parsed.kind {
+            if !CONTRIBUTION_KINDS.contains(&kind.as_str()) {
+                return Err(invalid("kind is not in the closed ContributionKind enum"));
+            }
+        }
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `lens_read` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LensReadArgs {
+    pub lens_id: String,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl LensReadArgs {
+    pub fn from_args(args: &JsonMap) -> Result<LensReadArgs, Problem> {
+        let parsed: LensReadArgs = parse_args(args)?;
+        check_identifier("lens_id", &parsed.lens_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+// ------------------------------------------------------------ frontiers ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrontierPinArgs {
+    pub space_id: String,
+    pub branch_id: String,
+}
+
+impl FrontierPinArgs {
+    pub fn from_args(args: &JsonMap) -> Result<FrontierPinArgs, Problem> {
+        let parsed: FrontierPinArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("branch_id", &parsed.branch_id)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrontierShowArgs {
+    pub frontier_id: String,
+}
+
+impl FrontierShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<FrontierShowArgs, Problem> {
+        let parsed: FrontierShowArgs = parse_args(args)?;
+        check_identifier("frontier_id", &parsed.frontier_id)?;
+        Ok(parsed)
+    }
+}
+
+// ----------------------------------------------------- context assembly ----
+
+/// Free-text ceiling (schema `freeText`, gap note KG8).
+const FREE_TEXT_MAX_SCALARS: usize = 4096;
+
+fn check_free_text(field: &str, value: &str) -> Result<(), Problem> {
+    if value.chars().count() > FREE_TEXT_MAX_SCALARS {
+        return Err(invalid(format!("{field} exceeds the 4096-scalar cap")));
+    }
+    Ok(())
+}
+
+fn check_ref_list(field: &str, refs: &Option<Vec<String>>) -> Result<(), Problem> {
+    if let Some(items) = refs {
+        if items.len() > limits::LIST_MAX_ITEMS {
+            return Err(invalid(format!("{field} holds more than 256 items")));
+        }
+        for item in items {
+            check_identifier(field, item)?;
+        }
+    }
+    Ok(())
+}
+
+/// `context_assembly_create` args (§10.8): K1 serves exactly the built-in
+/// `explicit_refs_v1` selection policy.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextAssemblyCreateArgs {
+    pub space_id: String,
+    pub branch_id: String,
+    pub audience_ref: String,
+    pub purpose: String,
+    pub selection_policy_ref: String,
+    #[serde(default)]
+    pub required_refs: Option<Vec<String>>,
+    #[serde(default)]
+    pub trigger_refs: Option<Vec<String>>,
+    #[serde(default)]
+    pub recipe_ref: Option<String>,
+    #[serde(default)]
+    pub recipe_revision: Option<u64>,
+    #[serde(default)]
+    pub attempt_id: Option<String>,
+    #[serde(default)]
+    pub fence_epoch: Option<u64>,
+}
+
+impl ContextAssemblyCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ContextAssemblyCreateArgs, Problem> {
+        let parsed: ContextAssemblyCreateArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("branch_id", &parsed.branch_id)?;
+        check_identifier("audience_ref", &parsed.audience_ref)?;
+        check_free_text("purpose", &parsed.purpose)?;
+        check_identifier("selection_policy_ref", &parsed.selection_policy_ref)?;
+        check_ref_list("required_refs", &parsed.required_refs)?;
+        check_ref_list("trigger_refs", &parsed.trigger_refs)?;
+        check_opt_identifier("recipe_ref", &parsed.recipe_ref)?;
+        if let Some(rev) = parsed.recipe_revision {
+            check_safe("recipe_revision", rev)?;
+        }
+        check_opt_identifier("attempt_id", &parsed.attempt_id)?;
+        if let Some(fence) = parsed.fence_epoch {
+            check_safe("fence_epoch", fence)?;
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextAssemblyShowArgs {
+    pub assembly_id: String,
+}
+
+impl ContextAssemblyShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ContextAssemblyShowArgs, Problem> {
+        let parsed: ContextAssemblyShowArgs = parse_args(args)?;
+        check_identifier("assembly_id", &parsed.assembly_id)?;
+        Ok(parsed)
+    }
+}
+
+// ----------------------------------------------------------- events_wait ----
+
+/// `events_wait` args (§11.4 verbatim: source, after_cursor, filters?,
+/// timeout_ms). `filters` narrows and never widens; a filter member this
+/// implementation cannot honor fails closed rather than silently widening.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventsWaitArgs {
+    pub source: String,
+    pub after_cursor: String,
+    #[serde(default)]
+    pub filters: Option<JsonMap>,
+    pub timeout_ms: u64,
+}
+
+impl EventsWaitArgs {
+    pub fn from_args(args: &JsonMap) -> Result<EventsWaitArgs, Problem> {
+        let parsed: EventsWaitArgs = parse_args(args)?;
+        check_identifier("source", &parsed.source)?;
+        if parsed.after_cursor.is_empty()
+            || parsed.after_cursor.chars().count() > limits::CURSOR_MAX_CHARS
+        {
+            return Err(invalid("after_cursor must hold 1-4096 characters"));
+        }
+        check_safe("timeout_ms", parsed.timeout_ms)?;
+        Ok(parsed)
+    }
+
+    /// The one filter member this implementation honors.
+    pub fn type_prefixes(&self) -> Result<Option<Vec<String>>, Problem> {
+        let Some(filters) = &self.filters else {
+            return Ok(None);
+        };
+        let mut prefixes = None;
+        for (key, value) in filters {
+            match key.as_str() {
+                "type_prefixes" => {
+                    let items: Vec<String> = serde_json::from_value(value.clone())
+                        .map_err(|_| invalid("filters.type_prefixes must be a string array"))?;
+                    if items.len() > limits::LIST_MAX_ITEMS {
+                        return Err(invalid("filters.type_prefixes holds more than 256 items"));
+                    }
+                    for p in &items {
+                        if !limits::is_event_type_prefix(p) {
+                            return Err(invalid("filters.type_prefixes item is not a prefix"));
+                        }
+                    }
+                    prefixes = Some(items);
+                }
+                other => {
+                    return Err(invalid(format!(
+                        "filter {other:?} is not honored by this implementation (narrow-only)"
+                    )));
+                }
+            }
+        }
+        Ok(prefixes)
+    }
+}
+
+// ------------------------------------------------------------- artifacts ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactUploadBeginArgs {
+    pub declared_raw_sha256: String,
+    pub declared_size: u64,
+    pub declared_media_type: String,
+    #[serde(default)]
+    pub classification_ref: Option<String>,
+}
+
+impl ArtifactUploadBeginArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ArtifactUploadBeginArgs, Problem> {
+        let parsed: ArtifactUploadBeginArgs = parse_args(args)?;
+        if !limits::is_digest_hex(&parsed.declared_raw_sha256) {
+            return Err(invalid("declared_raw_sha256 is not 64 lowercase hex"));
+        }
+        check_safe("declared_size", parsed.declared_size)?;
+        if !limits::is_media_type(&parsed.declared_media_type) {
+            return Err(invalid("declared_media_type is not type/subtype"));
+        }
+        check_opt_identifier("classification_ref", &parsed.classification_ref)?;
+        Ok(parsed)
+    }
+}
+
+/// Shared `{upload_id}` args (`credential`/`finalize`/`show`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadIdArgs {
+    pub upload_id: String,
+}
+
+impl UploadIdArgs {
+    pub fn from_args(args: &JsonMap) -> Result<UploadIdArgs, Problem> {
+        let parsed: UploadIdArgs = parse_args(args)?;
+        check_identifier("upload_id", &parsed.upload_id)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactUploadAbortArgs {
+    pub upload_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl ArtifactUploadAbortArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ArtifactUploadAbortArgs, Problem> {
+        let parsed: ArtifactUploadAbortArgs = parse_args(args)?;
+        check_identifier("upload_id", &parsed.upload_id)?;
+        if let Some(reason) = &parsed.reason {
+            check_free_text("reason", reason)?;
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactShowArgs {
+    pub artifact_id: String,
+}
+
+impl ArtifactShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ArtifactShowArgs, Problem> {
+        let parsed: ArtifactShowArgs = parse_args(args)?;
+        check_identifier("artifact_id", &parsed.artifact_id)?;
+        Ok(parsed)
+    }
+}
+
+// ------------------------------------------------------------ invocation ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvocationCreateArgs {
+    pub assistant_deployment_id: String,
+    pub assistant_deployment_revision: u64,
+    #[serde(default)]
+    pub space_id: Option<String>,
+    #[serde(default)]
+    pub branch_id: Option<String>,
+    #[serde(default)]
+    pub context_assembly_ref: Option<String>,
+    #[serde(default)]
+    pub context_assembly_digest: Option<String>,
+    #[serde(default)]
+    pub budget_reservation_set_ref: Option<String>,
+    #[serde(default)]
+    pub disclosure_rules_digest: Option<String>,
+    #[serde(default)]
+    pub priority: Option<u64>,
+    #[serde(default)]
+    pub not_before: Option<String>,
+    #[serde(default)]
+    pub max_attempts: Option<u64>,
+    pub deadline: String,
+}
+
+impl InvocationCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<InvocationCreateArgs, Problem> {
+        let parsed: InvocationCreateArgs = parse_args(args)?;
+        check_identifier("assistant_deployment_id", &parsed.assistant_deployment_id)?;
+        check_safe(
+            "assistant_deployment_revision",
+            parsed.assistant_deployment_revision,
+        )?;
+        check_opt_identifier("space_id", &parsed.space_id)?;
+        check_opt_identifier("branch_id", &parsed.branch_id)?;
+        check_opt_identifier("context_assembly_ref", &parsed.context_assembly_ref)?;
+        for (field, digest) in [
+            ("context_assembly_digest", &parsed.context_assembly_digest),
+            ("disclosure_rules_digest", &parsed.disclosure_rules_digest),
+        ] {
+            if let Some(d) = digest {
+                if !limits::is_digest_hex(d) {
+                    return Err(invalid(format!("{field} is not 64 lowercase hex")));
+                }
+            }
+        }
+        check_opt_identifier(
+            "budget_reservation_set_ref",
+            &parsed.budget_reservation_set_ref,
+        )?;
+        if let Some(p) = parsed.priority {
+            check_safe("priority", p)?;
+        }
+        if let Some(nb) = &parsed.not_before {
+            if !limits::is_timestamp(nb) {
+                return Err(invalid("not_before is not an RFC 3339 date-time"));
+            }
+        }
+        if let Some(m) = parsed.max_attempts {
+            check_safe("max_attempts", m)?;
+        }
+        if !limits::is_timestamp(&parsed.deadline) {
+            return Err(invalid("deadline is not an RFC 3339 date-time"));
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvocationShowArgs {
+    pub invocation_id: String,
+}
+
+impl InvocationShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<InvocationShowArgs, Problem> {
+        let parsed: InvocationShowArgs = parse_args(args)?;
+        check_identifier("invocation_id", &parsed.invocation_id)?;
+        Ok(parsed)
+    }
+}
+
+/// Validates an operation's args against its K1 schema mirror, discarding
+/// the parse — the shared schema-conformance gate the vector round-trip
+/// tests drive directly.
 pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
     match op {
         "hello" => HelloArgs::from_args(args).map(drop),
@@ -546,9 +1163,26 @@ pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
         "contribution_append" => ContributionAppendArgs::from_args(args).map(drop),
         "contribution_show" => ContributionShowArgs::from_args(args).map(drop),
         "events_read" => EventsReadArgs::from_args(args).map(drop),
+        "relation_assert" => RelationAssertArgs::from_args(args).map(drop),
+        "space_list" => SpaceListArgs::from_args(args).map(drop),
+        "contribution_list" => ContributionListArgs::from_args(args).map(drop),
+        "frontier_pin" => FrontierPinArgs::from_args(args).map(drop),
+        "frontier_show" => FrontierShowArgs::from_args(args).map(drop),
+        "lens_read" => LensReadArgs::from_args(args).map(drop),
+        "context_assembly_create" => ContextAssemblyCreateArgs::from_args(args).map(drop),
+        "context_assembly_show" => ContextAssemblyShowArgs::from_args(args).map(drop),
+        "events_wait" => EventsWaitArgs::from_args(args).map(drop),
+        "artifact_upload_begin" => ArtifactUploadBeginArgs::from_args(args).map(drop),
+        "artifact_upload_credential" | "artifact_upload_finalize" | "artifact_upload_show" => {
+            UploadIdArgs::from_args(args).map(drop)
+        }
+        "artifact_upload_abort" => ArtifactUploadAbortArgs::from_args(args).map(drop),
+        "artifact_show" => ArtifactShowArgs::from_args(args).map(drop),
+        "invocation_create" => InvocationCreateArgs::from_args(args).map(drop),
+        "invocation_show" => InvocationShowArgs::from_args(args).map(drop),
         other => Err(Problem::new(
             ProblemKind::UnknownOp,
-            format!("operation {other} is not in the slice-1 table"),
+            format!("operation {other} is not in the K1 table"),
         )),
     }
 }

@@ -28,6 +28,7 @@
 //! ```
 
 pub mod audit;
+pub mod privacy;
 pub mod schema;
 
 use std::io::Read as _;
@@ -40,11 +41,15 @@ use kovee_core::records::Realm;
 use kovee_core::time::rfc3339_utc;
 use rusqlite::{params, Connection, OptionalExtension as _};
 use serde_json::Value;
-use sha2::{Digest as _, Sha256};
 
 const META_INSTALLATION_ID: &str = "installation_id";
 const META_REALM_ID: &str = "realm_id";
 const META_CURSOR_SECRET: &str = "cursor_secret";
+/// The privacy-access chain key (family PROFILE §7): ONE key for the
+/// whole chain — a scope key, class `scope_erasure_safe` (D-R0-1).
+/// Destroying it erases verifiability of the entire chain, never one
+/// record.
+const META_PRIVACY_CHAIN_KEY: &str = "privacy_chain_key";
 
 /// The deterministic personal-profile realm id: the personal profile has
 /// exactly one realm and no `realm_create` operation exists before K3
@@ -144,6 +149,9 @@ pub struct NewEvent {
     /// Present for project-scoped events: allocates one dense
     /// `project_sequence` under the project head row.
     pub project_id: Option<String>,
+    /// The attributed actor; `None` means the owner principal. Worker
+    /// surface commands attribute their deployment (§10.2).
+    pub actor_ref: Option<String>,
     pub event_type: &'static str,
     pub schema_ref: String,
     pub resource_ref: String,
@@ -214,7 +222,7 @@ impl CommandTxn<'_> {
             schema_ref: new.schema_ref,
             resource_ref: new.resource_ref,
             resource_revision: new.resource_revision,
-            actor_ref: OWNER_ACTOR_REF.to_owned(),
+            actor_ref: new.actor_ref.unwrap_or_else(|| OWNER_ACTOR_REF.to_owned()),
             causation_ref: new.causation_ref,
             correlation_ref: new.correlation_ref,
             occurred_at: rfc3339_utc(self.now),
@@ -286,7 +294,15 @@ impl CommandTxn<'_> {
     pub fn mint_project_cursor(&self, project_id: &str, seq: u64) -> Result<String, StoreError> {
         let secret = schema::meta_get(self.tx, META_CURSOR_SECRET)?
             .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))?;
-        mint_cursor(&secret, project_id, seq)
+        mint_token(
+            &secret,
+            &Token {
+                source: project_id.to_owned(),
+                seq,
+                boundary: None,
+                key: None,
+            },
+        )
     }
 
     fn next_stream_sequence(&mut self, stream_id: &str) -> Result<u64, StoreError> {
@@ -352,7 +368,17 @@ impl Store {
                 "journal_mode is {journal_mode:?}, expected wal"
             )));
         }
-        Ok(Store { conn })
+        let store = Store { conn };
+        // A database bootstrapped before V2 has no privacy chain key —
+        // mint it once (secrets need entropy, so migrations cannot).
+        if schema::meta_get(&store.conn, META_INSTALLATION_ID)?.is_some()
+            && schema::meta_get(&store.conn, META_PRIVACY_CHAIN_KEY)?.is_none()
+        {
+            let mut key = [0u8; 32];
+            fill_random(&mut key)?;
+            schema::meta_set(&store.conn, META_PRIVACY_CHAIN_KEY, &key)?;
+        }
+        Ok(store)
     }
 
     /// First-run bootstrap: mints the installation id, the cursor secret,
@@ -365,10 +391,13 @@ impl Store {
         let installation_id = new_id("inst")?;
         let mut secret = [0u8; 32];
         fill_random(&mut secret)?;
+        let mut chain_key = [0u8; 32];
+        fill_random(&mut chain_key)?;
         let tx = self.conn.unchecked_transaction()?;
         schema::meta_set(&tx, META_INSTALLATION_ID, installation_id.as_bytes())?;
         schema::meta_set(&tx, META_REALM_ID, PERSONAL_REALM_ID.as_bytes())?;
         schema::meta_set(&tx, META_CURSOR_SECRET, &secret)?;
+        schema::meta_set(&tx, META_PRIVACY_CHAIN_KEY, &chain_key)?;
         tx.execute(
             "INSERT INTO realms (realm_id, installation_id, revision, name, status,
                  home_region, auth_policy_ref, retention_policy_ref,
@@ -613,18 +642,38 @@ impl Store {
     /// position: an HMAC-tagged encoding of source stream, sequence, and
     /// snapshot epoch. Never a raw sequence on the wire.
     pub fn mint_project_cursor(&self, project_id: &str, seq: u64) -> Result<String, StoreError> {
-        mint_cursor(&self.cursor_secret()?, project_id, seq)
+        self.mint_token(&Token {
+            source: project_id.to_owned(),
+            seq,
+            boundary: None,
+            key: None,
+        })
     }
 
     /// Verifies and decodes a cursor minted by [`Store::mint_project_cursor`]
     /// for the same project. Possession of a cursor grants nothing —
     /// authorization is rechecked at read time (§11.4).
     pub fn parse_project_cursor(&self, cursor: &str, project_id: &str) -> Result<u64, Problem> {
+        Ok(self.parse_token(cursor, project_id)?.seq)
+    }
+
+    /// Mints an opaque authenticated token (§11.3/§11.5): pagination
+    /// cursors and snapshot tokens share this construction. The token
+    /// binds its source (owner + query identity), boundary, and last key;
+    /// it grants nothing — authorization is rechecked on every page.
+    pub fn mint_token(&self, token: &Token) -> Result<String, StoreError> {
+        mint_token(&self.cursor_secret()?, token)
+    }
+
+    /// Verifies and decodes a token for the exact expected source. A
+    /// token minted for another source, query, or installation is
+    /// indistinguishably `invalid`.
+    pub fn parse_token(&self, raw: &str, expected_source: &str) -> Result<Token, Problem> {
         let fail = || {
             Problem::new(ProblemKind::Invalid, "invalid cursor")
-                .with_detail("after_cursor is not a cursor this installation minted")
+                .with_detail("not a cursor this installation minted for this source")
         };
-        let mut parts = cursor.split('.');
+        let mut parts = raw.split('.');
         let (Some("kc1"), Some(body), Some(tag), None) =
             (parts.next(), parts.next(), parts.next(), parts.next())
         else {
@@ -633,28 +682,79 @@ impl Store {
         let bytes = unhex(body).ok_or_else(fail)?;
         let tag = unhex(tag).ok_or_else(fail)?;
         let secret = self.cursor_secret().map_err(|_| fail())?;
-        if hmac_sha256(&secret, &bytes).as_slice() != tag.as_slice() {
+        if kovee_core::family::hmac_sha256(&secret, &bytes).as_slice() != tag.as_slice() {
             return Err(fail());
         }
         let payload: Value = serde_json::from_slice(&bytes).map_err(|_| fail())?;
-        if payload["source"].as_str() != Some(project_id) {
+        if payload["source"].as_str() != Some(expected_source) {
             return Err(fail());
         }
-        payload["seq"].as_u64().ok_or_else(fail)
+        Ok(Token {
+            source: expected_source.to_owned(),
+            seq: payload["seq"].as_u64().ok_or_else(fail)?,
+            boundary: payload["b"].as_u64(),
+            key: payload["k"].as_str().map(str::to_owned),
+        })
     }
 
     fn cursor_secret(&self) -> Result<Vec<u8>, StoreError> {
         schema::meta_get(&self.conn, META_CURSOR_SECRET)?
             .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
     }
+
+    /// The privacy-access chain key (PROFILE §7 scope key).
+    pub fn privacy_chain_key(&self) -> Result<Vec<u8>, StoreError> {
+        schema::meta_get(&self.conn, META_PRIVACY_CHAIN_KEY)?
+            .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
+    }
+
+    /// Looks up a stored idempotency record outside a command transaction
+    /// (§10.10 artifact finalization pre-checks its key before its
+    /// non-atomic seal pipeline). Returns `(request_digest, result)`.
+    pub fn lookup_idempotency(
+        &self,
+        scope: &CommandScope,
+    ) -> Result<Option<(String, Vec<u8>)>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT request_digest, result FROM idempotency_records
+                 WHERE actor_scope = ?1 AND operation = ?2 AND idempotency_key = ?3",
+                params![scope.actor_scope, scope.operation, scope.idempotency_key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(StoreError::from)
+    }
 }
 
-fn mint_cursor(secret: &[u8], project_id: &str, seq: u64) -> Result<String, StoreError> {
-    let payload = serde_json::json!({
-        "v": 1, "source": project_id, "seq": seq, "epoch": 1,
-    });
-    let bytes = serde_json::to_vec(&payload)?;
-    let tag = hmac_sha256(secret, &bytes);
+/// The decoded payload of an opaque authenticated cursor/snapshot token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token {
+    /// Source binding: owner id plus (for list tokens) the query
+    /// identity, e.g. `snap:space_list:proj-1`.
+    pub source: String,
+    /// The position or as-of boundary in the source's own sequence.
+    pub seq: u64,
+    /// The project-event boundary observed when the snapshot was created.
+    pub boundary: Option<u64>,
+    /// The exclusive last key already returned (keyed pagination).
+    pub key: Option<String>,
+}
+
+fn mint_token(secret: &[u8], token: &Token) -> Result<String, StoreError> {
+    let mut payload = serde_json::Map::new();
+    payload.insert("v".into(), Value::from(1));
+    payload.insert("source".into(), Value::String(token.source.clone()));
+    payload.insert("seq".into(), Value::from(token.seq));
+    payload.insert("epoch".into(), Value::from(1));
+    if let Some(b) = token.boundary {
+        payload.insert("b".into(), Value::from(b));
+    }
+    if let Some(k) = &token.key {
+        payload.insert("k".into(), Value::String(k.clone()));
+    }
+    let bytes = serde_json::to_vec(&Value::Object(payload))?;
+    let tag = kovee_core::family::hmac_sha256(secret, &bytes);
     Ok(format!("kc1.{}.{}", hex(&bytes), hex(&tag)))
 }
 
@@ -689,26 +789,6 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// HMAC-SHA256 (RFC 2104) over the store's cursor secret.
-fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
-    let mut key_block = [0u8; 64];
-    if key.len() > 64 {
-        let mut h = Sha256::new();
-        h.update(key);
-        key_block[..32].copy_from_slice(&h.finalize());
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
-    }
-    let mut inner = Sha256::new();
-    inner.update(key_block.map(|b| b ^ 0x36));
-    inner.update(msg);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(key_block.map(|b| b ^ 0x5c));
-    outer.update(inner_hash);
-    outer.finalize().into()
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -717,7 +797,7 @@ mod tests {
     #[test]
     fn hmac_matches_rfc4231_case_two() {
         // RFC 4231 test case 2: key "Jefe", data "what do ya want for nothing?".
-        let mac = hmac_sha256(b"Jefe", b"what do ya want for nothing?");
+        let mac = kovee_core::family::hmac_sha256(b"Jefe", b"what do ya want for nothing?");
         assert_eq!(
             hex(&mac),
             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"

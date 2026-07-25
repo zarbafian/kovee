@@ -13,6 +13,17 @@ use crate::problem::{Problem, ProblemKind};
 pub const EVENT_PROJECT_CREATED: &str = "dev.kovee.project.created.v1";
 pub const EVENT_SPACE_CREATED: &str = "dev.kovee.space.created.v1";
 pub const EVENT_CONTRIBUTION_APPENDED: &str = "dev.kovee.space.contribution-appended.v1";
+pub const EVENT_RELATION_ASSERTED: &str = "dev.kovee.space.relation-asserted.v1";
+pub const EVENT_FRONTIER_PINNED: &str = "dev.kovee.space.frontier-pinned.v1";
+pub const EVENT_CONTEXT_ASSEMBLY_CREATED: &str = "dev.kovee.space.context-assembly-created.v1";
+pub const EVENT_ARTIFACT_UPLOAD_BEGAN: &str = "dev.kovee.artifact.upload-began.v1";
+pub const EVENT_ARTIFACT_UPLOAD_SEALING: &str = "dev.kovee.artifact.upload-sealing.v1";
+pub const EVENT_ARTIFACT_UPLOAD_ABORTED: &str = "dev.kovee.artifact.upload-aborted.v1";
+pub const EVENT_ARTIFACT_AVAILABLE: &str = "dev.kovee.artifact.available.v1";
+pub const EVENT_ARTIFACT_REJECTED: &str = "dev.kovee.artifact.rejected.v1";
+pub const EVENT_INVOCATION_CREATED: &str = "dev.kovee.invocation.created.v1";
+pub const EVENT_INVOCATION_CLAIMED: &str = "dev.kovee.invocation.claimed.v1";
+pub const EVENT_INVOCATION_SUCCEEDED: &str = "dev.kovee.invocation.succeeded.v1";
 
 /// One §11.3 event. Exactly one of `payload` / `payload_ref` is present.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

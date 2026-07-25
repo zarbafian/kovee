@@ -29,6 +29,7 @@ pub mod branch;
 pub mod canonical;
 pub mod envelope;
 pub mod event;
+pub mod family;
 pub mod ijson;
 pub mod limits;
 pub mod ops;

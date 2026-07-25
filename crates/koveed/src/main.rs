@@ -55,13 +55,20 @@ fn run() -> Result<(), String> {
         .bootstrap(kovee_core::time::unix_now())
         .map_err(|e| format!("bootstrap: {e}"))?;
     let (listener, path) = koveed::socket::bind().map_err(|e| format!("bind socket: {e}"))?;
+    let (worker_listener, worker_path) =
+        koveed::socket::bind_worker().map_err(|e| format!("bind worker socket: {e}"))?;
     println!(
-        "koveed: personal profile; store {}; listening on {}",
+        "koveed: personal profile; store {}; listening on {} (external) and {} (worker)",
         db.display(),
-        path.display()
+        path.display(),
+        worker_path.display()
     );
-    let mut daemon = Daemon::new(store, AbortSpec::from_env());
-    daemon.serve(&listener);
+    let daemon = std::sync::Arc::new(Daemon::new(store, AbortSpec::from_env(), &dir));
+    let worker_daemon = std::sync::Arc::clone(&daemon);
+    std::thread::spawn(move || {
+        worker_daemon.serve(worker_listener, koveed::Surface::Worker);
+    });
+    daemon.serve(listener, koveed::Surface::External);
     Ok(())
 }
 

@@ -213,6 +213,265 @@ pub struct Contribution {
     pub created_at: String,
 }
 
+/// §10.2 `objectRefTriple` (`relation-assert-request.schema.json`): an
+/// exact pinned endpoint — object, revision, digest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectRefTriple {
+    pub object_ref: String,
+    pub revision: u64,
+    pub digest: String,
+}
+
+/// §10.2 SpaceRelation projection (`relation-assert-result.schema.json`);
+/// the public/worker surface always creates `semantic_assertion`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceRelation {
+    pub relation_id: String,
+    pub revision: u64,
+    pub space_id: String,
+    pub origin_branch_id: String,
+    pub branch_sequence: u64,
+    pub author_actor_ref: String,
+    pub kind: String,
+    pub from_ref: ObjectRefTriple,
+    pub to_ref: ObjectRefTriple,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub rationale_ref: Option<String>,
+    pub relation_class: String,
+    pub classification_ref: String,
+    pub schema_ref: String,
+    pub digest: String,
+    pub created_at: String,
+}
+
+/// §10.2 SpaceFrontier projection (`frontier-pin-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceFrontier {
+    pub frontier_id: String,
+    pub revision: u64,
+    pub space_id: String,
+    pub branch_id: String,
+    pub branch_sequence: u64,
+    pub branch_head_digest: String,
+    pub project_event_cursor: String,
+    pub external_source_cursors: Vec<Value>,
+    pub created_at: String,
+    pub digest: String,
+}
+
+/// §10.8 ContextAssembly item (`context-assembly-create-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssemblyItem {
+    pub object_ref: String,
+    pub revision: u64,
+    pub digest: String,
+    pub size: u64,
+    pub classification_ref: String,
+    pub role: String,
+    pub order: u64,
+    pub inclusion_reason: String,
+}
+
+/// §10.8 ContextAssembly relation entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssemblyRelation {
+    pub relation_ref: String,
+    pub digest: String,
+}
+
+/// §10.8 ContextAssembly transformation entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssemblyTransformation {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub instruction_ref: Option<String>,
+    pub version: String,
+    pub source_digest: String,
+    pub result_digest: String,
+}
+
+/// §10.8 ContextAssembly omission entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssemblyOmission {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub visible_candidate_ref: Option<String>,
+    pub reason: String,
+}
+
+/// §10.8 ContextAssembly totals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssemblyTotals {
+    pub items: u64,
+    pub bytes: u64,
+    pub estimated_tokens: u64,
+}
+
+/// §10.8 ContextAssembly projection
+/// (`context-assembly-create-result.schema.json`): immutable evidence of
+/// selection, never a bearer capability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextAssembly {
+    pub assembly_id: String,
+    pub revision: u64,
+    pub realm_id: String,
+    pub project_id: String,
+    pub space_id: String,
+    pub branch_id: String,
+    pub audience_ref: String,
+    pub purpose: String,
+    pub trigger_refs: Vec<String>,
+    pub frontier_ref: String,
+    pub frontier_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recipe_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recipe_revision: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recipe_digest: Option<String>,
+    pub selection_policy_ref: String,
+    pub selection_policy_digest: String,
+    pub items: Vec<AssemblyItem>,
+    pub relations: Vec<AssemblyRelation>,
+    pub transformations: Vec<AssemblyTransformation>,
+    pub omissions: Vec<AssemblyOmission>,
+    pub classification_join_ref: String,
+    pub totals: AssemblyTotals,
+    pub selection_policy_version: String,
+    pub assembler_version: String,
+    pub authorization_dependency_set_ref: String,
+    pub authority_digest: String,
+    pub created_at: String,
+    pub digest: String,
+}
+
+/// §10.10 Artifact projection (`artifact-show-result.schema.json`).
+/// Amendment A5: no retained plaintext hash over erasable content —
+/// `raw_sha256` and `typed_byte_digest` stay absent; the content address
+/// is a `local_erasure_safe` typed digest kept internally.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Artifact {
+    pub artifact_id: String,
+    pub realm_id: String,
+    pub owner_ref: String,
+    pub revision: u64,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub raw_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub typed_byte_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub media_type: Option<String>,
+    pub classification_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sealed_storage_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sealed_storage_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub verification_digest: Option<String>,
+    pub encryption_key_ref: String,
+    pub created_by: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub available_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub retention_until: Option<String>,
+}
+
+/// §10.10 ArtifactUpload projection
+/// (`artifact-upload-finalize-result.schema.json` / `-show-result`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactUpload {
+    pub upload_id: String,
+    pub artifact_id: String,
+    pub realm_id: String,
+    pub owner_ref: String,
+    pub revision: u64,
+    pub declared_raw_sha256: String,
+    pub declared_size: u64,
+    pub declared_media_type: String,
+    pub classification_ref: String,
+    pub staging_storage_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provider_upload_ref: Option<String>,
+    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sealed_storage_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub seal_observation_digest: Option<String>,
+    pub authorization_dependency_set_ref: String,
+    pub authority_digest: String,
+    pub max_bytes: u64,
+    pub expires_at: String,
+    pub idempotency_key: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sealed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub terminal_at: Option<String>,
+}
+
+/// §10.6 Invocation projection (`invocation-create-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Invocation {
+    pub invocation_id: String,
+    pub realm_id: String,
+    pub project_id: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub space_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub branch_id: Option<String>,
+    pub assistant_deployment_id: String,
+    pub assistant_deployment_revision: u64,
+    pub assistant_revision_id: String,
+    pub effective_config_ref: String,
+    pub effective_config_digest: String,
+    pub secret_binding_set_ref: String,
+    pub secret_binding_set_digest: String,
+    pub effective_policy_digest: String,
+    pub effective_security_profile: String,
+    pub rollout_decision_ref: String,
+    pub trigger_ref: String,
+    pub trigger_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub context_assembly_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub context_assembly_digest: Option<String>,
+    pub input_manifest_ref: String,
+    pub input_digest: String,
+    pub correlation_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub causation_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub commitment_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub work_realization_ref: Option<String>,
+    pub state: String,
+    pub revision: u64,
+    pub priority: u64,
+    pub not_before: String,
+    pub deadline: String,
+    pub max_attempts: u64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub budget_reservation_set_ref: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub terminal_at: Option<String>,
+}
+
 /// §11.1 HelloResult (`hello-result.schema.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
