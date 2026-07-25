@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/project-access-policy-change-prepare-result.schema.json",
+  "title": "KCP project_access_policy_change_prepare result (DESIGN.md §10.1, §11.6.1 project access-policy change family)",
+  "description": "CommandResult.result payload for project_access_policy_change_prepare (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The prepared ProjectAccessPolicyChange projection (gap notes KG4/KG17).",
+  "$ref": "#/$defs/projectAccessPolicyChange",
+  "type": "object",
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "effectiveChange": {
+      "type": "string",
+      "enum": [
+        "narrowing",
+        "widening",
+        "incomparable"
+      ],
+      "description": "Closed ProjectAccessPolicyChange.effective_change enum, verbatim §10.1 (§11.8: closed)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "preparedChangeState": {
+      "type": "string",
+      "enum": [
+        "prepared",
+        "confirmed",
+        "canceled",
+        "stale"
+      ],
+      "description": "Closed prepared-change state enum, verbatim §10.1 ProjectAccessPolicyChange.state and §10.2 SpaceAccessWidening.state (§11.8: closed). A changed item set or revision makes the intent stale."
+    },
+    "projectAccessPolicyChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "change_id",
+        "project_id",
+        "expected_project_revision",
+        "prior_policy_set_ref",
+        "proposed_policy_set_ref",
+        "prior_default_classification_ref",
+        "proposed_default_classification_ref",
+        "affected_space_frontier_refs",
+        "affected_item_set_digest",
+        "effective_change",
+        "classification_join_ref",
+        "destination_audience_digest",
+        "subject_digest",
+        "prepared_by_principal",
+        "state",
+        "revision",
+        "created_at"
+      ],
+      "properties": {
+        "change_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_project_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "prior_policy_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "proposed_policy_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prior_default_classification_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "proposed_default_classification_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "affected_space_frontier_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "affected_item_set_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "effective_change": {
+          "$ref": "#/$defs/effectiveChange"
+        },
+        "classification_join_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "destination_audience_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "subject_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "prepared_by_principal": {
+          "$ref": "#/$defs/identifier"
+        },
+        "decision_receipt_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/preparedChangeState"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "terminal_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "ProjectAccessPolicyChange projection, field names verbatim from the §10.1 record shape (gap notes KG4/KG17); Kovee pins the affected frontiers/item set and effective audience server-side (§10.1)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

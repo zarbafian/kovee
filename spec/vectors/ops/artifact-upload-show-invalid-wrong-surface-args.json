@@ -1,0 +1,20 @@
+{
+  "name": "ops/artifact-upload-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: credentials are never request or canonical-result members (§10.10); the separate artifact_upload_credential query issues them",
+  "input": {
+    "schema": "artifact-upload-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "upload_id": "upl-0001",
+        "staging_credential": "tok-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member staging_credential"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "ops/relation-retract-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the disposition kind is the closed single value pinned by the operation (§10.2; gap note KG22)",
+  "input": {
+    "schema": "relation-retract-request",
+    "value": {
+      "version": "0.1",
+      "op": "relation_retract",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "relation_ref": "rel-0001",
+        "reason_class": "withdrawn_support",
+        "kind": "retract"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member kind"
+  }
+}

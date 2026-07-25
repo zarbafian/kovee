@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/space-participant-add-result.schema.json",
+  "title": "KCP space_participant_add result (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "CommandResult.result payload for space_participant_add (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The proposed SpaceParticipant projection (gap notes KG4/KG19).",
+  "$ref": "#/$defs/spaceParticipant",
+  "type": "object",
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "participantKind": {
+      "type": "string",
+      "enum": [
+        "principal",
+        "assistant_deployment",
+        "service",
+        "peer_projection"
+      ],
+      "description": "Closed SpaceParticipant.kind enum, verbatim §10.2 (§11.8: closed); a peer projection can never act as a local actor (§10.2)."
+    },
+    "participantRole": {
+      "type": "string",
+      "enum": [
+        "steward",
+        "contributor",
+        "observer"
+      ],
+      "description": "Closed SpaceParticipant.role enum, verbatim §10.2 (§11.8: closed); participation supplies addressability and role presentation, not authority (§10.2)."
+    },
+    "participantStatus": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "active",
+        "muted",
+        "revoked"
+      ],
+      "description": "Closed SpaceParticipant.status enum, verbatim §10.2 (§11.8: closed); activation and removal transitions have their own operations (gap note KG19)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceParticipant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "participant_id",
+        "space_id",
+        "subject_ref",
+        "kind",
+        "role",
+        "authority_source_ref",
+        "status",
+        "revision"
+      ],
+      "properties": {
+        "participant_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "kind": {
+          "$ref": "#/$defs/participantKind"
+        },
+        "role": {
+          "$ref": "#/$defs/participantRole"
+        },
+        "authority_source_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/participantStatus"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "SpaceParticipant projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG19)."
+    }
+  }
+}

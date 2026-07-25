@@ -1,0 +1,27 @@
+{
+  "name": "ops/space-update-metadata-invalid-wrong-surface-args",
+  "description": "wrong-surface args: space_update_metadata cannot change visibility (§10.2 spelled); narrowing uses space_restrict, widening the prepared SpaceAccessWidening",
+  "input": {
+    "schema": "space-update-metadata-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_update_metadata",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "title": "Battery research (solid state)",
+        "visibility": "restricted"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member visibility"
+  }
+}

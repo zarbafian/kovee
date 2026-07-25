@@ -1,0 +1,21 @@
+{
+  "name": "ops/space-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: connector service identity is channel-derived (gap note KG5); a request member can never override the binding",
+  "input": {
+    "schema": "space-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "service_identity_ref": "svc-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member service_identity_ref"
+  }
+}

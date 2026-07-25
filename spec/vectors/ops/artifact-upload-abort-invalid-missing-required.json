@@ -1,0 +1,24 @@
+{
+  "name": "ops/artifact-upload-abort-invalid-missing-required",
+  "description": "missing required args member upload_id",
+  "input": {
+    "schema": "artifact-upload-abort-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_abort",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "reason": "superseded by a corrected export"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required upload_id"
+  }
+}

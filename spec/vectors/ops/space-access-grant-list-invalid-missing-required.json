@@ -1,0 +1,20 @@
+{
+  "name": "ops/space-access-grant-list-invalid-missing-required",
+  "description": "missing required args member space_id",
+  "input": {
+    "schema": "space-access-grant-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_access_grant_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "limit": 50
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required space_id"
+  }
+}

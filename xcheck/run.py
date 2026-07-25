@@ -57,10 +57,11 @@ NODE_CAP = 65536  # JSON values per document (profile-pinned)
 LIST_CAP = 256  # §11.8: a request contains at most 256 list items
 INLINE_CONTENT_CAP = 65536  # §11.8: inline event payload content, 64 KiB
 
-# K0 per-operation schema suite: registry bundles delivered so far
-# (plan/sheets/K0.md; slice 1 = core_v1 + developer_assistant_v1; the
-# shared_space_v1 slice extends this tuple when it lands).
-COVERED_BUNDLES = ("core_v1", "developer_assistant_v1")
+# K0 per-operation schema suite: all three K1 bundles (plan/sheets/K0.md;
+# slice 1 = core_v1 + developer_assistant_v1, slice 2 = shared_space_v1 —
+# the per-operation suite is complete and every registry entry must be
+# schema-covered).
+COVERED_BUNDLES = ("core_v1", "shared_space_v1", "developer_assistant_v1")
 
 # §11.2 read/mutation split over the covered operations: reads never mutate
 # authoritative or user-visible state and never carry meta (R0 KENV-01);
@@ -84,6 +85,37 @@ COVERED_READS = frozenset({
     "assistant_alias_list",
     "invocation_show",
     "invocation_list",
+    # shared_space_v1 (slice 2): the generated *_show/*_list rows plus the
+    # named §11.6.1 read-family operations lens_read, events_read,
+    # events_wait, event_payload, snapshot_read, and the spelled
+    # non-mutating credential query artifact_upload_credential (§10.10;
+    # ops README gap notes KG28/KG29).
+    "realm_show",
+    "project_show",
+    "project_list",
+    "project_access_policy_change_show",
+    "project_access_policy_change_list",
+    "space_show",
+    "space_list",
+    "space_access_widen_show",
+    "space_access_widen_list",
+    "space_participant_list",
+    "space_access_grant_list",
+    "contribution_show",
+    "contribution_list",
+    "frontier_show",
+    "lens_show",
+    "lens_list",
+    "lens_read",
+    "context_assembly_show",
+    "events_read",
+    "events_wait",
+    "event_payload",
+    "snapshot_read",
+    "artifact_upload_show",
+    "artifact_upload_credential",
+    "artifact_show",
+    "disclosure_manifest_show",
 })
 
 
@@ -846,7 +878,7 @@ class Runner:
 
     # -- bundle coverage (registry vs per-operation schemas) --
 
-    def check_bundle_coverage(self) -> tuple[int, int]:
+    def check_bundle_coverage(self) -> tuple[int, int, int, int]:
         """The K0-frozen registry, not prose, decides schema membership
         (byom conformance/run.py bundle rule): every covered registry
         entry's operation must have a closed `<op>-request` / `<op>-result`
@@ -854,24 +886,28 @@ class Runner:
         const; reads carry no meta member at all; mutations require meta
         (§11.2, R0 KENV-01). Dual-surface operations share one pair keyed
         by operation (registry key is (operation, surface); schema names
-        key by operation — ops README gap note KG14)."""
+        key by operation — ops README gap note KG14), so coverage is also
+        accounted per registry entry: with the per-operation suite complete
+        every (operation, surface) entry of every covered bundle must be
+        schema-covered."""
         registry_path = self.schemas_dir.parent / "registry.json"
         try:
             registry = strict_parse(registry_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, UnicodeDecodeError) as exc:
             fail(str(registry_path), f"cannot load registry: {exc}")
-            return 0, 0
-        ops = sorted({
-            e["operation"]
-            for e in registry.get("entries", [])
+            return 0, 0, 0, 0
+        entries = [
+            e for e in registry.get("entries", [])
             if e.get("bundle") in COVERED_BUNDLES
-        })
+        ]
+        ops = sorted({e["operation"] for e in entries})
         if not ops:
             fail(str(registry_path), f"no registry entries for bundles {COVERED_BUNDLES}")
-            return 0, 0
+            return 0, 0, 0, 0
         for op in sorted(COVERED_READS - set(ops)):
             fail("bundle", f"read list names {op}, which is not a covered registry operation")
         covered = 0
+        passed_ops = set()
         for op in ops:
             base = op.replace("_", "-")
             request = self.schemas.get(f"{base}-request")
@@ -900,7 +936,12 @@ class Runner:
                     ok = False
             if ok:
                 covered += 1
-        return covered, len(ops)
+                passed_ops.add(op)
+        entries_covered = sum(1 for e in entries if e["operation"] in passed_ops)
+        if entries_covered != len(entries):
+            fail("bundle", f"only {entries_covered}/{len(entries)} registry entries "
+                 "schema-covered (every entry of every covered bundle must be)")
+        return covered, len(ops), entries_covered, len(entries)
 
     # -- ops family (per-operation schema vectors) --
 
@@ -1037,7 +1078,7 @@ class Runner:
         else:
             backend = "structural validator (jsonschema not installed)"
         n_schemas = self.load_schemas()
-        covered, n_ops = self.check_bundle_coverage()
+        covered, n_ops, entries_covered, n_entries = self.check_bundle_coverage()
         count = 0
         for path in sorted(self.vectors_root.rglob("*.json")):
             if path.parent == self.vectors_root:
@@ -1056,7 +1097,8 @@ class Runner:
 
         print(f"xcheck: schemas {len(self.schemas)}/{n_schemas} compiled ({backend})")
         print(
-            f"xcheck: bundle coverage {covered}/{n_ops} ops "
+            f"xcheck: bundle coverage {covered}/{n_ops} ops, "
+            f"{entries_covered}/{n_entries} registry entries "
             f"({', '.join(COVERED_BUNDLES)}) — request+result pair, op const, "
             "read/mutation meta rule"
         )

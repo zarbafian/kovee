@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/reaction-set-request.schema.json",
+  "title": "KCP reaction_set request (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Upserts one actor's Reaction under UNIQUE(target_ref, actor_ref, key) with the closed present|removed state (§10.2; gap note KG27): a lightweight mutable presentation signal, not evidence, a vote, consensus, acceptance, attention, or authority (§10.2 spelled). actor_ref is channel-derived (gap note KG5). Registry (shared_space_v1): surface external_client / principal; mapped connector (only for contribution/reaction/upload operations granted to it) (assurance: current login (principal); workload identity (mapped connector)). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "reaction_set"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "target_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "key": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Reaction key token (§10.2 Reaction.key); no vocabulary pinned (gap note KG27)."
+        },
+        "state": {
+          "$ref": "#/$defs/reactionState"
+        }
+      },
+      "description": "Caller-suppliable Reaction fields (§10.2 record shape, names verbatim; gap note KG27); the same-space reference-visibility rules and idempotent revision checks apply (§10.2).",
+      "required": [
+        "space_id",
+        "target_ref",
+        "target_revision",
+        "target_digest",
+        "key",
+        "state"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "reactionState": {
+      "type": "string",
+      "enum": [
+        "present",
+        "removed"
+      ],
+      "description": "Closed Reaction.state enum, verbatim §10.2 (§11.8: closed); reaction_set upserts under UNIQUE(target_ref, actor_ref, key) (gap note KG27)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

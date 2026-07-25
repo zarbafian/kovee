@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/contribution-append-request.schema.json",
+  "title": "KCP contribution_append request (DESIGN.md §10.2, §10.3, §11.2, §11.6.1 space/content mutation + worker families)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Appends an immutable Contribution: presents the target branch and expected head digest for the §10.3 compare-and-swap and allocates one dense BranchEntry sequence plus one dense Contribution sequence (§11.2; gap note KG20). Caller-suppliable §10.2 fields only (gap note KG21); author_actor_ref, sequences, and content_digest are server-derived (gap note KG5). Dual-surface operation: one schema pair serves both registry entries (byom G35 pattern; gap note KG14). Registry (shared_space_v1): surface external_client / principal; mapped connector (only for contribution/reaction/upload operations granted to it) (assurance: current login (principal); workload identity (mapped connector)) | surface worker / invocation attempt only (assurance: workload identity plus invocation capability). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "contribution_append"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "The branch appended to (§10.3 branch key; recorded on the Contribution as origin_branch_id — gap note KG20)."
+        },
+        "expected_head_digest": {
+          "$ref": "#/$defs/digestHex",
+          "description": "The §10.3 expected branch head digest for compare-and-swap; a stale writer must rebase or fork (gap note KG20)."
+        },
+        "kind": {
+          "$ref": "#/$defs/contributionKind"
+        },
+        "body_parts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/contributionPart"
+          },
+          "description": "§10.2 body_parts[]; at most 256 list items per request (§11.8)."
+        },
+        "schema_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Contribution payload schema (§10.2); server-defaulted when omitted and always present in the result projection (gap note KG21)."
+        },
+        "subject_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "§10.2 subject_refs[]; every ref points to an object in the same space or an admitted local copy (§10.2). At most 256 list items per request (§11.8)."
+        },
+        "source_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "§10.2 source_refs[]; provenance refs under the same same-space/admitted-copy rule (§10.2). At most 256 list items per request (§11.8)."
+        },
+        "epistemic_posture": {
+          "$ref": "#/$defs/epistemicPosture"
+        },
+        "classification_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Optional: defaults from the Space's default classification when omitted (gap note KG21); appending reauthorizes every referenced object and joins its classification (§10.2)."
+        },
+        "retention_policy_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Optional: defaults from policy when omitted (gap note KG21)."
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "Worker-surface binding: every worker operation carries {attempt_id, fence_epoch} (§15.2). Required together with fence_epoch on the worker surface, forbidden on external_client — a (operation, surface) registry rule the shared schema cannot express (gap note KG14)."
+        },
+        "fence_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "Branch-append pin (gap note KG20) plus the caller-suppliable §10.2 Contribution fields (gap note KG21). invocation_ref, context_assembly_ref, and causation_ref are channel-derived on the worker surface (gap note KG5).",
+      "required": [
+        "space_id",
+        "branch_id",
+        "expected_head_digest",
+        "kind",
+        "body_parts"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "artifactPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_ref"
+      ],
+      "properties": {
+        "artifact_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "$ref": "#/$defs/displayName"
+        }
+      },
+      "description": "ArtifactPart {artifact_ref, title?} (§10.2); nothing may reference an artifact as available before finalization completes (§10.10)."
+    },
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "contributionKind": {
+      "type": "string",
+      "enum": [
+        "utterance",
+        "goal",
+        "question",
+        "claim",
+        "observation",
+        "evidence",
+        "proposal",
+        "critique",
+        "synthesis",
+        "result",
+        "decision_reference",
+        "system_notice"
+      ],
+      "description": "Closed ContributionKind enum, verbatim §10.2 (§11.8: closed). Only services may append a system_notice (§10.4) — a registry/authorization rule, not schema-expressible."
+    },
+    "contributionPart": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textPart"
+        },
+        {
+          "$ref": "#/$defs/dataPart"
+        },
+        {
+          "$ref": "#/$defs/artifactPart"
+        },
+        {
+          "$ref": "#/$defs/referencePart"
+        },
+        {
+          "$ref": "#/$defs/mentionPart"
+        }
+      ],
+      "description": "§10.2 ContributionPart union, discriminated structurally by the disjoint closed required member sets of its five arms — no type tag exists in the record model; §14.1's {\"type\": \"text\"} literal is SDK sugar (gap note KG21)."
+    },
+    "dataPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_ref",
+        "value"
+      ],
+      "properties": {
+        "schema_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "value": {
+          "description": "Typed data validated by the schema at schema_ref; any JSON value here (§10.2 DataPart). Unknown extension kinds remain inert data and never create authority (§10.2)."
+        }
+      },
+      "description": "DataPart {schema_ref, value} (§10.2)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "epistemicPosture": {
+      "type": "string",
+      "enum": [
+        "asserted",
+        "tentative",
+        "observed",
+        "reported",
+        "contested"
+      ],
+      "description": "Closed Contribution.epistemic_posture enum, verbatim §10.2 (§11.8: closed)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "inlineText": {
+      "type": "string",
+      "maxLength": 65536,
+      "description": "Contribution inline text content, bounded by the §11.8 64 KiB contribution-inline-content cap; maxLength counts Unicode scalar values and the byte cap is re-checked at admission (gap note KG21)."
+    },
+    "languageTag": {
+      "type": "string",
+      "pattern": "^[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*$",
+      "maxLength": 64,
+      "description": "BCP 47-shaped language tag for TextPart.language (§10.2 names the field with no encoding; recorded extraction bound, gap note KG21)."
+    },
+    "mediaType": {
+      "type": "string",
+      "pattern": "^[!#$%&'*+.^_`|~a-zA-Z0-9-]+/[!#$%&'*+.^_`|~a-zA-Z0-9-]+$",
+      "maxLength": 128,
+      "description": "RFC 6838 type/subtype token pair (media_type/declared_media_type); parameters are not carried in these fields — recorded extraction bound (gap note KG21/KG29)."
+    },
+    "mentionPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_kind",
+        "target_ref",
+        "target_revision",
+        "display_text"
+      ],
+      "properties": {
+        "target_kind": {
+          "type": "string",
+          "enum": [
+            "principal",
+            "assistant_alias"
+          ],
+          "description": "Closed MentionPart.target_kind enum, verbatim §10.2 (§11.8: closed)."
+        },
+        "target_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "display_text": {
+          "$ref": "#/$defs/displayName"
+        }
+      },
+      "description": "MentionPart (§10.2); a structured mention resolves an exact visible alias/deployment revision and is inert address data without a direct invocation command or an accepted AttentionContract (§10.4)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "referencePart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_ref"
+      ],
+      "properties": {
+        "object_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "object_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "ReferencePart {object_ref, object_revision?, digest?} (§10.2); every ref points to an object in the same space or an admitted local copy (§10.2)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "textPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "media_type",
+        "text"
+      ],
+      "properties": {
+        "media_type": {
+          "$ref": "#/$defs/mediaType"
+        },
+        "text": {
+          "$ref": "#/$defs/inlineText"
+        },
+        "language": {
+          "$ref": "#/$defs/languageTag"
+        }
+      },
+      "description": "TextPart {media_type, text, language?} (§10.2)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

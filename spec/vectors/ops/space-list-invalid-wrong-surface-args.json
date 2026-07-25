@@ -1,0 +1,21 @@
+{
+  "name": "ops/space-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: restricted-space visibility is an authorization dependency (active SpaceParticipant, §10.2); a filter can never widen visibility (gap note KG9)",
+  "input": {
+    "schema": "space-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "limit": 50,
+        "include_restricted": true
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member include_restricted"
+  }
+}

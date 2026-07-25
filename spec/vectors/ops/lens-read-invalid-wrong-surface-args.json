@@ -1,0 +1,24 @@
+{
+  "name": "ops/lens-read-invalid-wrong-surface-args",
+  "description": "wrong-surface args: a lens read runs the stored closed query (§10.2); the request cannot substitute its own AST (gap note KG25)",
+  "input": {
+    "schema": "lens-read-request",
+    "value": {
+      "version": "0.1",
+      "op": "lens_read",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "lens_id": "lens-0001",
+        "limit": 100,
+        "query_ast": {
+          "select": "all"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member query_ast"
+  }
+}

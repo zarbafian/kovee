@@ -1,0 +1,33 @@
+{
+  "name": "ops/context-assembly-create-valid-worker-request",
+  "description": "fenced worker proposal: attempt_id and fence_epoch bind the current attempt (§15.2; gap note KG14); the worker capability must list this exact proposal operation (§11.6.1)",
+  "input": {
+    "schema": "context-assembly-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "context_assembly_create",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "branch_id": "branch-0001",
+        "audience_ref": "asstdep-0001",
+        "purpose": "Summarize the current claim set for the review invocation.",
+        "selection_policy_ref": "explicit_refs_v1",
+        "required_refs": [
+          "contrib-0007",
+          "contrib-0011"
+        ],
+        "attempt_id": "att-0001",
+        "fence_epoch": 4
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

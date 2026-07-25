@@ -1,0 +1,22 @@
+{
+  "name": "ops/events-wait-invalid-wrong-surface-args",
+  "description": "wrong-surface args: §11.4 events_wait takes { source, after_cursor, filters?, timeout_ms } verbatim — no limit member exists on the wait form",
+  "input": {
+    "schema": "events-wait-request",
+    "value": {
+      "version": "0.1",
+      "op": "events_wait",
+      "realm_id": "realm-0001",
+      "args": {
+        "source": "project-0001",
+        "after_cursor": "cur-0001",
+        "timeout_ms": 30000,
+        "limit": 100
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member limit"
+  }
+}

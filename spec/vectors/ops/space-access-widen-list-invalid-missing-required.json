@@ -1,0 +1,20 @@
+{
+  "name": "ops/space-access-widen-list-invalid-missing-required",
+  "description": "missing required args member limit",
+  "input": {
+    "schema": "space-access-widen-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_access_widen_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required limit"
+  }
+}

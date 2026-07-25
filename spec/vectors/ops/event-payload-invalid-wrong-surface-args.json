@@ -1,0 +1,20 @@
+{
+  "name": "ops/event-payload-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the stored payload reference is server state (§11.3); the caller names the event only (gap note KG28)",
+  "input": {
+    "schema": "event-payload-request",
+    "value": {
+      "version": "0.1",
+      "op": "event_payload",
+      "realm_id": "realm-0001",
+      "args": {
+        "event_id": "evt-0001",
+        "payload_ref": "blob-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member payload_ref"
+  }
+}

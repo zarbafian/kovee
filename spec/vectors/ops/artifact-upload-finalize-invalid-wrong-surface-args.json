@@ -1,0 +1,25 @@
+{
+  "name": "ops/artifact-upload-finalize-invalid-wrong-surface-args",
+  "description": "wrong-surface args: observed digests come from the artifact service's verification of trusted bytes (§10.10); ETag and client metadata are not verification",
+  "input": {
+    "schema": "artifact-upload-finalize-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_finalize",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "upload_id": "upl-0001",
+        "observed_raw_sha256": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member observed_raw_sha256"
+  }
+}

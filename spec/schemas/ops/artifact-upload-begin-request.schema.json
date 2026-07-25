@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/artifact-upload-begin-request.schema.json",
+  "title": "KCP artifact_upload_begin request (DESIGN.md §10.10, §11.6.1 space/content mutation family)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Atomically creates the pending artifact/upload, idempotency result, event, and outbox row (§10.10 spelled). Args are the declared_* fields of the §10.10 ArtifactUpload (gap note KG29); max_bytes comes from realm policy and the staging key is server-selected. The canonical result contains only the durable upload/artifact refs and constraints; replay returns that same result and never mints a credential (§10.10 spelled). Registry (shared_space_v1): surface external_client / principal; mapped connector (only for contribution/reaction/upload operations granted to it) (assurance: current login (principal); workload identity (mapped connector)). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "artifact_upload_begin"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declared_raw_sha256": {
+          "$ref": "#/$defs/rawSha256"
+        },
+        "declared_size": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "declared_media_type": {
+          "$ref": "#/$defs/mediaType"
+        },
+        "classification_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Optional: defaults from realm policy when omitted (gap note KG29)."
+        }
+      },
+      "description": "Caller-declared upload facts (§10.10 record shape, names verbatim; gap note KG29); declarations are not verification — the artifact service verifies trusted bytes after sealing (§10.10).",
+      "required": [
+        "declared_raw_sha256",
+        "declared_size",
+        "declared_media_type"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "mediaType": {
+      "type": "string",
+      "pattern": "^[!#$%&'*+.^_`|~a-zA-Z0-9-]+/[!#$%&'*+.^_`|~a-zA-Z0-9-]+$",
+      "maxLength": 128,
+      "description": "RFC 6838 type/subtype token pair (media_type/declared_media_type); parameters are not carried in these fields — recorded extraction bound (gap note KG21/KG29)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "rawSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Ordinary raw SHA-256 content checksum (raw_sha256/declared_raw_sha256, §10.10) for integrity and content-addressing; a different field type from the §11.8 typed digests, never interchangeable with them even when the 32-byte values match (§11.8)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

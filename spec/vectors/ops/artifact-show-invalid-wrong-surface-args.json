@@ -1,0 +1,20 @@
+{
+  "name": "ops/artifact-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the encryption key binding is server record state (§10.10, gap note KG5), never a request argument",
+  "input": {
+    "schema": "artifact-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "artifact_id": "art-0001",
+        "encryption_key_ref": "key-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member encryption_key_ref"
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/space-participant-list-result.schema.json",
+  "title": "KCP space_participant_list result (DESIGN.md §10.2, §11.6.1 read family)",
+  "description": "CommandResult.result payload for space_participant_list (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). §11.5 page of SpaceParticipant projections (gap notes KG4/KG9). §11.5 page shape verbatim: { items[], next?, snapshot, boundary_event_cursor }. The first page creates a stable snapshot token (expiry >= 15 minutes); further pages see the same logical boundary or return snapshot-expired; authorization is rechecked for every page (gap note KG9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "snapshot",
+    "boundary_event_cursor"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/spaceParticipant"
+      },
+      "description": "Page of SpaceParticipant projections; at most 512 items (§11.8 page read limit)."
+    },
+    "next": {
+      "$ref": "#/$defs/cursor"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/cursor"
+    },
+    "boundary_event_cursor": {
+      "$ref": "#/$defs/cursor"
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "participantKind": {
+      "type": "string",
+      "enum": [
+        "principal",
+        "assistant_deployment",
+        "service",
+        "peer_projection"
+      ],
+      "description": "Closed SpaceParticipant.kind enum, verbatim §10.2 (§11.8: closed); a peer projection can never act as a local actor (§10.2)."
+    },
+    "participantRole": {
+      "type": "string",
+      "enum": [
+        "steward",
+        "contributor",
+        "observer"
+      ],
+      "description": "Closed SpaceParticipant.role enum, verbatim §10.2 (§11.8: closed); participation supplies addressability and role presentation, not authority (§10.2)."
+    },
+    "participantStatus": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "active",
+        "muted",
+        "revoked"
+      ],
+      "description": "Closed SpaceParticipant.status enum, verbatim §10.2 (§11.8: closed); activation and removal transitions have their own operations (gap note KG19)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceParticipant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "participant_id",
+        "space_id",
+        "subject_ref",
+        "kind",
+        "role",
+        "authority_source_ref",
+        "status",
+        "revision"
+      ],
+      "properties": {
+        "participant_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "kind": {
+          "$ref": "#/$defs/participantKind"
+        },
+        "role": {
+          "$ref": "#/$defs/participantRole"
+        },
+        "authority_source_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/participantStatus"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "SpaceParticipant projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG19)."
+    }
+  }
+}

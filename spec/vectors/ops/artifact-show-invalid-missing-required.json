@@ -1,0 +1,17 @@
+{
+  "name": "ops/artifact-show-invalid-missing-required",
+  "description": "missing required args member artifact_id",
+  "input": {
+    "schema": "artifact-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_show",
+      "realm_id": "realm-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required artifact_id"
+  }
+}

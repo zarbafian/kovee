@@ -1,0 +1,20 @@
+{
+  "name": "ops/events-wait-invalid-missing-required",
+  "description": "missing required args member after_cursor (§11.4 renders it unmarked for events_wait)",
+  "input": {
+    "schema": "events-wait-request",
+    "value": {
+      "version": "0.1",
+      "op": "events_wait",
+      "realm_id": "realm-0001",
+      "args": {
+        "source": "project-0001",
+        "timeout_ms": 30000
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required after_cursor"
+  }
+}

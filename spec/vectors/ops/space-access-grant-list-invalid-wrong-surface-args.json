@@ -1,0 +1,22 @@
+{
+  "name": "ops/space-access-grant-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the authorization epoch is server-derived dependency state (§10.2, gap note KG5), never a request argument",
+  "input": {
+    "schema": "space-access-grant-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_access_grant_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "limit": 50,
+        "authorization_epoch": 7
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member authorization_epoch"
+  }
+}

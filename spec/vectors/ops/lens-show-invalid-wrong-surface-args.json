@@ -1,0 +1,21 @@
+{
+  "name": "ops/lens-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: lens ownership is server-recorded state (gap note KG5), never a request argument",
+  "input": {
+    "schema": "lens-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "lens_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "lens_id": "lens-0001",
+        "owner_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member owner_ref"
+  }
+}

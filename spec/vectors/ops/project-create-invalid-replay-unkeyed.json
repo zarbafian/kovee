@@ -1,0 +1,23 @@
+{
+  "name": "ops/project-create-invalid-replay-unkeyed",
+  "description": "replay/dependency invalidation: a mutation whose meta lacks idempotency_key cannot be replay-deduplicated or safely retried (§11.2)",
+  "input": {
+    "schema": "project-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_create",
+      "meta": {
+        "request_id": "req-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "name": "Battery research",
+        "default_classification_ref": "class-internal"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta.idempotency_key required on every mutation"
+  }
+}

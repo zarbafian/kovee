@@ -1,0 +1,25 @@
+{
+  "name": "ops/snapshot-read-invalid-replay-meta-on-read",
+  "description": "replay/dependency invalidation: reads do not carry an idempotency key (§11.2, R0 KENV-01); a read carrying replay meta fails the closed read shape",
+  "input": {
+    "schema": "snapshot-read-request",
+    "value": {
+      "version": "0.1",
+      "op": "snapshot_read",
+      "realm_id": "realm-0001",
+      "args": {
+        "source": "space-contributions",
+        "snapshot": "snap-0001",
+        "limit": 100
+      },
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "no meta member exists on a read"
+  }
+}

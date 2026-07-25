@@ -1,0 +1,18 @@
+{
+  "name": "ops/context-assembly-show-invalid-missing-required",
+  "description": "missing required args member assembly_id",
+  "input": {
+    "schema": "context-assembly-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "context_assembly_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required assembly_id"
+  }
+}

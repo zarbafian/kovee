@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/contribution-supersede-result.schema.json",
+  "title": "KCP contribution_supersede result (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "CommandResult.result payload for contribution_supersede (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The appended ContributionDisposition projection, kind supersede (gap notes KG4/KG22).",
+  "$ref": "#/$defs/contributionDispositionSupersede",
+  "type": "object",
+  "$defs": {
+    "contributionDispositionSupersede": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition_id",
+        "contribution_ref",
+        "kind",
+        "reason_class",
+        "authorized_by_ref",
+        "created_at"
+      ],
+      "properties": {
+        "disposition_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "contribution_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "const": "supersede",
+          "description": "The §10.2 ContributionDisposition kind enum member this operation pins: contribution_supersede always records kind supersede (gap note KG22)."
+        },
+        "replacement_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The replacing contribution (§10.2 ?-marked); populated by supersession (gap note KG22)."
+        },
+        "reason_class": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Disposition reason class token; no value space is pinned (gap note KG22)."
+        },
+        "authorized_by_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "payload_removed_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "ContributionDisposition projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG22)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

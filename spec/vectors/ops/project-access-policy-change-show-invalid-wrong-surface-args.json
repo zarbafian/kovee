@@ -1,0 +1,21 @@
+{
+  "name": "ops/project-access-policy-change-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the preparing actor is channel-derived record state (gap note KG5), never a request argument",
+  "input": {
+    "schema": "project-access-policy-change-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_access_policy_change_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "change_id": "change-0001",
+        "prepared_by_principal": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member prepared_by_principal"
+  }
+}

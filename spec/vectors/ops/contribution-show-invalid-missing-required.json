@@ -1,0 +1,18 @@
+{
+  "name": "ops/contribution-show-invalid-missing-required",
+  "description": "missing required args member contribution_id",
+  "input": {
+    "schema": "contribution-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "contribution_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required contribution_id"
+  }
+}

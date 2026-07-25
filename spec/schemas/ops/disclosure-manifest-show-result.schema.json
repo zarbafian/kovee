@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/disclosure-manifest-show-result.schema.json",
+  "title": "KCP disclosure_manifest_show result (DESIGN.md §16.2, §11.6.1 read family)",
+  "description": "CommandResult.result payload for disclosure_manifest_show (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The visible DisclosureManifest projection (gap note KG4); provider claims are recorded assertions, not independently proven facts (§16.2).",
+  "$ref": "#/$defs/disclosureManifest",
+  "type": "object",
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "disclosureItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "digest",
+        "size"
+      ],
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "size": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "DisclosureManifest exact_items[] entry, field names verbatim §16.2; the authorization binds the final bytes/references that leave, not merely a broad topic name (§16.2)."
+    },
+    "disclosureManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disclosure_id",
+        "sender_realm",
+        "recipient_kind",
+        "recipient_binding",
+        "purpose",
+        "data_classes",
+        "exact_items",
+        "transformations",
+        "total_bytes",
+        "created_at",
+        "digest"
+      ],
+      "properties": {
+        "disclosure_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sender_realm": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sender_project": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sender_space": {
+          "$ref": "#/$defs/identifier"
+        },
+        "recipient_kind": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Recipient kind token (§16.2 names the field with no value space; gap note KG6)."
+        },
+        "recipient_binding": {
+          "$ref": "#/$defs/identifier"
+        },
+        "purpose": {
+          "$ref": "#/$defs/freeText"
+        },
+        "data_classes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier",
+            "description": "Data class label (§16.2); the authorization binds the final bytes/references that leave, not merely a broad topic name."
+          }
+        },
+        "context_assembly_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "context_assembly_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "commitment_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "exact_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disclosureItem"
+          }
+        },
+        "transformations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disclosureTransformation"
+          }
+        },
+        "provider_claims": {
+          "$ref": "#/$defs/providerClaims"
+        },
+        "total_bytes": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "DisclosureManifest projection, field names verbatim from the §16.2 record shape (gap note KG4)."
+    },
+    "disclosureTransformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_digest",
+        "result_digest"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Transformation kind token; calling something redacted without a result digest is insufficient (§16.2)."
+        },
+        "source_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "result_digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "DisclosureManifest transformations[] entry, field names verbatim §16.2."
+    },
+    "freeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "Bounded free text. §11.8 bounds free text again at admission; the 4096-scalar schema ceiling is the recorded extraction bound (ops README gap note KG8)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "providerClaims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "region",
+        "retention",
+        "training_use"
+      ],
+      "properties": {
+        "region": {
+          "$ref": "#/$defs/identifier",
+          "description": "Recorded provider assertion, not an independently proven fact (§16.2)."
+        },
+        "retention": {
+          "$ref": "#/$defs/identifier",
+          "description": "Recorded provider assertion, not an independently proven fact (§16.2)."
+        },
+        "training_use": {
+          "$ref": "#/$defs/identifier",
+          "description": "Recorded provider assertion, not an independently proven fact (§16.2)."
+        }
+      },
+      "description": "DisclosureManifest provider_claims {region, retention, training_use}, verbatim §16.2; recorded assertions, not independently proven facts."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

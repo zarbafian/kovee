@@ -1,0 +1,18 @@
+{
+  "name": "ops/lens-show-invalid-missing-required",
+  "description": "missing required args member lens_id",
+  "input": {
+    "schema": "lens-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "lens_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required lens_id"
+  }
+}

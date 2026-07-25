@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/events-wait-request.schema.json",
+  "title": "KCP events_wait request (DESIGN.md §11.3, §11.4, §11.6.1 read family)",
+  "description": "Read: never mutates authoritative or user-visible state and never carries meta (closed shape — a read carrying meta, hence an idempotency key, fails; §11.2, R0 KENV-01). Bounded long-poll for new authorized events after an exact cursor; the §11.4 arg list verbatim (gap note KG28). Registry (shared_space_v1): surface external_client / principal; connector service (only for its mapped resources) (assurance: current login or workload identity). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "events_wait"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/identifier",
+          "description": "Event source selector (§11.4); opaque (§11.3)."
+        },
+        "after_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "filters": {
+          "type": "object",
+          "description": "Delivery filters (§11.4 names the member with no grammar); open object that narrows, never widens, the authorized set (gap note KG28)."
+        },
+        "timeout_ms": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "Long-poll timeout in milliseconds (§11.4); DESIGN.md pins no ceiling (gap note KG28)."
+        }
+      },
+      "description": "§11.4 events_wait args verbatim: { source, after_cursor, filters?, timeout_ms }.",
+      "required": [
+        "source",
+        "after_cursor",
+        "timeout_ms"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    }
+  }
+}

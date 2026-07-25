@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/realm-show-result.schema.json",
+  "title": "KCP realm_show result (DESIGN.md §10.1, §11.6.1 read family)",
+  "description": "CommandResult.result payload for realm_show (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The visible Realm projection (gap notes KG4/KG16).",
+  "$ref": "#/$defs/realm",
+  "type": "object",
+  "$defs": {
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "realm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "realm_id",
+        "installation_id",
+        "revision",
+        "name",
+        "status",
+        "home_region",
+        "auth_policy_ref",
+        "retention_policy_ref",
+        "encryption_key_ref",
+        "created_at"
+      ],
+      "properties": {
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "installation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "name": {
+          "$ref": "#/$defs/displayName"
+        },
+        "status": {
+          "$ref": "#/$defs/statusToken"
+        },
+        "home_region": {
+          "$ref": "#/$defs/identifier",
+          "description": "Home write-boundary region (§10.1); opaque — no region vocabulary is pinned."
+        },
+        "auth_policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "retention_policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "encryption_key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Secret-manager reference, never key material (§10.1: endpoint credentials are secret-manager references, not fields in this portable record)."
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "Realm projection, field names verbatim from the §10.1 record shape (gap note KG4); status is named with no value space (gap note KG6)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

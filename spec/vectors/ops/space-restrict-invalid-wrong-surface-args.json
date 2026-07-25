@@ -1,0 +1,26 @@
+{
+  "name": "ops/space-restrict-invalid-wrong-surface-args",
+  "description": "wrong-surface args: space_restrict proves the one-way narrowing (§10.2); the target visibility is the op semantics, never an argument (gap note KG18)",
+  "input": {
+    "schema": "space-restrict-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_restrict",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "visibility": "restricted"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member visibility"
+  }
+}

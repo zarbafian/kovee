@@ -1,0 +1,21 @@
+{
+  "name": "ops/project-access-policy-change-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: actor identity is channel-derived, never a request argument (gap note KG5)",
+  "input": {
+    "schema": "project-access-policy-change-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_access_policy_change_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "limit": 50,
+        "actor_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member actor_ref"
+  }
+}

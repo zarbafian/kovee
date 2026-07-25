@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/context-assembly-create-result.schema.json",
+  "title": "KCP context_assembly_create result (DESIGN.md §10.8, §14.1, §11.6.1 prepare/propose + worker families)",
+  "description": "CommandResult.result payload for context_assembly_create (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The created ContextAssembly projection (gap notes KG4/KG26/KG30): immutable evidence of selection, not a bearer capability (§10.8).",
+  "$ref": "#/$defs/contextAssembly",
+  "type": "object",
+  "$defs": {
+    "assemblyItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_ref",
+        "revision",
+        "digest",
+        "size",
+        "classification_ref",
+        "role",
+        "order",
+        "inclusion_reason"
+      ],
+      "properties": {
+        "object_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "size": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "classification_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Item role token in the assembly; no vocabulary pinned (gap note KG26)."
+        },
+        "order": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "inclusion_reason": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Deterministic inclusion reason token (§10.8); no vocabulary pinned (gap note KG26)."
+        }
+      },
+      "description": "ContextAssembly items[] entry, field names verbatim §10.8."
+    },
+    "assemblyOmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "visible_candidate_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "reason": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Omission reason token; omission records reveal refs only when the audience may know they exist (§10.8)."
+        }
+      },
+      "description": "ContextAssembly omissions[] entry, field names verbatim §10.8."
+    },
+    "assemblyRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_ref",
+        "digest"
+      ],
+      "properties": {
+        "relation_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "ContextAssembly relations[] entry, field names verbatim §10.8."
+    },
+    "assemblyTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "bytes",
+        "estimated_tokens"
+      ],
+      "properties": {
+        "items": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "bytes": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "estimated_tokens": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "ContextAssembly totals {items, bytes, estimated_tokens}, verbatim §10.8."
+    },
+    "assemblyTransformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "version",
+        "source_digest",
+        "result_digest"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Transformation kind token; no vocabulary pinned (gap note KG26)."
+        },
+        "instruction_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/identifier",
+          "description": "Transformation producer version (§10.8); opaque identifier."
+        },
+        "source_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "result_digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "ContextAssembly transformations[] entry, field names verbatim §10.8; a redaction or summarization is explicit transformation output with a result digest (§16.2)."
+    },
+    "contextAssembly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assembly_id",
+        "revision",
+        "realm_id",
+        "project_id",
+        "space_id",
+        "branch_id",
+        "audience_ref",
+        "purpose",
+        "trigger_refs",
+        "frontier_ref",
+        "frontier_digest",
+        "selection_policy_ref",
+        "selection_policy_digest",
+        "items",
+        "relations",
+        "transformations",
+        "omissions",
+        "classification_join_ref",
+        "totals",
+        "selection_policy_version",
+        "assembler_version",
+        "authorization_dependency_set_ref",
+        "authority_digest",
+        "created_at",
+        "digest"
+      ],
+      "properties": {
+        "assembly_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "const": 1,
+          "description": "Immutable record: fixed revision 1 (§10 preamble; gap note KG30)."
+        },
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "audience_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "purpose": {
+          "$ref": "#/$defs/freeText"
+        },
+        "trigger_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "frontier_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "frontier_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "recipe_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "recipe_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "recipe_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "selection_policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "selection_policy_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assemblyItem"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assemblyRelation"
+          }
+        },
+        "transformations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assemblyTransformation"
+          }
+        },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assemblyOmission"
+          }
+        },
+        "classification_join_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "totals": {
+          "$ref": "#/$defs/assemblyTotals"
+        },
+        "selection_policy_version": {
+          "$ref": "#/$defs/identifier",
+          "description": "Selection policy version (§10.8); opaque identifier."
+        },
+        "assembler_version": {
+          "$ref": "#/$defs/identifier",
+          "description": "Assembler version (§10.8); opaque identifier."
+        },
+        "authorization_dependency_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "authority_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "ContextAssembly projection, field names verbatim from the §10.8 record shape (gap notes KG4/KG26/KG30): immutable evidence of selection, not a bearer capability; materialization reauthorizes on every use (§10.8)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "freeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "Bounded free text. §11.8 bounds free text again at admission; the 4096-scalar schema ceiling is the recorded extraction bound (ops README gap note KG8)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

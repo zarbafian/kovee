@@ -1,0 +1,23 @@
+{
+  "name": "ops/artifact-upload-begin-valid-result",
+  "description": "the §10.10 spelled narrow canonical begin result: durable refs and constraints only, never a credential (gap note KG29)",
+  "input": {
+    "schema": "artifact-upload-begin-result",
+    "value": {
+      "upload_id": "upl-0001",
+      "artifact_id": "art-0001",
+      "revision": 1,
+      "state": "prepared",
+      "declared_raw_sha256": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
+      "declared_size": 1048576,
+      "declared_media_type": "application/pdf",
+      "classification_ref": "class-internal",
+      "max_bytes": 10485760,
+      "expires_at": "2026-08-01T00:00:00Z",
+      "created_at": "2026-07-26T09:00:00Z"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

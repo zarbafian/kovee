@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/event-payload-result.schema.json",
+  "title": "KCP event_payload result (DESIGN.md §11.3, §11.4, §11.6.1 read family)",
+  "description": "CommandResult.result payload for event_payload (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). Derived payload projection (gap note KG28): the §11.3 envelope's payload members restated for one event — { event_id, schema_ref, payload_digest, payload }.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "schema_ref",
+    "payload_digest",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "schema_ref": {
+      "$ref": "#/$defs/identifier"
+    },
+    "payload_digest": {
+      "$ref": "#/$defs/digestHex"
+    },
+    "payload": {
+      "description": "The stored payload, validated by the schema at schema_ref (§11.3); any JSON value here. Registered application event payloads are capped at 64 KiB (§11.8), enforced at admission."
+    }
+  },
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "ops/disclosure-manifest-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: provider claims are recorded server state on the manifest (§16.2), never a request argument",
+  "input": {
+    "schema": "disclosure-manifest-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "disclosure_manifest_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "disclosure_id": "disc-0001",
+        "provider_claims": {
+          "region": "eu"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member provider_claims"
+  }
+}

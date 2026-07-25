@@ -1,0 +1,21 @@
+{
+  "name": "ops/space-access-widen-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the authorization decision receipt binds space_access_widen_confirm (§11.6.1), not the read",
+  "input": {
+    "schema": "space-access-widen-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_access_widen_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "widening_id": "widen-0001",
+        "decision_receipt_ref": "rcpt-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member decision_receipt_ref"
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/space-access-grant-revoke-result.schema.json",
+  "title": "KCP space_access_grant_revoke result (DESIGN.md §10.2, §11.6.1 operator administration family)",
+  "description": "CommandResult.result payload for space_access_grant_revoke (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The revoked SpaceAccessGrant projection (gap notes KG4/KG19).",
+  "$ref": "#/$defs/spaceAccessGrant",
+  "type": "object",
+  "$defs": {
+    "grantStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "revoked",
+        "expired"
+      ],
+      "description": "Closed SpaceAccessGrant.status enum, verbatim §10.2 (§11.8: closed)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceAccessGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space_access_id",
+        "space_id",
+        "subject_ref",
+        "revision",
+        "source_membership_or_policy_ref",
+        "allowed_actions",
+        "authorization_epoch",
+        "status",
+        "granted_by_or_policy_use_ref",
+        "created_at"
+      ],
+      "properties": {
+        "space_access_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "source_membership_or_policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusToken",
+            "description": "Granted action token; no action vocabulary is pinned (gap note KG19). A grant is intersected with current membership, policy, classification, and source authorization on every use (§10.2)."
+          }
+        },
+        "classification_ceiling_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "authorization_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "status": {
+          "$ref": "#/$defs/grantStatus"
+        },
+        "granted_by_or_policy_use_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "SpaceAccessGrant projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG19); it cannot outlive or widen its source authority (§10.2)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

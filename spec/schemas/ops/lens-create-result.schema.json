@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/lens-create-result.schema.json",
+  "title": "KCP lens_create result (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "CommandResult.result payload for lens_create (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The created SpaceLens projection (gap notes KG4/KG25).",
+  "$ref": "#/$defs/spaceLens",
+  "type": "object",
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "lensKind": {
+      "type": "string",
+      "enum": [
+        "stream",
+        "workbench",
+        "pulse",
+        "branch_compare",
+        "ensemble",
+        "provenance",
+        "custom"
+      ],
+      "description": "Closed SpaceLens.kind enum, verbatim §10.2 (§11.8: closed); Stream is a lens preset, not a second content model (§10.4)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceLens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lens_id",
+        "space_id",
+        "revision",
+        "kind",
+        "query_ast",
+        "sort_spec",
+        "presentation_options",
+        "visibility",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "lens_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "owner_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "kind": {
+          "$ref": "#/$defs/lensKind"
+        },
+        "query_ast": {
+          "type": "object",
+          "description": "Closed query AST over indexed fields and bounded relation traversal, containing no arbitrary code (§10.2); the AST grammar is not pinned in this slice — open object carrying no authority (gap note KG25)."
+        },
+        "sort_spec": {
+          "type": "object",
+          "description": "Lens sort specification (§10.2 names the field); shape unpinned (gap note KG25)."
+        },
+        "presentation_options": {
+          "type": "object",
+          "description": "Lens presentation configuration (§10.2 names the field); shape unpinned (gap note KG25)."
+        },
+        "visibility": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Lens visibility token; §10.2 names the field with no value space (gap notes KG6/KG25)."
+        },
+        "status": {
+          "$ref": "#/$defs/statusToken"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "SpaceLens projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG25); a lens is declarative presentation over authorized canonical records in one space."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

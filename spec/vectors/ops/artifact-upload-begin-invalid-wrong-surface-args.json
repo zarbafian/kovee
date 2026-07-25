@@ -1,0 +1,27 @@
+{
+  "name": "ops/artifact-upload-begin-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the staging key is server-selected (§10.10, gap notes KG5/KG29)",
+  "input": {
+    "schema": "artifact-upload-begin-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_begin",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "declared_raw_sha256": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
+        "declared_size": 1048576,
+        "declared_media_type": "application/pdf",
+        "classification_ref": "class-internal",
+        "staging_storage_ref": "stage-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member staging_storage_ref"
+  }
+}

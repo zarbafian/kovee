@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/events-read-result.schema.json",
+  "title": "KCP events_read result (DESIGN.md §11.3, §11.4, §11.6.1 read family)",
+  "description": "CommandResult.result payload for events_read (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). §11.4 events_read result verbatim: { events[], next_cursor, snapshot_epoch }; result events are the §11.3 event envelope embedded per operation (gap note KG28). If a cursor predates available history the command instead fails with cursor-expired plus snapshot recovery data (§11.4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "events",
+    "next_cursor",
+    "snapshot_epoch"
+  ],
+  "properties": {
+    "events": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/eventEnvelope"
+      },
+      "description": "Authorized §11.3 event envelopes; at most 512 (§11.8 page/event read limit)."
+    },
+    "next_cursor": {
+      "$ref": "#/$defs/cursor"
+    },
+    "snapshot_epoch": {
+      "$ref": "#/$defs/cursor",
+      "description": "Opaque snapshot epoch for cursor-expired recovery (§11.4)."
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "eventEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "installation_id",
+        "realm_id",
+        "stream_id",
+        "stream_sequence",
+        "type",
+        "schema_ref",
+        "resource_ref",
+        "actor_ref",
+        "correlation_ref",
+        "occurred_at",
+        "classification_ref",
+        "payload_digest"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "payload"
+          ]
+        },
+        {
+          "required": [
+            "payload_ref"
+          ]
+        }
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "installation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "stream_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "stream_sequence": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "project_sequence": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "type": {
+          "$ref": "#/$defs/eventType"
+        },
+        "schema_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "resource_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "resource_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "actor_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "causation_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "correlation_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "classification_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "payload_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "payload": {
+          "description": "Inline event payload validated by the schema at schema_ref; registered application event payloads are capped at 64 KiB (§11.8), enforced at admission. Any JSON value here; each payload schema closes it."
+        },
+        "payload_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Durable reference to an externalized payload; access is authorized at read time (§11.4)."
+        },
+        "ext": {
+          "$ref": "#/$defs/ext"
+        }
+      },
+      "description": "Event envelope per §11.3, field-for-field, with the payload | payload_ref alternation (mirrors kcp-command-suite kcp-event.schema.json; ops schemas are self-contained, so the shape is embedded here — gap note KG28)."
+    },
+    "eventType": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*(-[a-z0-9]+)*)+\\.v[1-9][0-9]*$",
+      "maxLength": 128,
+      "description": "Reverse-domain event type name ending in a major version, e.g. dev.kovee.space.contribution-appended.v1 (§11.3). A breaking payload change uses a new major event type (§11.9). Major versions start at 1 (the § shows only .v1 and never a .v0) — recorded extraction decision."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

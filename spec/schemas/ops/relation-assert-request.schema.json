@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/relation-assert-request.schema.json",
+  "title": "KCP relation_assert request (DESIGN.md §10.2, §10.3, §11.6.1 space/content mutation + worker families)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Asserts a semantic SpaceRelation over exact visible endpoint revisions in the same space (§10.2): the public/worker schema excludes relation_class and always creates semantic_assertion (§10.2 spelled; gap note KG23). Relation appends present the branch and expected head digest (§10.3; gap note KG20). Dual-surface operation: one schema pair serves both registry entries (byom G35 pattern; gap note KG14). Registry (shared_space_v1): surface external_client / principal (assurance: current login) | surface worker / invocation attempt only (assurance: workload identity plus invocation capability). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "relation_assert"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "The branch appended to (§10.3 branch key; recorded as origin_branch_id — gap note KG20)."
+        },
+        "expected_head_digest": {
+          "$ref": "#/$defs/digestHex",
+          "description": "The §10.3 expected branch head digest for compare-and-swap (gap note KG20)."
+        },
+        "kind": {
+          "$ref": "#/$defs/relationKind"
+        },
+        "from_ref": {
+          "$ref": "#/$defs/objectRefTriple"
+        },
+        "to_ref": {
+          "$ref": "#/$defs/objectRefTriple"
+        },
+        "rationale_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "schema_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Relation payload schema (§10.2); server-defaulted when omitted (gap note KG21 pattern)."
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "Worker-surface binding: every worker operation carries {attempt_id, fence_epoch} (§15.2). Required together with fence_epoch on the worker surface, forbidden on external_client — a (operation, surface) registry rule the shared schema cannot express (gap note KG14)."
+        },
+        "fence_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "Branch-append pin (gap note KG20) plus the caller-suppliable §10.2 SpaceRelation fields (gap note KG23). No relation_class member exists: an external caller cannot request, spoof, or upgrade a structural relation (§10.2 spelled).",
+      "required": [
+        "space_id",
+        "branch_id",
+        "expected_head_digest",
+        "kind",
+        "from_ref",
+        "to_ref"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "objectRefTriple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_ref",
+        "revision",
+        "digest"
+      ],
+      "properties": {
+        "object_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "Exact endpoint pin {object_ref, revision, digest} (§10.2 SpaceRelation from_ref/to_ref; exact object refs always include the applicable revision and canonical digest, §10 preamble)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "relationKind": {
+      "type": "string",
+      "enum": [
+        "addresses",
+        "supports",
+        "challenges",
+        "refines",
+        "qualifies",
+        "supersedes",
+        "depends_on",
+        "derived_from",
+        "produced_by",
+        "quotes",
+        "evaluates"
+      ],
+      "description": "Closed RelationKind enum, verbatim §10.2 (§11.8: closed). A relation confers no visibility, admission, truth, trust, acceptance, scheduling, execution, or permission (§10.2)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

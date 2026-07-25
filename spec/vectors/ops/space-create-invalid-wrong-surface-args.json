@@ -1,0 +1,27 @@
+{
+  "name": "ops/space-create-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the main branch is server-created with the space (§10.3, gap note KG5)",
+  "input": {
+    "schema": "space-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_create",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "title": "Battery research",
+        "visibility": "project",
+        "default_classification_ref": "class-internal",
+        "main_branch_id": "branch-0009"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member main_branch_id"
+  }
+}

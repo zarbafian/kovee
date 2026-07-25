@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/space-access-widen-prepare-request.schema.json",
+  "title": "KCP space_access_widen_prepare request (DESIGN.md §10.2, §11.6.1 access-widening prepare family)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Prepares a SpaceAccessWidening: args carry only the proposal deltas; Kovee pins the exact affected frontiers/item-set, classification join, current Space revision, and destination project audience (§10.2 spelled; gap note KG17). The exact Space revision travels as meta.expected_revision (§11.2). Widening the Space never declassifies an object (§10.2). Registry (shared_space_v1): surface external_client / authenticated steward/owner principal (assurance: current login; policy may require step-up). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "space_access_widen_prepare"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "proposed_visibility": {
+          "$ref": "#/$defs/spaceVisibility"
+        },
+        "proposed_policy_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "proposed_default_classification_ref": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "description": "Proposal deltas only (§10.2 field names verbatim); prior_*, affected_frontier_refs, digests, subject_digest, and prepared_by_principal are server-derived (gap notes KG5/KG17).",
+      "required": [
+        "space_id"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceVisibility": {
+      "type": "string",
+      "enum": [
+        "project",
+        "restricted"
+      ],
+      "description": "Closed Space.visibility enum, verbatim §10.2 (§11.8: closed). restricted additionally requires an active SpaceParticipant (§10.2)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

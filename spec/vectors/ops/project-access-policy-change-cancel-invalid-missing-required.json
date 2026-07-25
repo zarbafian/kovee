@@ -1,0 +1,22 @@
+{
+  "name": "ops/project-access-policy-change-cancel-invalid-missing-required",
+  "description": "missing required args member change_id",
+  "input": {
+    "schema": "project-access-policy-change-cancel-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_access_policy_change_cancel",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required change_id"
+  }
+}

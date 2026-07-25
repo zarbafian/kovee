@@ -1,0 +1,22 @@
+{
+  "name": "ops/snapshot-read-invalid-wrong-surface-args",
+  "description": "wrong-surface args: offset pagination is prohibited (§11.5); further pages see the same logical boundary through the snapshot token",
+  "input": {
+    "schema": "snapshot-read-request",
+    "value": {
+      "version": "0.1",
+      "op": "snapshot_read",
+      "realm_id": "realm-0001",
+      "args": {
+        "source": "space-contributions",
+        "snapshot": "snap-0001",
+        "limit": 100,
+        "offset": 100
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member offset"
+  }
+}

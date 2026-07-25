@@ -1,0 +1,20 @@
+{
+  "name": "ops/snapshot-read-invalid-missing-required",
+  "description": "missing required args member limit",
+  "input": {
+    "schema": "snapshot-read-request",
+    "value": {
+      "version": "0.1",
+      "op": "snapshot_read",
+      "realm_id": "realm-0001",
+      "args": {
+        "source": "space-contributions",
+        "snapshot": "snap-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required limit"
+  }
+}

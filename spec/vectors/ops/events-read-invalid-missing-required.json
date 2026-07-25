@@ -1,0 +1,23 @@
+{
+  "name": "ops/events-read-invalid-missing-required",
+  "description": "missing required args member source",
+  "input": {
+    "schema": "events-read-request",
+    "value": {
+      "version": "0.1",
+      "op": "events_read",
+      "realm_id": "realm-0001",
+      "args": {
+        "after_cursor": "cur-0001",
+        "type_prefixes": [
+          "dev.kovee.space"
+        ],
+        "limit": 200
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required source"
+  }
+}

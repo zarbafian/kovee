@@ -1,0 +1,22 @@
+{
+  "name": "ops/contribution-list-invalid-missing-required",
+  "description": "missing required args member space_id",
+  "input": {
+    "schema": "contribution-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "contribution_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "branch_id": "branch-0001",
+        "kind": "claim",
+        "limit": 100
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required space_id"
+  }
+}

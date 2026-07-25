@@ -1,0 +1,25 @@
+{
+  "name": "ops/project-access-policy-change-confirm-invalid-missing-required",
+  "description": "missing required args member decision_receipt_ref (§11.6.1: decision receipt for confirm)",
+  "input": {
+    "schema": "project-access-policy-change-confirm-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_access_policy_change_confirm",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "change_id": "change-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required decision_receipt_ref"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "ops/artifact-upload-abort-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the upload state machine is server-owned (§10.10, gap note KG29); state is never a request argument",
+  "input": {
+    "schema": "artifact-upload-abort-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_abort",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "upload_id": "upl-0001",
+        "reason": "superseded by a corrected export",
+        "state": "aborted"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member state"
+  }
+}

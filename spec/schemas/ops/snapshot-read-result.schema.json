@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/snapshot-read-result.schema.json",
+  "title": "KCP snapshot_read result (DESIGN.md §11.5, §11.6.1 read family)",
+  "description": "CommandResult.result payload for snapshot_read (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). §11.5 page of snapshot items (open item shape, gap note KG28) (gap notes KG4/KG9). §11.5 page shape verbatim: { items[], next?, snapshot, boundary_event_cursor }. The first page creates a stable snapshot token (expiry >= 15 minutes); further pages see the same logical boundary or return snapshot-expired; authorization is rechecked for every page (gap note KG9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "snapshot",
+    "boundary_event_cursor"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "description": "Snapshot item: the collection's record projection. Each collection's typed shape is pinned by its own *_list result; the generic snapshot item stays open (gap note KG28) and carries no authority."
+      },
+      "description": "Page of snapshot items; at most 512 items (§11.8 page read limit). Current revocation or erasure may remove an item even from the historical set (§11.5)."
+    },
+    "next": {
+      "$ref": "#/$defs/cursor"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/cursor"
+    },
+    "boundary_event_cursor": {
+      "$ref": "#/$defs/cursor"
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    }
+  }
+}

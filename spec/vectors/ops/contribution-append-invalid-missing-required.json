@@ -1,0 +1,49 @@
+{
+  "name": "ops/contribution-append-invalid-missing-required",
+  "description": "missing required args member expected_head_digest (§10.3: every branch append presents the expected head digest)",
+  "input": {
+    "schema": "contribution-append-request",
+    "value": {
+      "version": "0.1",
+      "op": "contribution_append",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "branch_id": "branch-0001",
+        "kind": "claim",
+        "body_parts": [
+          {
+            "media_type": "text/markdown",
+            "text": "Solid-state cells retain 92% capacity after 800 cycles.",
+            "language": "en"
+          },
+          {
+            "schema_ref": "schema:measurement-v1",
+            "value": {
+              "cycles": 800,
+              "retention_pct": 92
+            }
+          },
+          {
+            "object_ref": "contrib-0007",
+            "object_revision": 1,
+            "digest": "3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d"
+          }
+        ],
+        "subject_refs": [
+          "contrib-0007"
+        ],
+        "epistemic_posture": "tentative"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required expected_head_digest"
+  }
+}

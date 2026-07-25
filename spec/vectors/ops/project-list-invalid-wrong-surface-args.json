@@ -1,0 +1,20 @@
+{
+  "name": "ops/project-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: offset pagination is prohibited (§11.5); pagination is opaque-cursor only",
+  "input": {
+    "schema": "project-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "limit": 50,
+        "offset": 10
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member offset"
+  }
+}

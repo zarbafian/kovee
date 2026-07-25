@@ -1,0 +1,22 @@
+{
+  "name": "ops/space-participant-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: a participant's authority source is server-derived record state (gap notes KG5/KG19)",
+  "input": {
+    "schema": "space-participant-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "space_participant_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "limit": 50,
+        "authority_source_ref": "membership-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member authority_source_ref"
+  }
+}

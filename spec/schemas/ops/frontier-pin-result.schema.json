@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/frontier-pin-result.schema.json",
+  "title": "KCP frontier_pin result (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "CommandResult.result payload for frontier_pin (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The pinned SpaceFrontier projection (gap notes KG4/KG24/KG30).",
+  "$ref": "#/$defs/spaceFrontier",
+  "type": "object",
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "spaceFrontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frontier_id",
+        "revision",
+        "space_id",
+        "branch_id",
+        "branch_sequence",
+        "branch_head_digest",
+        "project_event_cursor",
+        "external_source_cursors",
+        "created_at",
+        "digest"
+      ],
+      "properties": {
+        "frontier_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "const": 1,
+          "description": "Immutable record: fixed revision 1 (§10 preamble; gap note KG30)."
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_sequence": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "branch_head_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "project_event_cursor": {
+          "$ref": "#/$defs/cursor"
+        },
+        "external_source_cursors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "External source cursor entry; no item shape is spelled in §10.2 — open pending a source-cursor registry (gap note KG24)."
+          }
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "SpaceFrontier projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG24/KG30)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

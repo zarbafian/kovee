@@ -1,0 +1,46 @@
+{
+  "name": "ops/contribution-append-valid-result",
+  "description": "full Contribution projection: server-derived identity, sequences, attribution, and content digest (gap notes KG4/KG5/KG21)",
+  "input": {
+    "schema": "contribution-append-result",
+    "value": {
+      "contribution_id": "contrib-0011",
+      "revision": 1,
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "space_id": "space-0001",
+      "origin_branch_id": "branch-0001",
+      "origin_branch_sequence": 18,
+      "space_sequence": 44,
+      "author_actor_ref": "prin-0001",
+      "kind": "claim",
+      "schema_ref": "schema:contribution-body-v1",
+      "body_parts": [
+        {
+          "media_type": "text/markdown",
+          "text": "Solid-state cells retain 92% capacity after 800 cycles.",
+          "language": "en"
+        },
+        {
+          "schema_ref": "schema:measurement-v1",
+          "value": {
+            "cycles": 800,
+            "retention_pct": 92
+          }
+        }
+      ],
+      "subject_refs": [
+        "contrib-0007"
+      ],
+      "source_refs": [],
+      "epistemic_posture": "tentative",
+      "classification_ref": "class-internal",
+      "retention_policy_ref": "ret-standard",
+      "content_digest": "2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e",
+      "created_at": "2026-07-26T09:00:00Z"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

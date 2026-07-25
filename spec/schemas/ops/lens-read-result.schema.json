@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/lens-read-result.schema.json",
+  "title": "KCP lens_read result (DESIGN.md §10.2, §11.6.1 read family)",
+  "description": "CommandResult.result payload for lens_read (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). §11.5 page of lens presentation items (open item shape, gap note KG25) (gap notes KG4/KG9). §11.5 page shape verbatim: { items[], next?, snapshot, boundary_event_cursor }. The first page creates a stable snapshot token (expiry >= 15 minutes); further pages see the same logical boundary or return snapshot-expired; authorization is rechecked for every page (gap note KG9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "snapshot",
+    "boundary_event_cursor"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "description": "Lens presentation projection over authorized canonical records; the item shape is the lens's declarative presentation and is not pinned in this slice (gap note KG25). Projections cannot add objects that fail ordinary authorization (§10.2)."
+      },
+      "description": "Page of lens presentation items; at most 512 items (§11.8 page read limit); every item passes ordinary authorization item-by-item (§10.4)."
+    },
+    "next": {
+      "$ref": "#/$defs/cursor"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/cursor"
+    },
+    "boundary_event_cursor": {
+      "$ref": "#/$defs/cursor"
+    }
+  },
+  "$defs": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+    }
+  }
+}

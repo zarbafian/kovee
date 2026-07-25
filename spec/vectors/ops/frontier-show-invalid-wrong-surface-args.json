@@ -1,0 +1,21 @@
+{
+  "name": "ops/frontier-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the frontier's head digest is a transaction observation (gap notes KG5/KG24), never a request argument",
+  "input": {
+    "schema": "frontier-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "frontier_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "frontier_id": "front-0001",
+        "branch_head_digest": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member branch_head_digest"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "ops/realm-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the read target is the envelope realm_id (gap note KG16); args is the closed empty object",
+  "input": {
+    "schema": "realm-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "realm_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "realm_id": "realm-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member realm_id"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ops/realm-show-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "realm-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "realm_show",
+      "realm_id": "realm-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}

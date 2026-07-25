@@ -1,0 +1,25 @@
+{
+  "name": "ops/artifact-upload-begin-invalid-replay-unkeyed",
+  "description": "replay/dependency invalidation: a mutation whose meta lacks idempotency_key cannot be replay-deduplicated or safely retried (§11.2)",
+  "input": {
+    "schema": "artifact-upload-begin-request",
+    "value": {
+      "version": "0.1",
+      "op": "artifact_upload_begin",
+      "meta": {
+        "request_id": "req-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "declared_raw_sha256": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
+        "declared_size": 1048576,
+        "declared_media_type": "application/pdf",
+        "classification_ref": "class-internal"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta.idempotency_key required on every mutation"
+  }
+}

@@ -58,10 +58,11 @@ const NODE_CAP = 65536; // JSON values per document (profile-pinned)
 const LIST_CAP = 256; // §11.8: a request contains at most 256 list items
 const INLINE_CONTENT_CAP = 65536; // §11.8: inline event payload content, 64 KiB
 
-// K0 per-operation schema suite: registry bundles delivered so far
-// (plan/sheets/K0.md; slice 1 = core_v1 + developer_assistant_v1; the
-// shared_space_v1 slice extends this list when it lands).
-const COVERED_BUNDLES = ["core_v1", "developer_assistant_v1"];
+// K0 per-operation schema suite: all three K1 bundles (plan/sheets/K0.md;
+// slice 1 = core_v1 + developer_assistant_v1, slice 2 = shared_space_v1 —
+// the per-operation suite is complete and every registry entry must be
+// schema-covered).
+const COVERED_BUNDLES = ["core_v1", "shared_space_v1", "developer_assistant_v1"];
 
 // §11.2 read/mutation split over the covered operations: reads never mutate
 // authoritative or user-visible state and never carry meta (R0 KENV-01);
@@ -85,6 +86,37 @@ const COVERED_READS = new Set([
   "assistant_alias_list",
   "invocation_show",
   "invocation_list",
+  // shared_space_v1 (slice 2): the generated *_show/*_list rows plus the
+  // named §11.6.1 read-family operations lens_read, events_read,
+  // events_wait, event_payload, snapshot_read, and the spelled
+  // non-mutating credential query artifact_upload_credential (§10.10;
+  // ops README gap notes KG28/KG29).
+  "realm_show",
+  "project_show",
+  "project_list",
+  "project_access_policy_change_show",
+  "project_access_policy_change_list",
+  "space_show",
+  "space_list",
+  "space_access_widen_show",
+  "space_access_widen_list",
+  "space_participant_list",
+  "space_access_grant_list",
+  "contribution_show",
+  "contribution_list",
+  "frontier_show",
+  "lens_show",
+  "lens_list",
+  "lens_read",
+  "context_assembly_show",
+  "events_read",
+  "events_wait",
+  "event_payload",
+  "snapshot_read",
+  "artifact_upload_show",
+  "artifact_upload_credential",
+  "artifact_show",
+  "disclosure_manifest_show",
 ]);
 
 /** @type {string[]} */
@@ -1099,7 +1131,7 @@ function loadSchemas(schemasDir) {
  * (registry key is (operation, surface); schema names key by operation —
  * ops README gap note KG14).
  * @param {string} registryPath
- * @returns {{ covered: number, total: number }}
+ * @returns {{ covered: number, total: number, entriesCovered: number, entriesTotal: number }}
  */
 function checkBundleCoverage(registryPath) {
   /** @type {any} */
@@ -1108,23 +1140,22 @@ function checkBundleCoverage(registryPath) {
     registry = strictParse(readFileSync(registryPath, "utf8"));
   } catch (e) {
     fail(registryPath, `cannot load registry: ${/** @type {Error} */ (e).message}`);
-    return { covered: 0, total: 0 };
+    return { covered: 0, total: 0, entriesCovered: 0, entriesTotal: 0 };
   }
-  const ops = [
-    ...new Set(
-      (registry.entries ?? [])
-        .filter((/** @type {any} */ e) => COVERED_BUNDLES.includes(e.bundle))
-        .map((/** @type {any} */ e) => e.operation),
-    ),
-  ].sort();
+  const entries = (registry.entries ?? []).filter((/** @type {any} */ e) =>
+    COVERED_BUNDLES.includes(e.bundle),
+  );
+  const ops = [...new Set(entries.map((/** @type {any} */ e) => e.operation))].sort();
   if (ops.length === 0) {
     fail(registryPath, `no registry entries for bundles ${COVERED_BUNDLES.join(", ")}`);
-    return { covered: 0, total: 0 };
+    return { covered: 0, total: 0, entriesCovered: 0, entriesTotal: 0 };
   }
   for (const op of [...COVERED_READS].filter((r) => !ops.includes(r)).sort()) {
     fail("bundle", `read list names ${op}, which is not a covered registry operation`);
   }
   let covered = 0;
+  /** @type {Set<string>} */
+  const passedOps = new Set();
   for (const op of ops) {
     const base = op.replaceAll("_", "-");
     const request = SCHEMAS.get(`${base}-request`);
@@ -1155,9 +1186,23 @@ function checkBundleCoverage(registryPath) {
         ok = false;
       }
     }
-    if (ok) covered += 1;
+    if (ok) {
+      covered += 1;
+      passedOps.add(op);
+    }
   }
-  return { covered, total: ops.length };
+  // Dual-surface operations share one schema pair keyed by operation, so
+  // coverage is also accounted per registry entry: with the per-operation
+  // suite complete every (operation, surface) entry must be schema-covered.
+  const entriesCovered = entries.filter((/** @type {any} */ e) => passedOps.has(e.operation)).length;
+  if (entriesCovered !== entries.length) {
+    fail(
+      "bundle",
+      `only ${entriesCovered}/${entries.length} registry entries schema-covered ` +
+        "(every entry of every covered bundle must be)",
+    );
+  }
+  return { covered, total: ops.length, entriesCovered, entriesTotal: entries.length };
 }
 
 /**
@@ -1244,7 +1289,8 @@ function main() {
 
   console.log(`tscheck: schemas ${SCHEMAS.size}/${nSchemas} loaded (minimal draft 2020-12 validator)`);
   console.log(
-    `tscheck: bundle coverage ${coverage.covered}/${coverage.total} ops ` +
+    `tscheck: bundle coverage ${coverage.covered}/${coverage.total} ops, ` +
+      `${coverage.entriesCovered}/${coverage.entriesTotal} registry entries ` +
       `(${COVERED_BUNDLES.join(", ")}) — request+result pair, op const, read/mutation meta rule`,
   );
   if (FAILURES.length > 0) {

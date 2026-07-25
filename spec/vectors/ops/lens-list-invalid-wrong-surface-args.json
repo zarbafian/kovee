@@ -1,0 +1,24 @@
+{
+  "name": "ops/lens-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: presentation configuration is stored lens state (§10.2, gap note KG25), not a listing argument",
+  "input": {
+    "schema": "lens-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "lens_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "limit": 50,
+        "presentation_options": {
+          "theme": "dark"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member presentation_options"
+  }
+}

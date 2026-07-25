@@ -1,0 +1,16 @@
+{
+  "name": "ops/realm-show-valid-request",
+  "description": "envelope-scoped realm read: closed empty args, target named by the envelope realm_id (gap note KG16)",
+  "input": {
+    "schema": "realm-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "realm_show",
+      "realm_id": "realm-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

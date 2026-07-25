@@ -1,0 +1,21 @@
+{
+  "name": "ops/contribution-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: authorship is server-recorded attribution (gap note KG5), never a request argument",
+  "input": {
+    "schema": "contribution-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "contribution_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "contribution_id": "contrib-0001",
+        "author_actor_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member author_actor_ref"
+  }
+}

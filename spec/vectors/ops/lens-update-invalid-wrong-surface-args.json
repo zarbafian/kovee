@@ -1,0 +1,29 @@
+{
+  "name": "ops/lens-update-invalid-wrong-surface-args",
+  "description": "wrong-surface args: a lens presents authorized records in one space (§10.2); update targets lens_id and cannot re-scope it (gap note KG25)",
+  "input": {
+    "schema": "lens-update-request",
+    "value": {
+      "version": "0.1",
+      "op": "lens_update",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 4
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "lens_id": "lens-0001",
+        "sort_spec": {
+          "by": "created_at"
+        },
+        "space_id": "space-0002"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member space_id"
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/reaction-set-result.schema.json",
+  "title": "KCP reaction_set result (DESIGN.md §10.2, §11.6.1 space/content mutation family)",
+  "description": "CommandResult.result payload for reaction_set (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The upserted Reaction projection (gap notes KG4/KG27).",
+  "$ref": "#/$defs/reaction",
+  "type": "object",
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "reaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reaction_id",
+        "space_id",
+        "target_ref",
+        "target_revision",
+        "target_digest",
+        "actor_ref",
+        "key",
+        "state",
+        "revision",
+        "updated_at"
+      ],
+      "properties": {
+        "reaction_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "target_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "actor_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "key": {
+          "$ref": "#/$defs/statusToken",
+          "description": "Reaction key token (§10.2 Reaction.key); no vocabulary pinned (gap note KG27)."
+        },
+        "state": {
+          "$ref": "#/$defs/reactionState"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "Reaction projection, field names verbatim from the §10.2 record shape (gap notes KG4/KG27); a lightweight mutable presentation signal — not evidence, a vote, consensus, acceptance, attention, or authority (§10.2)."
+    },
+    "reactionState": {
+      "type": "string",
+      "enum": [
+        "present",
+        "removed"
+      ],
+      "description": "Closed Reaction.state enum, verbatim §10.2 (§11.8: closed); reaction_set upserts under UNIQUE(target_ref, actor_ref, key) (gap note KG27)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Bounded lowercase token for a field DESIGN.md names without pinning a value space; pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

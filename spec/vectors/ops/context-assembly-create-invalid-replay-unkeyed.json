@@ -1,0 +1,31 @@
+{
+  "name": "ops/context-assembly-create-invalid-replay-unkeyed",
+  "description": "replay/dependency invalidation: a mutation whose meta lacks idempotency_key cannot be replay-deduplicated or safely retried (§11.2)",
+  "input": {
+    "schema": "context-assembly-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "context_assembly_create",
+      "meta": {
+        "request_id": "req-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "space_id": "space-0001",
+        "branch_id": "branch-0001",
+        "audience_ref": "asstdep-0001",
+        "purpose": "Summarize the current claim set for the review invocation.",
+        "selection_policy_ref": "explicit_refs_v1",
+        "required_refs": [
+          "contrib-0007",
+          "contrib-0011"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta.idempotency_key required on every mutation"
+  }
+}

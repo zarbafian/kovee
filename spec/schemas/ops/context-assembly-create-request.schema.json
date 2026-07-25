@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/context-assembly-create-request.schema.json",
+  "title": "KCP context_assembly_create request (DESIGN.md §10.8, §14.1, §11.6.1 prepare/propose + worker families)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Requests an immutable ContextAssembly (§10.8): the §11.6.1 context-assembly-request row's inputs mapped onto §10.8 field names (gap note KG26). K1 direct invocation uses the built-in explicit_refs_v1 selection policy and needs no saved recipe (§10.8 spelled); required refs are never silently replaced — assembly fails rather than silently truncating (§10.8). The wire form of ctx.assemble_context (§14.1); the SDK operation_key travels as meta.idempotency_key (gap note KG15 pattern). Dual-surface operation: one schema pair serves both registry entries (byom G35 pattern; gap note KG14). Registry (shared_space_v1): surface external_client / principal (assurance: current login) | surface worker / fenced worker (exact listed proposal operation in its capability) (assurance: worker capability). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "context_assembly_create"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "audience_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The intended assembly audience (§10.8 record field); materialization reauthorizes the requester/target/source/destination intersection on every use (§10.8)."
+        },
+        "purpose": {
+          "$ref": "#/$defs/freeText"
+        },
+        "selection_policy_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Every assembly binds one selection-policy identifier and digest (§10.8 spelled); K1 uses the built-in explicit_refs_v1 policy."
+        },
+        "required_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Exact explicit selection input (§14.1 required_refs; §10.8: stale, erased, reclassified, or unauthorized inputs cause explicit omission or failure). At most 256 list items per request (§11.8)."
+        },
+        "trigger_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "§10.8 trigger_refs[]; at most 256 list items per request (§11.8)."
+        },
+        "recipe_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Optional exact ContextRecipe binding (§10.8); reusable/dynamic assemblies are K2 (gap note KG26)."
+        },
+        "recipe_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/identifier",
+          "description": "Worker-surface binding: every worker operation carries {attempt_id, fence_epoch} (§15.2). Required together with fence_epoch on the worker surface, forbidden on external_client — a (operation, surface) registry rule the shared schema cannot express (gap note KG14)."
+        },
+        "fence_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "Caller-suppliable §10.8 ContextAssembly fields (gap note KG26); frontier_ref/digest, items, relations, transformations, omissions, classification join, totals, versions, authority members, and the assembly digest are server-derived selection evidence (gap note KG5).",
+      "required": [
+        "space_id",
+        "branch_id",
+        "audience_ref",
+        "purpose",
+        "selection_policy_ref"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "freeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "Bounded free text. §11.8 bounds free text again at admission; the 4096-scalar schema ceiling is the recorded extraction bound (ops README gap note KG8)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

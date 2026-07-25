@@ -1,0 +1,24 @@
+{
+  "name": "ops/contribution-redact-invalid-missing-required",
+  "description": "missing required args member contribution_ref",
+  "input": {
+    "schema": "contribution-redact-request",
+    "value": {
+      "version": "0.1",
+      "op": "contribution_redact",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "reason_class": "policy_erasure"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required contribution_ref"
+  }
+}

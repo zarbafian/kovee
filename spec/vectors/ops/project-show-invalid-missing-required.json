@@ -1,0 +1,17 @@
+{
+  "name": "ops/project-show-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "project-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "project_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}
