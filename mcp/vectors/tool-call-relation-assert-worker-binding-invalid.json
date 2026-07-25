@@ -1,0 +1,32 @@
+{
+  "name": "mcp/tool-call-relation-assert-worker-binding-invalid",
+  "description": "worker-binding smuggling: {attempt_id, fence_epoch} is the §15.2 worker-surface binding, forbidden on external_client (gap note KG14) — the participant tool's closed input schema does not declare it, so the call fails even though the rest of the input is a well-formed relation assertion",
+  "input": {
+    "tool_call": {
+      "profile": "participant",
+      "tool": "kovee_relation_assert",
+      "input": {
+        "space_id": "space-9",
+        "branch_id": "branch-main",
+        "expected_head_digest": "b1946ac92492d2347c6235b4d2611184b1946ac92492d2347c6235b4d2611184",
+        "kind": "supports",
+        "from_ref": {
+          "object_ref": "contribution-114",
+          "revision": 1,
+          "digest": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        "to_ref": {
+          "object_ref": "contribution-98",
+          "revision": 1,
+          "digest": "7d793037a0760186574b0282f2f435e7d793037a0760186574b0282f2f435e77"
+        },
+        "attempt_id": "attempt-3",
+        "fence_epoch": 7
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "the worker binding travels only on the worker surface; the kovee-mcp participant binding is external_client only and its tools never declare attempt_id/fence_epoch"
+  }
+}

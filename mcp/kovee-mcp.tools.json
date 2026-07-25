@@ -1,0 +1,917 @@
+{
+ "document": "kovee-mcp.tools",
+ "version": "0.1.0",
+ "kcp_protocol_version": "0.1",
+ "source": {
+  "sheet": "../plan/sheets/C3a.md",
+  "registry": "spec/registry.json",
+  "op_schemas": "spec/schemas/ops/"
+ },
+ "sheet_ops": {
+  "contribution_append": [
+   "contribution_append"
+  ],
+  "contribution_show": [
+   "contribution_show"
+  ],
+  "contribution_list": [
+   "contribution_list"
+  ],
+  "relation_add": [
+   "relation_assert"
+  ],
+  "space_show": [
+   "space_show"
+  ],
+  "context_assembly_show": [
+   "context_assembly_show"
+  ],
+  "artifact_upload": [
+   "artifact_upload_begin",
+   "artifact_upload_show",
+   "artifact_upload_credential",
+   "artifact_upload_finalize",
+   "artifact_upload_abort"
+  ],
+  "artifact_show": [
+   "artifact_show"
+  ],
+  "events_read": [
+   "events_read"
+  ],
+  "events_wait": [
+   "events_wait"
+  ]
+ },
+ "profiles": {
+  "participant": {
+   "profile": "participant",
+   "binding": {
+    "sender_constraint": "authenticated_participant_channel",
+    "surfaces": [
+     "external_client"
+    ],
+    "excluded_surfaces": [
+     "worker",
+     "operator"
+    ],
+    "channel_scope": [
+     "realm_id",
+     "project_id"
+    ],
+    "elicitation_is_assent": false
+   },
+   "tools": [
+    {
+     "name": "kovee_contribution_append",
+     "op": "contribution_append",
+     "sheet_op": "contribution_append",
+     "op_request_schema": "contribution-append-request",
+     "access": "gated",
+     "description": "Append one immutable Contribution to a branch: present the target branch and expected head digest for the §10.3 compare-and-swap (a stale writer must rebase or fork). Caller-suppliable §10.2 fields only — sequences, author, and content digest are server-derived. Mutation — gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "space_id",
+       "branch_id",
+       "expected_head_digest",
+       "kind",
+       "body_parts"
+      ],
+      "properties": {
+       "space_id": {
+        "$ref": "#/$defs/identifier"
+       },
+       "branch_id": {
+        "$ref": "#/$defs/identifier",
+        "description": "The branch appended to (§10.3 branch key; recorded on the Contribution as origin_branch_id — gap note KG20)."
+       },
+       "expected_head_digest": {
+        "$ref": "#/$defs/digestHex",
+        "description": "The §10.3 expected branch head digest for compare-and-swap; a stale writer must rebase or fork (gap note KG20)."
+       },
+       "kind": {
+        "$ref": "#/$defs/contributionKind"
+       },
+       "body_parts": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 256,
+        "items": {
+         "$ref": "#/$defs/contributionPart"
+        },
+        "description": "§10.2 body_parts[]; at most 256 list items per request (§11.8)."
+       },
+       "schema_ref": {
+        "$ref": "#/$defs/identifier",
+        "description": "Contribution payload schema (§10.2); server-defaulted when omitted and always present in the result projection (gap note KG21)."
+       },
+       "subject_refs": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+         "$ref": "#/$defs/identifier"
+        },
+        "description": "§10.2 subject_refs[]; every ref points to an object in the same space or an admitted local copy (§10.2). At most 256 list items per request (§11.8)."
+       },
+       "source_refs": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+         "$ref": "#/$defs/identifier"
+        },
+        "description": "§10.2 source_refs[]; provenance refs under the same same-space/admitted-copy rule (§10.2). At most 256 list items per request (§11.8)."
+       },
+       "epistemic_posture": {
+        "$ref": "#/$defs/epistemicPosture"
+       },
+       "classification_ref": {
+        "$ref": "#/$defs/identifier",
+        "description": "Optional: defaults from the Space's default classification when omitted (gap note KG21); appending reauthorizes every referenced object and joins its classification (§10.2)."
+       },
+       "retention_policy_ref": {
+        "$ref": "#/$defs/identifier",
+        "description": "Optional: defaults from policy when omitted (gap note KG21)."
+       }
+      },
+      "$defs": {
+       "artifactPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "artifact_ref"
+        ],
+        "properties": {
+         "artifact_ref": {
+          "$ref": "#/$defs/identifier"
+         },
+         "title": {
+          "$ref": "#/$defs/displayName"
+         }
+        },
+        "description": "ArtifactPart {artifact_ref, title?} (§10.2); nothing may reference an artifact as available before finalization completes (§10.10)."
+       },
+       "contributionKind": {
+        "type": "string",
+        "enum": [
+         "utterance",
+         "goal",
+         "question",
+         "claim",
+         "observation",
+         "evidence",
+         "proposal",
+         "critique",
+         "synthesis",
+         "result",
+         "decision_reference",
+         "system_notice"
+        ],
+        "description": "Closed ContributionKind enum, verbatim §10.2 (§11.8: closed). Only services may append a system_notice (§10.4) — a registry/authorization rule, not schema-expressible."
+       },
+       "contributionPart": {
+        "oneOf": [
+         {
+          "$ref": "#/$defs/textPart"
+         },
+         {
+          "$ref": "#/$defs/dataPart"
+         },
+         {
+          "$ref": "#/$defs/artifactPart"
+         },
+         {
+          "$ref": "#/$defs/referencePart"
+         },
+         {
+          "$ref": "#/$defs/mentionPart"
+         }
+        ],
+        "description": "§10.2 ContributionPart union, discriminated structurally by the disjoint closed required member sets of its five arms — no type tag exists in the record model; §14.1's {\"type\": \"text\"} literal is SDK sugar (gap note KG21)."
+       },
+       "dataPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "schema_ref",
+         "value"
+        ],
+        "properties": {
+         "schema_ref": {
+          "$ref": "#/$defs/identifier"
+         },
+         "value": {
+          "description": "Typed data validated by the schema at schema_ref; any JSON value here (§10.2 DataPart). Unknown extension kinds remain inert data and never create authority (§10.2)."
+         }
+        },
+        "description": "DataPart {schema_ref, value} (§10.2)."
+       },
+       "digestHex": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+       },
+       "displayName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+       },
+       "epistemicPosture": {
+        "type": "string",
+        "enum": [
+         "asserted",
+         "tentative",
+         "observed",
+         "reported",
+         "contested"
+        ],
+        "description": "Closed Contribution.epistemic_posture enum, verbatim §10.2 (§11.8: closed)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "inlineText": {
+        "type": "string",
+        "maxLength": 65536,
+        "description": "Contribution inline text content, bounded by the §11.8 64 KiB contribution-inline-content cap; maxLength counts Unicode scalar values and the byte cap is re-checked at admission (gap note KG21)."
+       },
+       "languageTag": {
+        "type": "string",
+        "pattern": "^[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*$",
+        "maxLength": 64,
+        "description": "BCP 47-shaped language tag for TextPart.language (§10.2 names the field with no encoding; recorded extraction bound, gap note KG21)."
+       },
+       "mediaType": {
+        "type": "string",
+        "pattern": "^[!#$%&'*+.^_`|~a-zA-Z0-9-]+/[!#$%&'*+.^_`|~a-zA-Z0-9-]+$",
+        "maxLength": 128,
+        "description": "RFC 6838 type/subtype token pair (media_type/declared_media_type); parameters are not carried in these fields — recorded extraction bound (gap note KG21/KG29)."
+       },
+       "mentionPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "target_kind",
+         "target_ref",
+         "target_revision",
+         "display_text"
+        ],
+        "properties": {
+         "target_kind": {
+          "type": "string",
+          "enum": [
+           "principal",
+           "assistant_alias"
+          ],
+          "description": "Closed MentionPart.target_kind enum, verbatim §10.2 (§11.8: closed)."
+         },
+         "target_ref": {
+          "$ref": "#/$defs/identifier"
+         },
+         "target_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+         },
+         "display_text": {
+          "$ref": "#/$defs/displayName"
+         }
+        },
+        "description": "MentionPart (§10.2); a structured mention resolves an exact visible alias/deployment revision and is inert address data without a direct invocation command or an accepted AttentionContract (§10.4)."
+       },
+       "referencePart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "object_ref"
+        ],
+        "properties": {
+         "object_ref": {
+          "$ref": "#/$defs/identifier"
+         },
+         "object_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+         },
+         "digest": {
+          "$ref": "#/$defs/digestHex"
+         }
+        },
+        "description": "ReferencePart {object_ref, object_revision?, digest?} (§10.2); every ref points to an object in the same space or an admitted local copy (§10.2)."
+       },
+       "safeNonNegativeInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+       },
+       "textPart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "media_type",
+         "text"
+        ],
+        "properties": {
+         "media_type": {
+          "$ref": "#/$defs/mediaType"
+         },
+         "text": {
+          "$ref": "#/$defs/inlineText"
+         },
+         "language": {
+          "$ref": "#/$defs/languageTag"
+         }
+        },
+        "description": "TextPart {media_type, text, language?} (§10.2)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_contribution_show",
+     "op": "contribution_show",
+     "sheet_op": "contribution_show",
+     "op_request_schema": "contribution-show-request",
+     "access": "safe_to_allow",
+     "description": "Read one Contribution by id (participant-scoped projection). Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "contribution_id"
+      ],
+      "properties": {
+       "contribution_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_contribution_list",
+     "op": "contribution_list",
+     "sheet_op": "contribution_list",
+     "op_request_schema": "contribution-list-request",
+     "access": "safe_to_allow",
+     "description": "List Contributions in a Space (optional branch/kind narrowing) under the §11.5 page envelope; filters narrow, never widen, visibility. Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "space_id",
+       "limit"
+      ],
+      "properties": {
+       "space_id": {
+        "$ref": "#/$defs/identifier",
+        "description": "Exact Space scope (gap note KG9 — scopes never widen visibility)."
+       },
+       "branch_id": {
+        "$ref": "#/$defs/identifier",
+        "description": "Narrowing-only filter to one visible branch (gap note KG9)."
+       },
+       "kind": {
+        "$ref": "#/$defs/contributionKind",
+        "description": "Narrowing-only ContributionKind filter (gap note KG9)."
+       },
+       "after": {
+        "$ref": "#/$defs/cursor"
+       },
+       "limit": {
+        "$ref": "#/$defs/pageLimit"
+       },
+       "snapshot": {
+        "$ref": "#/$defs/cursor"
+       }
+      },
+      "$defs": {
+       "contributionKind": {
+        "type": "string",
+        "enum": [
+         "utterance",
+         "goal",
+         "question",
+         "claim",
+         "observation",
+         "evidence",
+         "proposal",
+         "critique",
+         "synthesis",
+         "result",
+         "decision_reference",
+         "system_notice"
+        ],
+        "description": "Closed ContributionKind enum, verbatim §10.2 (§11.8: closed). Only services may append a system_notice (§10.4) — a registry/authorization rule, not schema-expressible."
+       },
+       "cursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "pageLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512,
+        "description": "Explicit page read limit; at most 512 (§11.8)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_relation_assert",
+     "op": "relation_assert",
+     "sheet_op": "relation_add",
+     "op_request_schema": "relation-assert-request",
+     "access": "gated",
+     "description": "Assert one semantic SpaceRelation between exact object revisions on a branch (compare-and-swap append). No relation_class argument exists: an external caller can never request, spoof, or upgrade a structural relation (§10.2). Mutation — gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "space_id",
+       "branch_id",
+       "expected_head_digest",
+       "kind",
+       "from_ref",
+       "to_ref"
+      ],
+      "properties": {
+       "space_id": {
+        "$ref": "#/$defs/identifier"
+       },
+       "branch_id": {
+        "$ref": "#/$defs/identifier",
+        "description": "The branch appended to (§10.3 branch key; recorded as origin_branch_id — gap note KG20)."
+       },
+       "expected_head_digest": {
+        "$ref": "#/$defs/digestHex",
+        "description": "The §10.3 expected branch head digest for compare-and-swap (gap note KG20)."
+       },
+       "kind": {
+        "$ref": "#/$defs/relationKind"
+       },
+       "from_ref": {
+        "$ref": "#/$defs/objectRefTriple"
+       },
+       "to_ref": {
+        "$ref": "#/$defs/objectRefTriple"
+       },
+       "rationale_ref": {
+        "$ref": "#/$defs/identifier"
+       },
+       "schema_ref": {
+        "$ref": "#/$defs/identifier",
+        "description": "Relation payload schema (§10.2); server-defaulted when omitted (gap note KG21 pattern)."
+       }
+      },
+      "$defs": {
+       "digestHex": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "objectRefTriple": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+         "object_ref",
+         "revision",
+         "digest"
+        ],
+        "properties": {
+         "object_ref": {
+          "$ref": "#/$defs/identifier"
+         },
+         "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+         },
+         "digest": {
+          "$ref": "#/$defs/digestHex"
+         }
+        },
+        "description": "Exact endpoint pin {object_ref, revision, digest} (§10.2 SpaceRelation from_ref/to_ref; exact object refs always include the applicable revision and canonical digest, §10 preamble)."
+       },
+       "relationKind": {
+        "type": "string",
+        "enum": [
+         "addresses",
+         "supports",
+         "challenges",
+         "refines",
+         "qualifies",
+         "supersedes",
+         "depends_on",
+         "derived_from",
+         "produced_by",
+         "quotes",
+         "evaluates"
+        ],
+        "description": "Closed RelationKind enum, verbatim §10.2 (§11.8: closed). A relation confers no visibility, admission, truth, trust, acceptance, scheduling, execution, or permission (§10.2)."
+       },
+       "safeNonNegativeInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_space_show",
+     "op": "space_show",
+     "sheet_op": "space_show",
+     "op_request_schema": "space-show-request",
+     "access": "safe_to_allow",
+     "description": "Read one Space record by id. Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "space_id"
+      ],
+      "properties": {
+       "space_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_context_assembly_show",
+     "op": "context_assembly_show",
+     "sheet_op": "context_assembly_show",
+     "op_request_schema": "context-assembly-show-request",
+     "access": "safe_to_allow",
+     "description": "Read one ContextAssembly (selection evidence: items, omissions, digests) by assembly id. Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "assembly_id"
+      ],
+      "properties": {
+       "assembly_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_upload_begin",
+     "op": "artifact_upload_begin",
+     "sheet_op": "artifact_upload",
+     "op_request_schema": "artifact-upload-begin-request",
+     "access": "gated",
+     "description": "Begin one artifact upload: declare the raw sha-256, size, and media type (§10.10); limits, expiry, and the staging key are server-derived from realm policy, and the result is the narrow canonical projection — never a credential. First step of the flow the C3a sheet names artifact_upload. Mutation — gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "declared_raw_sha256",
+       "declared_size",
+       "declared_media_type"
+      ],
+      "properties": {
+       "declared_raw_sha256": {
+        "$ref": "#/$defs/rawSha256"
+       },
+       "declared_size": {
+        "$ref": "#/$defs/safeNonNegativeInteger"
+       },
+       "declared_media_type": {
+        "$ref": "#/$defs/mediaType"
+       },
+       "classification_ref": {
+        "$ref": "#/$defs/identifier",
+        "description": "Optional: defaults from realm policy when omitted (gap note KG29)."
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "mediaType": {
+        "type": "string",
+        "pattern": "^[!#$%&'*+.^_`|~a-zA-Z0-9-]+/[!#$%&'*+.^_`|~a-zA-Z0-9-]+$",
+        "maxLength": 128,
+        "description": "RFC 6838 type/subtype token pair (media_type/declared_media_type); parameters are not carried in these fields — recorded extraction bound (gap note KG21/KG29)."
+       },
+       "rawSha256": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "Ordinary raw SHA-256 content checksum (raw_sha256/declared_raw_sha256, §10.10) for integrity and content-addressing; a different field type from the §11.8 typed digests, never interchangeable with them even when the 32-byte values match (§11.8)."
+       },
+       "safeNonNegativeInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_upload_show",
+     "op": "artifact_upload_show",
+     "sheet_op": "artifact_upload",
+     "op_request_schema": "artifact-upload-show-request",
+     "access": "safe_to_allow",
+     "description": "Read one ArtifactUpload record (status and declared constraints) by upload id; storage members are durable references, never credentials (§10.10). Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "upload_id"
+      ],
+      "properties": {
+       "upload_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_upload_credential",
+     "op": "artifact_upload_credential",
+     "sheet_op": "artifact_upload",
+     "op_request_schema": "artifact-upload-credential-request",
+     "access": "gated",
+     "description": "Obtain a fresh short-lived storage credential for an open upload (§10.10). Non-mutating, but the result carries a live credential that is never stored in a canonical projection (gap note KG29) — authority-bearing, so it stays gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "upload_id"
+      ],
+      "properties": {
+       "upload_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_upload_finalize",
+     "op": "artifact_upload_finalize",
+     "sheet_op": "artifact_upload",
+     "op_request_schema": "artifact-upload-finalize-request",
+     "access": "gated",
+     "description": "Finalize one upload after the bytes are staged: verification pins the declared checksum, and nothing may reference the artifact as available before finalization completes (§10.10). Mutation — gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "upload_id"
+      ],
+      "properties": {
+       "upload_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_upload_abort",
+     "op": "artifact_upload_abort",
+     "sheet_op": "artifact_upload",
+     "op_request_schema": "artifact-upload-abort-request",
+     "access": "gated",
+     "description": "Abort one open upload (optional bounded reason); staged bytes are discarded. Mutation — gated.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "upload_id"
+      ],
+      "properties": {
+       "upload_id": {
+        "$ref": "#/$defs/identifier"
+       },
+       "reason": {
+        "$ref": "#/$defs/freeText"
+       }
+      },
+      "$defs": {
+       "freeText": {
+        "type": "string",
+        "maxLength": 4096,
+        "description": "Bounded free text. §11.8 bounds free text again at admission; the 4096-scalar schema ceiling is the recorded extraction bound (ops README gap note KG8)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_artifact_show",
+     "op": "artifact_show",
+     "sheet_op": "artifact_show",
+     "op_request_schema": "artifact-show-request",
+     "access": "safe_to_allow",
+     "description": "Read one finalized Artifact record by id; artifact ids are not bearer secrets and every fetch reauthorizes (§10.10). Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "artifact_id"
+      ],
+      "properties": {
+       "artifact_id": {
+        "$ref": "#/$defs/identifier"
+       }
+      },
+      "$defs": {
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_events_read",
+     "op": "events_read",
+     "sheet_op": "events_read",
+     "op_request_schema": "events-read-request",
+     "access": "safe_to_allow",
+     "description": "Read committed events from a source stream after a cursor (§11.4) with optional type-prefix narrowing. The participant-scoped binding pins the project scope, so no project_id argument exists on this tool. Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "source",
+       "limit"
+      ],
+      "properties": {
+       "source": {
+        "$ref": "#/$defs/identifier",
+        "description": "Event source selector (§11.4); opaque — the public cursor encodes source stream, sequence, snapshot epoch, and filter boundary and is never a NATS sequence (§11.3)."
+       },
+       "after_cursor": {
+        "$ref": "#/$defs/cursor"
+       },
+       "type_prefixes": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+         "$ref": "#/$defs/eventTypePrefix"
+        },
+        "description": "§11.4 type_prefixes; at most 256 list items per request (§11.8)."
+       },
+       "limit": {
+        "$ref": "#/$defs/pageLimit"
+       }
+      },
+      "$defs": {
+       "cursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+       },
+       "eventTypePrefix": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)*$",
+        "maxLength": 128,
+        "description": "Reverse-domain event-type prefix filter (§11.4 type_prefixes); filters narrow, never widen, the authorized delivery set (gap note KG28)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "pageLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 512,
+        "description": "Explicit page read limit; at most 512 (§11.8)."
+       }
+      }
+     }
+    },
+    {
+     "name": "kovee_events_wait",
+     "op": "events_wait",
+     "sheet_op": "events_wait",
+     "op_request_schema": "events-wait-request",
+     "access": "safe_to_allow",
+     "description": "Long-poll for events after a cursor with a bounded timeout (§11.4); filters narrow, never widen, the authorized set. Read-only — safe to allow.",
+     "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "source",
+       "after_cursor",
+       "timeout_ms"
+      ],
+      "properties": {
+       "source": {
+        "$ref": "#/$defs/identifier",
+        "description": "Event source selector (§11.4); opaque (§11.3)."
+       },
+       "after_cursor": {
+        "$ref": "#/$defs/cursor"
+       },
+       "filters": {
+        "type": "object",
+        "description": "Delivery filters (§11.4 names the member with no grammar); open object that narrows, never widens, the authorized set (gap note KG28)."
+       },
+       "timeout_ms": {
+        "$ref": "#/$defs/safeNonNegativeInteger",
+        "description": "Long-poll timeout in milliseconds (§11.4); DESIGN.md pins no ceiling (gap note KG28)."
+       }
+      },
+      "$defs": {
+       "cursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "description": "Opaque, authenticated cursor or snapshot token (§11.3, §11.5); the 4096-char ceiling is the K0 cursor-cap extraction decision (spec/schemas/README.md item 9)."
+       },
+       "identifier": {
+        "type": "string",
+        "pattern": "^[\\x21-\\x7e]{1,128}$",
+        "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+       },
+       "safeNonNegativeInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "excluded_surfaces": {
+  "assertion": "No worker- or operator-surface operation is bound as a tool, ever.",
+  "surfaces": [
+   "worker",
+   "operator"
+  ]
+ }
+}

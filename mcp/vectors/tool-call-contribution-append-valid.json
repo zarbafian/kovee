@@ -1,0 +1,26 @@
+{
+  "name": "mcp/tool-call-contribution-append-valid",
+  "description": "participant-profile kovee_contribution_append call: one observation appended to a branch under the §10.3 compare-and-swap pin (branch_id + expected_head_digest), one markdown TextPart; realm/project scope and meta come from the channel, never the caller",
+  "input": {
+    "tool_call": {
+      "profile": "participant",
+      "tool": "kovee_contribution_append",
+      "input": {
+        "space_id": "space-9",
+        "branch_id": "branch-main",
+        "expected_head_digest": "b1946ac92492d2347c6235b4d2611184b1946ac92492d2347c6235b4d2611184",
+        "kind": "observation",
+        "body_parts": [
+          {
+            "media_type": "text/markdown",
+            "text": "Latency regression traced to the retry loop in the ingest worker."
+          }
+        ],
+        "epistemic_posture": "observed"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

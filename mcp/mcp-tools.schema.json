@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/mcp/v0/mcp-tools.schema.json",
+  "title": "kovee-mcp tool-schema document (C3a)",
+  "description": "Closed meta-schema for mcp/kovee-mcp.tools.json — the versioned MCP tool bundle binding the C3a sheet's kovee-mcp participant profile (../plan/sheets/C3a.md) onto the K0-frozen registry's operation names (spec/registry.json). Tool names are a closed enum of exactly 14, so a worker- or operator-surface operation as a tool name fails this schema (deny-by-absence); the profiles object is itself closed — exactly one participant profile, no candidate/worker/operator profile can exist. The sheet_ops const pins every sheet-name-to-registry-name mapping (relation_add binds relation_assert; artifact_upload expands to the registry's five-operation upload flow). Per-tool input schemas are derived from the spec/schemas/ops request args minus the channel-derived fields; the field-subset, access, and registry-surface rules JSON Schema cannot express are enforced by mcp/check.py (standalone; runner wiring deferred).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "document",
+    "version",
+    "kcp_protocol_version",
+    "source",
+    "sheet_ops",
+    "profiles",
+    "excluded_surfaces"
+  ],
+  "properties": {
+    "document": {
+      "const": "kovee-mcp.tools"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Version of this tool-schema document (a lock-manifest row per the C3a sheet)."
+    },
+    "kcp_protocol_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "The KCP major.minor version whose op schemas these tools bind (§11; initial version 0.1)."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sheet", "registry", "op_schemas"],
+      "properties": {
+        "sheet": {
+          "const": "../plan/sheets/C3a.md"
+        },
+        "registry": {
+          "const": "spec/registry.json"
+        },
+        "op_schemas": {
+          "const": "spec/schemas/ops/"
+        }
+      },
+      "description": "Provenance pins: the closed op list comes from the C3a sheet (family plan repository, sibling checkout), the operation names and surfaces from the K0-frozen registry, the input schemas from the committed op request schemas."
+    },
+    "sheet_ops": {
+      "const": {
+        "contribution_append": ["contribution_append"],
+        "contribution_show": ["contribution_show"],
+        "contribution_list": ["contribution_list"],
+        "relation_add": ["relation_assert"],
+        "space_show": ["space_show"],
+        "context_assembly_show": ["context_assembly_show"],
+        "artifact_upload": [
+          "artifact_upload_begin",
+          "artifact_upload_show",
+          "artifact_upload_credential",
+          "artifact_upload_finalize",
+          "artifact_upload_abort"
+        ],
+        "artifact_show": ["artifact_show"],
+        "events_read": ["events_read"],
+        "events_wait": ["events_wait"]
+      },
+      "description": "The recorded sheet-name-to-registry-name mapping, const-pinned: the C3a sheet's ten kovee-mcp ops in sheet order, each mapped to the registry operation(s) that realize it. relation_add is the sheet's name for the registry's relation_assert; artifact_upload names the §10.10 upload flow, which the registry decomposes into begin/show/credential/finalize/abort (registry order); every other sheet name is also the registry name. No sheet op is without a registry counterpart."
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participant"],
+      "properties": {
+        "participant": {
+          "$ref": "#/$defs/participantProfile"
+        }
+      },
+      "description": "Exactly the one C3a kovee-mcp profile; closed — no candidate, worker, operator, or any other profile exists."
+    },
+    "excluded_surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion", "surfaces"],
+      "properties": {
+        "assertion": {
+          "const": "No worker- or operator-surface operation is bound as a tool, ever."
+        },
+        "surfaces": {
+          "const": ["worker", "operator"]
+        }
+      },
+      "description": "The deny-by-absence assertion (C3a sheet: participant-scoped KCP rows only). The closed tool-name enum makes it structural; this records it in the document itself, and mcp/check.py re-derives it against the registry's per-surface rows."
+    }
+  },
+  "$defs": {
+    "participantToolName": {
+      "enum": [
+        "kovee_contribution_append",
+        "kovee_contribution_show",
+        "kovee_contribution_list",
+        "kovee_relation_assert",
+        "kovee_space_show",
+        "kovee_context_assembly_show",
+        "kovee_artifact_upload_begin",
+        "kovee_artifact_upload_show",
+        "kovee_artifact_upload_credential",
+        "kovee_artifact_upload_finalize",
+        "kovee_artifact_upload_abort",
+        "kovee_artifact_show",
+        "kovee_events_read",
+        "kovee_events_wait"
+      ],
+      "description": "The exact participant-profile tool set: the C3a sheet's ten kovee-mcp ops in sheet order under the sheet_ops mapping (artifact_upload expanded to the registry's five upload operations). external_client surface only."
+    },
+    "sheetOpName": {
+      "enum": [
+        "contribution_append",
+        "contribution_show",
+        "contribution_list",
+        "relation_add",
+        "space_show",
+        "context_assembly_show",
+        "artifact_upload",
+        "artifact_show",
+        "events_read",
+        "events_wait"
+      ],
+      "description": "The C3a sheet's kovee-mcp op names, verbatim (closed)."
+    },
+    "participantProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "binding", "tools"],
+      "properties": {
+        "profile": {
+          "const": "participant"
+        },
+        "binding": {
+          "$ref": "#/$defs/participantBinding"
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 14,
+          "maxItems": 14,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/toolEntry",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/participantToolName"
+              }
+            }
+          }
+        }
+      }
+    },
+    "participantBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sender_constraint",
+        "surfaces",
+        "excluded_surfaces",
+        "channel_scope",
+        "elicitation_is_assent"
+      ],
+      "properties": {
+        "sender_constraint": {
+          "const": "authenticated_participant_channel"
+        },
+        "surfaces": {
+          "const": ["external_client"]
+        },
+        "excluded_surfaces": {
+          "const": ["worker", "operator"]
+        },
+        "channel_scope": {
+          "const": ["realm_id", "project_id"]
+        },
+        "elicitation_is_assent": {
+          "const": false
+        }
+      },
+      "description": "The participant-scoped binding envelope: an authenticated participant channel on the external_client surface only — no worker or operator row is reachable through it. The channel pins realm_id and project_id (§11.2 envelope scoping), so they are never tool arguments; elicitation through the binding is never assent."
+    },
+    "toolEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "op",
+        "sheet_op",
+        "op_request_schema",
+        "access",
+        "description",
+        "input_schema"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^kovee_[a-z][a-z0-9_]*$"
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "The registry operation this tool binds; name must equal kovee_<op> (check-enforced)."
+        },
+        "sheet_op": {
+          "$ref": "#/$defs/sheetOpName",
+          "description": "The C3a sheet name this tool realizes — the per-tool record of the sheet_ops mapping (check-enforced against it)."
+        },
+        "op_request_schema": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*-request$",
+          "description": "The committed spec/schemas/ops request schema the input schema derives from. Never null: all ten mapped registry operations have committed K0 request schemas."
+        },
+        "access": {
+          "enum": ["safe_to_allow", "gated"],
+          "description": "The akson-mcp marking: read-only tools are safe to allow; authority-bearing tools stay gated so each call is a deliberate yes. Mutations (meta-requiring ops) are gated; reads are safe to allow except the credential-minting artifact_upload_credential read, which stays gated (check-enforced)."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "input_schema": {
+          "$ref": "#/$defs/inputSchema"
+        }
+      }
+    },
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "additionalProperties", "required", "properties"],
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "additionalProperties": {
+          "const": false
+        },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "$defs": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      },
+      "description": "A closed embedded JSON Schema: the op request `args` object minus channel-derived fields. The envelope {version, op, meta, realm_id, project_id, ext} never appears (the bridge derives protocol version from negotiation, meta and realm/project scope from the participant channel), and neither do the worker-binding args {attempt_id, fence_epoch} (KG14: forbidden on external_client) nor the events_read args-level project_id (the binding pins the project scope). additionalProperties false is mandatory — an input carrying an undeclared or channel-derived field fails the tool call."
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "mcp/tool-call-operator-op-deny-by-absence-invalid",
+  "description": "an operator-surface operation as a tool: space_participant_activate exists only on the registry's operator surface, so no kovee_ tool binds it — the call fails because the tool is absent from the closed participant tool list (deny-by-absence; the C3a participant profile binds participant-scoped KCP rows only)",
+  "input": {
+    "tool_call": {
+      "profile": "participant",
+      "tool": "kovee_space_participant_activate",
+      "input": {
+        "participant_id": "participant-ada",
+        "subject_digest": "b1946ac92492d2347c6235b4d2611184b1946ac92492d2347c6235b4d2611184"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "space_participant_activate is an operator-surface row; the participant binding exposes external_client rows only and the closed tool enum has no such name"
+  }
+}

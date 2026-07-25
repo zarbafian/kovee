@@ -1,0 +1,19 @@
+{
+  "name": "mcp/tool-call-events-read-project-id-channel-derived-invalid",
+  "description": "an input carrying a binding-pinned scope field: the participant-scoped channel pins realm_id and project_id, so events_read's args-level project_id narrowing is channel-derived on this binding and is not a tool argument — the closed input schema rejects the undeclared member",
+  "input": {
+    "tool_call": {
+      "profile": "participant",
+      "tool": "kovee_events_read",
+      "input": {
+        "source": "space-9",
+        "limit": 100,
+        "project_id": "project-4"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "project_id is pinned by the participant channel (binding channel_scope); a request field naming channel-derived scope can never override the binding"
+  }
+}
