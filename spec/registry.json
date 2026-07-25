@@ -35,7 +35,7 @@
     "external_visibility_proof"
   ],
   "a5_renames_applied": [],
-  "a5_note": "No A5 wire-name rename applies to these three bundles: every renamed operation (personal_governed_work_enable/show/disable, mission_promotion_prepare/start/show/cancel/reconcile, sage_turn_binding_show) belongs to governed_work_binding_v1 (K2). See spec/registry-README.md.",
+  "a5_note": "No A5 wire-name rename applies to these three bundles: every operation in amendment A5's rename table belongs to governed_work_binding_v1 (K2), where the resolved names governance_enable/show/disable, endeavor_promotion_prepare/start/show/cancel/reconcile, and byom_episode_binding_show are reserved. See spec/registry-README.md.",
   "entry_counts": {
     "core_v1": 3,
     "shared_space_v1": 65,
