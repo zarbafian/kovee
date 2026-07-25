@@ -94,8 +94,37 @@ Per the family contract's ratified deltas (Δ1–Δ6):
   byom §7.5 evidence + the B4 claim/evidence directory, rendered by Kovee at
   K5; trust suspension on Akson binding change is C4/B5 machinery.
 
+## A5 — Wire names, digest classes, canonical verbs
+
+**Wire-operation renames** (the K0 spec extraction resolves the pinned design
+**plus this table** into one registry; no Sage-era wire name survives):
+
+| Kovee §11.6 (pinned) | Resolved wire name |
+|---|---|
+| `personal_governed_work_enable/show/disable` | `governance_enable/show/disable` |
+| `mission_promotion_prepare/start/show/cancel/reconcile` | `endeavor_promotion_prepare/start/show/cancel/reconcile` |
+| `sage_turn_binding_show` | `byom_episode_binding_show` |
+| `collaboration_context_bundle_prepare/show` | unchanged (protocol-neutral) |
+| `workspace_provider_manifest_show/list`, `workspace_allocation_binding_show` | unchanged |
+| KCP bundle `governed_work_binding_v1` | name kept; implemented by the byom adapter |
+
+Authority rows for the renamed operations carry over unchanged in intent and
+are frozen (exact actor/dependency/assurance) in the C2 bundle.
+
+**Digest classes for content addressing.** §10.10's retained plaintext
+`raw_sha256` is amended: artifact content addressing uses the family digest
+classes (byom §14.2) — `local_erasure_safe` (HMAC, per-object secret) for
+erasable plaintext, `ciphertext_public` for sealed blobs, `portable_public`
+only after explicit durable-identifier disclosure. Retained raw plaintext
+hashes are removed on erasure; no public SHA-256 over ordinary erasable
+low-entropy content.
+
+**Canonical CLI verb** for greenfield enablement:
+`kovee governance enable --byom local [--society <id>]` (plan, sheets, and
+future CLI schema use exactly this).
+
 ## Follow-through
 
-The full-text integration of A1–A4 into `DESIGN.md` happens at K0, when the
+The full-text integration of A1–A5 into `DESIGN.md` happens at K0, when the
 normative material is extracted into `kovee/spec/`; the K0 milestone sheet
 lists it. R0 reviews this amendment together with the family contract.
