@@ -1,0 +1,11 @@
+{
+  "name": "kovee-tscheck",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node check.mjs"
+  }
+}

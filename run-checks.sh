@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Local, on-demand validation for kovee — the akson run-checks.sh pattern,
+# mirroring .github/workflows/ci.yml job for job.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+echo "== cargo fmt"
+cargo fmt --all --check
+
+echo "== cargo clippy"
+RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets --locked
+
+echo "== cargo test"
+cargo test --workspace --locked
+
+echo "== xcheck (Python independent rederiver)"
+python3 xcheck/run.py spec/vectors
+
+echo "== tscheck (TypeScript independent rederiver)"
+node tscheck/check.mjs
+
+echo "run-checks: OK"
