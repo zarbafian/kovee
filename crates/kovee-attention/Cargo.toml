@@ -1,0 +1,12 @@
+[package]
+name = "kovee-attention"
+publish = false
+description = "Attention recipes, assemblies, contracts, candidates, activations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

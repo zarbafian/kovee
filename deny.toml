@@ -1,0 +1,34 @@
+# cargo-deny configuration, copied from akson (ADR-0001: mirrored workspace
+# conventions). Every dependency must be OSI-licensed, advisory-clean, and
+# from crates.io.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    # Mozilla's CA root data (webpki-roots) ships under the Community Data License
+    # Agreement – Permissive 2.0: a permissive, FOSS-friendly data license.
+    "CDLA-Permissive-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

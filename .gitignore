@@ -1,0 +1,7 @@
+# Any Cargo build dir.
+target/
+**/*.rs.bk
+*.pdb
+/xcheck/.venv
+__pycache__/
+*.pyc

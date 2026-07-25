@@ -1,0 +1,12 @@
+[package]
+name = "kovee-core"
+publish = false
+description = "Ids, canonicalization, records, state transitions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

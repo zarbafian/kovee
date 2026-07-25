@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kovee-core",
+    "crates/kovee-store",
+    "crates/kovee-auth",
+    "crates/kovee-space",
+    "crates/kovee-attention",
+    "crates/kovee-commitment",
+    "crates/kovee-runtime",
+    "crates/kovee-effects",
+    "crates/kovee-artifacts",
+    "crates/kovee-bus",
+    "crates/kovee-byom",
+    "crates/kovee-akson",
+    "crates/koveed",
+    "crates/kovee-cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/zarbafian/kovee"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Internal crates
+kovee-core = { path = "crates/kovee-core" }
+kovee-store = { path = "crates/kovee-store" }
+kovee-auth = { path = "crates/kovee-auth" }
+kovee-space = { path = "crates/kovee-space" }
+kovee-attention = { path = "crates/kovee-attention" }
+kovee-commitment = { path = "crates/kovee-commitment" }
+kovee-runtime = { path = "crates/kovee-runtime" }
+kovee-effects = { path = "crates/kovee-effects" }
+kovee-artifacts = { path = "crates/kovee-artifacts" }
+kovee-bus = { path = "crates/kovee-bus" }
+kovee-byom = { path = "crates/kovee-byom" }
+kovee-akson = { path = "crates/kovee-akson" }
+koveed = { path = "crates/koveed" }
+
+# External (pinned minor versions; exact pins live in Cargo.lock, committed).
+# None yet — the scaffold is dependency-free; additions follow akson's
+# convention: pinned here, policy enforced by cargo-deny.
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"

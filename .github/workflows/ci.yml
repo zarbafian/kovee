@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses advisories bans sources
+
+  xcheck:
+    name: independent vector cross-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Stdlib-only until the K0 vectors land; the re-derivation dependencies
+      # arrive with xcheck/requirements.txt at that point.
+      - name: Cross-check golden vectors
+        run: python3 xcheck/run.py spec/vectors
+
+  # Placeholder: the TypeScript re-deriver (K0 spec half) is the second
+  # independent cross-check. The job goes green-with-a-note until
+  # tscheck/package.json exists, then runs the real suite.
+  tscheck:
+    name: typescript vector cross-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-check golden vectors (TypeScript)
+        run: |
+          if [ -f tscheck/package.json ]; then
+            npm ci --prefix tscheck
+            npm test --prefix tscheck
+          else
+            echo "tscheck/ not present yet — it lands with the K0 vectors"
+          fi
