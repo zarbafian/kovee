@@ -484,3 +484,248 @@ pub struct HelloResult {
     pub server_time: String,
     pub installation_id: String,
 }
+
+/// `protocol_info` result (KG2): HelloResult minus `selected_version`
+/// plus `supported_versions` (`protocol-info-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtocolInfoResult {
+    pub supported_versions: Vec<String>,
+    pub implementation: String,
+    pub implementation_version: String,
+    pub features: Vec<String>,
+    pub limits_digest: String,
+    pub server_time: String,
+    pub installation_id: String,
+}
+
+/// §10.2 SpaceParticipant projection
+/// (`space-participant-add-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceParticipant {
+    pub participant_id: String,
+    pub space_id: String,
+    pub subject_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub subject_revision: Option<u64>,
+    pub kind: String,
+    pub role: String,
+    pub authority_source_ref: String,
+    pub status: String,
+    pub revision: u64,
+}
+
+/// §10.2 SpaceAccessGrant projection
+/// (`space-access-grant-create-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceAccessGrant {
+    pub space_access_id: String,
+    pub space_id: String,
+    pub subject_ref: String,
+    pub revision: u64,
+    pub source_membership_or_policy_ref: String,
+    pub allowed_actions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub classification_ceiling_ref: Option<String>,
+    pub authorization_epoch: u64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub expires_at: Option<String>,
+    pub status: String,
+    pub granted_by_or_policy_use_ref: String,
+    pub created_at: String,
+}
+
+/// §10.2 SpaceLens projection (`lens-show-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceLens {
+    pub lens_id: String,
+    pub space_id: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub owner_ref: Option<String>,
+    pub revision: u64,
+    pub kind: String,
+    pub query_ast: Value,
+    pub sort_spec: Value,
+    pub presentation_options: Value,
+    pub visibility: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// §10.2 Reaction projection (`reaction-set-result.schema.json`): a
+/// lightweight mutable presentation signal — never evidence, a vote,
+/// acceptance, attention, or authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reaction {
+    pub reaction_id: String,
+    pub space_id: String,
+    pub target_ref: String,
+    pub target_revision: u64,
+    pub target_digest: String,
+    pub actor_ref: String,
+    pub key: String,
+    pub state: String,
+    pub revision: u64,
+    pub updated_at: String,
+}
+
+/// §10.2 ContributionDisposition projection
+/// (`contribution-withdraw/supersede/redact-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContributionDisposition {
+    pub disposition_id: String,
+    pub contribution_ref: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub replacement_ref: Option<String>,
+    pub reason_class: String,
+    pub authorized_by_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub payload_removed_at: Option<String>,
+    pub created_at: String,
+}
+
+/// §10.2 RelationDisposition projection
+/// (`relation-retract-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationDisposition {
+    pub disposition_id: String,
+    pub relation_ref: String,
+    pub kind: String,
+    pub authorized_by_ref: String,
+    pub reason_class: String,
+    pub created_at: String,
+}
+
+/// §10.1 ProjectAccessPolicyChange projection
+/// (`project-access-policy-change-prepare-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectAccessPolicyChange {
+    pub change_id: String,
+    pub project_id: String,
+    pub expected_project_revision: u64,
+    pub prior_policy_set_ref: String,
+    pub proposed_policy_set_ref: String,
+    pub prior_default_classification_ref: String,
+    pub proposed_default_classification_ref: String,
+    pub affected_space_frontier_refs: Vec<String>,
+    pub affected_item_set_digest: String,
+    pub effective_change: String,
+    pub classification_join_ref: String,
+    pub destination_audience_digest: String,
+    pub subject_digest: String,
+    pub prepared_by_principal: String,
+    pub state: String,
+    pub revision: u64,
+    pub created_at: String,
+}
+
+/// §10.2 SpaceAccessWidening projection
+/// (`space-access-widen-prepare-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceAccessWidening {
+    pub widening_id: String,
+    pub space_id: String,
+    pub expected_space_revision: u64,
+    pub prior_visibility: String,
+    pub proposed_visibility: String,
+    pub prior_policy_set_ref: String,
+    pub proposed_policy_set_ref: String,
+    pub prior_default_classification_ref: String,
+    pub proposed_default_classification_ref: String,
+    pub affected_frontier_refs: Vec<String>,
+    pub affected_item_set_digest: String,
+    pub classification_join_ref: String,
+    pub destination_audience_digest: String,
+    pub subject_digest: String,
+    pub prepared_by_principal: String,
+    pub state: String,
+    pub revision: u64,
+    pub created_at: String,
+}
+
+/// §10.5 AssistantDefinition projection
+/// (`assistant-create-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantDefinition {
+    pub definition_id: String,
+    pub realm_id: String,
+    pub owner_ref: String,
+    pub revision: u64,
+    pub name: String,
+    pub description: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+/// §10.5 AssistantRevision projection
+/// (`assistant-revision-register-result.schema.json`); the manifest stays
+/// a validated open object here (typed at admission by
+/// [`crate::ops::RevisionManifest`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantRevision {
+    pub assistant_revision_id: String,
+    pub definition_id: String,
+    pub version: String,
+    pub manifest: Value,
+    pub package_artifact_ref: String,
+    pub package_digest: String,
+    pub config_schema_digest: String,
+    pub sdk_protocol_range: String,
+    pub signature_refs: Vec<String>,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+/// §10.5 AssistantDeployment projection
+/// (`deployment-create-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantDeployment {
+    pub assistant_deployment_id: String,
+    pub assistant_revision_id: String,
+    pub realm_id: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub project_id: Option<String>,
+    pub revision: u64,
+    pub config_ref: String,
+    pub config_digest: String,
+    pub secret_binding_set_ref: String,
+    pub secret_binding_set_digest: String,
+    pub policy_ref: String,
+    pub pool_ref: String,
+    pub security_profile: String,
+    pub concurrency_policy: String,
+    pub rollout_policy: Value,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub activated_at: Option<String>,
+}
+
+/// §10.5 AssistantAliasBinding projection
+/// (`assistant-alias-bind-result.schema.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantAliasBinding {
+    pub alias_binding_id: String,
+    pub realm_id: String,
+    pub project_id: String,
+    pub revision: u64,
+    pub normalized_alias: String,
+    pub display_alias: String,
+    pub assistant_deployment_id: String,
+    pub deployment_revision: u64,
+    pub status: String,
+    pub created_by: String,
+    pub created_at: String,
+}

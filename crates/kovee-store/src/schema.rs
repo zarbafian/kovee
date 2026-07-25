@@ -436,8 +436,169 @@ CREATE TABLE privacy_access_records (
 ) STRICT;
 "#;
 
+/// Version 3: the K1 slice-3 domain tables — the registry remainder.
+///
+/// - §10.2 dispositions: `contribution_dispositions` /
+///   `relation_dispositions` (append-only records; kinds
+///   withdraw/supersede/redact and retract).
+/// - Amendment A5 erasure-safe redaction: `contributions` gains
+///   `content_state` (`present` | `redacted`), `content_digest_ref` (the
+///   typed `local_erasure_safe` DigestRef JSON), and `object_secret` (the
+///   random per-object HMAC key). On redaction the plaintext body and the
+///   plaintext canonical `content_digest` are REPLACED by the keyed
+///   digest; destroying the per-object secret later erases exactly that
+///   object's verifiability.
+/// - §10.2 `reactions` (upsert under UNIQUE(target_ref, actor_ref, key)).
+/// - §10.1/§10.2 prepared changes: `project_policy_changes`,
+///   `space_access_widenings` (full record beside lookup columns).
+/// - §10.2 `space_access_grants`; `space_participants` gains the
+///   activation `subject_digest` column (KG19 exact prepared subject).
+/// - §10.5 `assistant_definitions` / `assistant_revisions` /
+///   `assistant_aliases`; `assistant_deployments` gains the full `record`
+///   column. The V2 bootstrap deployment `dep-local-dev` gets a coherent
+///   definition + revision + record backfill.
+/// - §16.2 `disclosure_manifests` (read surface only: no K1 operation
+///   writes a disclosure — creation arrives with secure effects, K4).
+const V3: &str = r#"
+CREATE TABLE contribution_dispositions (
+    disposition_id     TEXT PRIMARY KEY,
+    contribution_ref   TEXT NOT NULL REFERENCES contributions(contribution_id),
+    space_id           TEXT NOT NULL,
+    kind               TEXT NOT NULL,
+    replacement_ref    TEXT,
+    reason_class       TEXT NOT NULL,
+    authorized_by_ref  TEXT NOT NULL,
+    payload_removed_at TEXT,
+    created_at         TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE relation_dispositions (
+    disposition_id    TEXT PRIMARY KEY,
+    relation_ref      TEXT NOT NULL REFERENCES space_relations(relation_id),
+    space_id          TEXT NOT NULL,
+    kind              TEXT NOT NULL,
+    reason_class      TEXT NOT NULL,
+    authorized_by_ref TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+) STRICT;
+
+ALTER TABLE contributions ADD COLUMN content_state TEXT NOT NULL DEFAULT 'present';
+ALTER TABLE contributions ADD COLUMN content_digest_ref TEXT;
+ALTER TABLE contributions ADD COLUMN object_secret BLOB;
+
+CREATE TABLE reactions (
+    reaction_id     TEXT PRIMARY KEY,
+    space_id        TEXT NOT NULL REFERENCES spaces(space_id),
+    target_ref      TEXT NOT NULL,
+    target_revision INTEGER NOT NULL,
+    target_digest   TEXT NOT NULL,
+    actor_ref       TEXT NOT NULL,
+    key             TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    revision        INTEGER NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE(target_ref, actor_ref, key)
+) STRICT;
+
+CREATE TABLE project_policy_changes (
+    change_id  TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(project_id),
+    state      TEXT NOT NULL,
+    revision   INTEGER NOT NULL,
+    record     TEXT NOT NULL,
+    created_at TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE space_access_widenings (
+    widening_id TEXT PRIMARY KEY,
+    space_id    TEXT NOT NULL REFERENCES spaces(space_id),
+    state       TEXT NOT NULL,
+    revision    INTEGER NOT NULL,
+    record      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE space_access_grants (
+    space_access_id                 TEXT PRIMARY KEY,
+    space_id                        TEXT NOT NULL REFERENCES spaces(space_id),
+    subject_ref                     TEXT NOT NULL,
+    revision                        INTEGER NOT NULL,
+    source_membership_or_policy_ref TEXT NOT NULL,
+    allowed_actions                 TEXT NOT NULL,
+    classification_ceiling_ref      TEXT,
+    authorization_epoch             INTEGER NOT NULL,
+    expires_at                      TEXT,
+    status                          TEXT NOT NULL,
+    granted_by_or_policy_use_ref    TEXT NOT NULL,
+    created_at                      TEXT NOT NULL
+) STRICT;
+
+ALTER TABLE space_participants ADD COLUMN subject_digest TEXT;
+
+CREATE TABLE assistant_definitions (
+    definition_id TEXT PRIMARY KEY,
+    realm_id      TEXT NOT NULL,
+    owner_ref     TEXT NOT NULL,
+    revision      INTEGER NOT NULL,
+    name          TEXT NOT NULL,
+    description   TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE assistant_revisions (
+    assistant_revision_id TEXT PRIMARY KEY,
+    definition_id         TEXT NOT NULL REFERENCES assistant_definitions(definition_id),
+    version               TEXT NOT NULL,
+    record                TEXT NOT NULL,
+    created_by            TEXT NOT NULL,
+    created_at            TEXT NOT NULL,
+    UNIQUE(definition_id, version)
+) STRICT;
+
+CREATE TABLE assistant_aliases (
+    alias_binding_id        TEXT PRIMARY KEY,
+    realm_id                TEXT NOT NULL,
+    project_id              TEXT NOT NULL REFERENCES projects(project_id),
+    revision                INTEGER NOT NULL,
+    normalized_alias        TEXT NOT NULL,
+    display_alias           TEXT NOT NULL,
+    assistant_deployment_id TEXT NOT NULL,
+    deployment_revision     INTEGER NOT NULL,
+    status                  TEXT NOT NULL,
+    created_by              TEXT NOT NULL,
+    created_at              TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE disclosure_manifests (
+    disclosure_id TEXT PRIMARY KEY,
+    realm_id      TEXT NOT NULL,
+    record        TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+) STRICT;
+
+ALTER TABLE assistant_deployments ADD COLUMN record TEXT;
+
+INSERT INTO assistant_definitions (definition_id, realm_id, owner_ref,
+    revision, name, description, status, created_at)
+VALUES ('asst-local-dev', 'realm-personal', 'prin-owner', 1,
+    'Local developer assistant',
+    'Bootstrap-provisioned local development assistant (V2 deployment backfill).',
+    'active', '1970-01-01T00:00:00Z');
+
+INSERT INTO assistant_revisions (assistant_revision_id, definition_id,
+    version, record, created_by, created_at)
+VALUES ('asstrev-local-dev', 'asst-local-dev', 'v0',
+    '{"assistant_revision_id":"asstrev-local-dev","definition_id":"asst-local-dev","version":"v0","manifest":{"schema_version":"kovee-manifest-v1","definition_id":"asst-local-dev","version":"v0","entrypoint":"local-dev","package_digest":"0000000000000000000000000000000000000000000000000000000000000000","runtime":{},"supported_worker_protocols":["kcp-worker-0.1"],"input_schema_ref":"schema:any-v1","output_schema_ref":"schema:any-v1","skills":[],"attention_proposals":[],"requested_capabilities":[],"model_profiles":[],"tool_profiles":[],"network_policy":{},"resource_limits":{"cpu":0,"memory":0,"disk":0,"output_bytes":0},"default_timeout":0,"max_concurrency":1,"causal_concurrency_policy":"serial-branch","checkpoint_support":false,"cancellation_support":false,"security_profiles":["developer"]},"package_artifact_ref":"artifact-local-dev","package_digest":"0000000000000000000000000000000000000000000000000000000000000000","config_schema_digest":"0000000000000000000000000000000000000000000000000000000000000000","sdk_protocol_range":"kcp-worker-0.1","signature_refs":[],"created_by":"prin-owner","created_at":"1970-01-01T00:00:00Z"}',
+    'prin-owner', '1970-01-01T00:00:00Z');
+
+UPDATE assistant_deployments SET record =
+    '{"assistant_deployment_id":"dep-local-dev","assistant_revision_id":"asstrev-local-dev","realm_id":"realm-personal","revision":1,"config_ref":"cfg-local-dev","config_digest":"0000000000000000000000000000000000000000000000000000000000000000","secret_binding_set_ref":"secrets-none","secret_binding_set_digest":"0000000000000000000000000000000000000000000000000000000000000000","policy_ref":"policy-default","pool_ref":"pool-local","security_profile":"developer","concurrency_policy":"serial-branch","rollout_policy":{},"status":"active","activated_at":"1970-01-01T00:00:00Z"}'
+WHERE deployment_id = 'dep-local-dev';
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3)];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting
 /// journal mode so the caller can fail closed when WAL did not take

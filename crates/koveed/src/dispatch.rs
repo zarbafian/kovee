@@ -26,6 +26,7 @@ use crate::reads;
 use crate::space_ops;
 use crate::state;
 use crate::{artifact_ops, state::internal};
+use crate::{assistant_ops, disposition_ops, lifecycle_ops, space_admin_ops};
 
 /// Which socket a request arrived on (§11.6.1 authority surfaces).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,14 +199,19 @@ impl Daemon {
         let Some(spec) = ops::op_spec(&cmd.op) else {
             return Err(unknown_op());
         };
+        // Surface acceptance precedes everything else: an operation whose
+        // only registry entry is worker-surface is unknown here.
+        if spec.name == "application_event_emit" {
+            return Err(unknown_op());
+        }
         // Envelope shape: mutations require meta, reads reject it (§11.2).
         cmd.validate(spec.shape())?;
         spec.check_placement(&cmd.realm_id, &cmd.project_id)?;
         ops::validate_op_args(&cmd.op, &cmd.args)?;
         // The personal profile has exactly one realm; any other realm id
         // is an invisible resource (§11.7 not-found does not reveal
-        // cross-tenant existence).
-        if cmd.op != "hello" && cmd.realm_id.as_deref() != Some(PERSONAL_REALM_ID) {
+        // cross-tenant existence). Pre-auth ops carry no realm at all.
+        if spec.shape() != Shape::PreAuth && cmd.realm_id.as_deref() != Some(PERSONAL_REALM_ID) {
             return Err(state::not_found());
         }
         let now = unix_now();
@@ -403,6 +409,568 @@ impl Daemon {
                 let args = ops::InvocationShowArgs::from_args(&cmd.args)?;
                 invoke::invocation_show(&*self.lock_store()?, &project, &args)
             }
+            // ------------------------------------------------ slice 3 ----
+            ("protocol_info", _) => handlers::protocol_info(&*self.lock_store()?, now),
+            ("diagnose", _) => {
+                let args = ops::DiagnoseArgs::from_args(&cmd.args)?;
+                handlers::diagnose(&*self.lock_store()?, &self.paths.staging_dir(), &args, now)
+            }
+            ("project_show", _) => reads::project_show(&*self.lock_store()?, &project),
+            ("project_list", _) => {
+                let args = ops::PageArgs::from_args(&cmd.args)?;
+                reads::project_list(&*self.lock_store()?, &args)
+            }
+            ("project_update_metadata", OpKind::Mutation) => {
+                let args = ops::ProjectUpdateMetadataArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::project_update_metadata(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("project_access_policy_change_prepare", OpKind::Mutation) => {
+                let args = ops::PapcPrepareArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::papc_prepare(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("project_access_policy_change_confirm", OpKind::Mutation) => {
+                let args = ops::PapcConfirmArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::papc_confirm(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("project_access_policy_change_cancel", OpKind::Mutation) => {
+                let args = ops::ChangeIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::papc_cancel(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("project_access_policy_change_show", _) => {
+                let args = ops::ChangeIdArgs::from_args(&cmd.args)?;
+                lifecycle_ops::papc_show(&*self.lock_store()?, &project, &args)
+            }
+            ("project_access_policy_change_list", _) => {
+                let args = ops::PageArgs::from_args(&cmd.args)?;
+                reads::papc_list(&*self.lock_store()?, &project, &args)
+            }
+            ("space_update_metadata", OpKind::Mutation) => {
+                let args = ops::SpaceUpdateMetadataArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                let space_id = args.space_id.clone();
+                lifecycle_ops::space_lifecycle(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    space_id,
+                    lifecycle_ops::SpaceLifecycle::UpdateMetadata(args),
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            (
+                "space_freeze" | "space_reopen" | "space_archive" | "space_restrict",
+                OpKind::Mutation,
+            ) => {
+                let args = ops::SpaceIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                let lifecycle = match spec.name {
+                    "space_freeze" => lifecycle_ops::SpaceLifecycle::Freeze,
+                    "space_reopen" => lifecycle_ops::SpaceLifecycle::Reopen,
+                    "space_archive" => lifecycle_ops::SpaceLifecycle::Archive,
+                    _ => lifecycle_ops::SpaceLifecycle::Restrict,
+                };
+                lifecycle_ops::space_lifecycle(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args.space_id,
+                    lifecycle,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_policy_narrow", OpKind::Mutation) => {
+                let args = ops::SpacePolicyNarrowArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                let space_id = args.space_id.clone();
+                lifecycle_ops::space_lifecycle(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    space_id,
+                    lifecycle_ops::SpaceLifecycle::PolicyNarrow(args),
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_widen_prepare", OpKind::Mutation) => {
+                let args = ops::WidenPrepareArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::widen_prepare(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_widen_confirm", OpKind::Mutation) => {
+                let args = ops::WidenConfirmArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::widen_confirm(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_widen_cancel", OpKind::Mutation) => {
+                let args = ops::WideningIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                lifecycle_ops::widen_cancel(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_widen_show", _) => {
+                let args = ops::WideningIdArgs::from_args(&cmd.args)?;
+                lifecycle_ops::widen_show(&*self.lock_store()?, &project, &args)
+            }
+            ("space_access_widen_list", _) => {
+                let args = ops::WidenListArgs::from_args(&cmd.args)?;
+                reads::widen_list(&*self.lock_store()?, &project, &args)
+            }
+            ("space_participant_add", OpKind::Mutation) => {
+                let args = ops::ParticipantAddArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::participant_add(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_participant_activate", OpKind::Mutation) => {
+                let args = ops::ParticipantActivateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::participant_activate(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_participant_update", OpKind::Mutation) => {
+                let args = ops::ParticipantUpdateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::participant_update(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_participant_remove", OpKind::Mutation) => {
+                let args = ops::ParticipantIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::participant_remove(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_participant_list", _) => {
+                let args = ops::SpacePageArgs::from_args(&cmd.args)?;
+                reads::participant_list(&*self.lock_store()?, &project, &args)
+            }
+            ("space_access_grant_create", OpKind::Mutation) => {
+                let args = ops::GrantCreateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::grant_create(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_grant_revoke", OpKind::Mutation) => {
+                let args = ops::GrantRevokeArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::grant_revoke(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("space_access_grant_list", _) => {
+                let args = ops::SpacePageArgs::from_args(&cmd.args)?;
+                reads::grant_list(&*self.lock_store()?, &project, &args)
+            }
+            ("contribution_withdraw", OpKind::Mutation) => {
+                let args = ops::ContributionDispositionArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                disposition_ops::contribution_withdraw(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("contribution_supersede", OpKind::Mutation) => {
+                let args = ops::ContributionSupersedeArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                disposition_ops::contribution_supersede(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("contribution_redact", OpKind::Mutation) => {
+                let args = ops::ContributionDispositionArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                disposition_ops::contribution_redact(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("relation_retract", OpKind::Mutation) => {
+                let args = ops::RelationRetractArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                disposition_ops::relation_retract(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("lens_create", OpKind::Mutation) => {
+                let args = ops::LensCreateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::lens_create(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("lens_update", OpKind::Mutation) => {
+                let args = ops::LensUpdateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::lens_update(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("lens_revoke", OpKind::Mutation) => {
+                let args = ops::LensIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::lens_revoke(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("lens_show", _) => {
+                let args = ops::LensIdArgs::from_args(&cmd.args)?;
+                space_admin_ops::lens_show(&*self.lock_store()?, &project, &args)
+            }
+            ("lens_list", _) => {
+                let args = ops::SpacePageArgs::from_args(&cmd.args)?;
+                reads::lens_list(&*self.lock_store()?, &project, &args)
+            }
+            ("reaction_set", OpKind::Mutation) => {
+                let args = ops::ReactionSetArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                space_admin_ops::reaction_set(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("event_payload", _) => {
+                let args = ops::EventPayloadArgs::from_args(&cmd.args)?;
+                reads::event_payload(
+                    &mut *self.lock_store()?,
+                    cmd.project_id.as_deref(),
+                    &args,
+                    now,
+                )
+            }
+            ("snapshot_read", _) => {
+                let args = ops::SnapshotReadArgs::from_args(&cmd.args)?;
+                reads::snapshot_read(&*self.lock_store()?, cmd.project_id.as_deref(), &args)
+            }
+            ("disclosure_manifest_show", _) => {
+                let args = ops::DisclosureManifestShowArgs::from_args(&cmd.args)?;
+                reads::disclosure_manifest_show(&*self.lock_store()?, &args)
+            }
+            ("assistant_create", OpKind::Mutation) => {
+                let args = ops::AssistantCreateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::assistant_create(
+                    &mut *self.lock_store()?,
+                    scope,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_show", _) => {
+                let args = ops::AssistantShowArgs::from_args(&cmd.args)?;
+                assistant_ops::assistant_show(&*self.lock_store()?, &args)
+            }
+            ("assistant_list", _) => {
+                let args = ops::PageArgs::from_args(&cmd.args)?;
+                reads::assistant_list(&*self.lock_store()?, &args)
+            }
+            ("assistant_revision_register", OpKind::Mutation) => {
+                let args = ops::AssistantRevisionRegisterArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::assistant_revision_register(
+                    &mut *self.lock_store()?,
+                    scope,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_revision_show", _) => {
+                let args = ops::AssistantRevisionShowArgs::from_args(&cmd.args)?;
+                assistant_ops::assistant_revision_show(&*self.lock_store()?, &args)
+            }
+            ("assistant_revision_list", _) => {
+                let args = ops::AssistantRevisionListArgs::from_args(&cmd.args)?;
+                reads::assistant_revision_list(&*self.lock_store()?, &args)
+            }
+            ("deployment_create", OpKind::Mutation) => {
+                let args = ops::DeploymentCreateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::deployment_create(
+                    &mut *self.lock_store()?,
+                    scope,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("deployment_show", _) => {
+                let args = ops::DeploymentIdArgs::from_args(&cmd.args)?;
+                assistant_ops::deployment_show(&*self.lock_store()?, &args)
+            }
+            ("deployment_list", _) => {
+                let args = ops::DeploymentListArgs::from_args(&cmd.args)?;
+                reads::deployment_list(&*self.lock_store()?, &args)
+            }
+            ("deployment_activate" | "deployment_drain", OpKind::Mutation) => {
+                let args = ops::DeploymentIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::deployment_transition(
+                    &mut *self.lock_store()?,
+                    scope,
+                    args,
+                    spec.name == "deployment_activate",
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_alias_bind", OpKind::Mutation) => {
+                let args = ops::AliasBindArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::alias_bind(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_alias_update", OpKind::Mutation) => {
+                let args = ops::AliasUpdateArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::alias_update(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_alias_revoke", OpKind::Mutation) => {
+                let args = ops::AliasIdArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::alias_revoke(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            ("assistant_alias_show", _) => {
+                let args = ops::AliasIdArgs::from_args(&cmd.args)?;
+                assistant_ops::alias_show(&*self.lock_store()?, &project, &args)
+            }
+            ("assistant_alias_list", _) => {
+                let args = ops::AliasListArgs::from_args(&cmd.args)?;
+                reads::alias_list(&*self.lock_store()?, &project, &args)
+            }
+            ("invocation_list", _) => {
+                let args = ops::InvocationListArgs::from_args(&cmd.args)?;
+                reads::invocation_list(&*self.lock_store()?, &project, &args)
+            }
+            ("invocation_cancel", OpKind::Mutation) => {
+                let args = ops::InvocationCancelArgs::from_args(&cmd.args)?;
+                // Registry rule (§11.6.1): the worker attempt binding is
+                // not acceptable on the external client surface.
+                if args.attempt_id.is_some() || args.fence_epoch.is_some() {
+                    return Err(forbidden_surface());
+                }
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let meta = cmd.meta.clone().ok_or_else(internal)?;
+                assistant_ops::invocation_cancel(
+                    &mut *self.lock_store()?,
+                    scope,
+                    project,
+                    args,
+                    meta,
+                    now,
+                    hooks,
+                )
+            }
+            // `application_event_emit` has ONLY a worker-surface registry
+            // entry — the external fallback answers unknown-op (§11.6.1).
             _ => Err(unknown_op()),
         }
     }
@@ -509,6 +1077,34 @@ impl Daemon {
                     args,
                     meta,
                     author,
+                    now,
+                    hooks,
+                )
+            }
+            "invocation_cancel" => {
+                let spec = ops::op_spec("invocation_cancel").ok_or_else(internal)?;
+                cmd.validate(spec.shape())?;
+                spec.check_placement(&cmd.realm_id, &cmd.project_id)?;
+                require_realm(cmd)?;
+                let args = ops::InvocationCancelArgs::from_args(&cmd.args)?;
+                assistant_ops::worker_invocation_cancel(
+                    &mut *self.lock_store()?,
+                    cmd,
+                    args,
+                    now,
+                    hooks,
+                )
+            }
+            "application_event_emit" => {
+                let spec = ops::op_spec("application_event_emit").ok_or_else(internal)?;
+                cmd.validate(spec.shape())?;
+                spec.check_placement(&cmd.realm_id, &cmd.project_id)?;
+                require_realm(cmd)?;
+                let args = ops::ApplicationEventEmitArgs::from_args(&cmd.args)?;
+                assistant_ops::application_event_emit(
+                    &mut *self.lock_store()?,
+                    cmd,
+                    args,
                     now,
                     hooks,
                 )

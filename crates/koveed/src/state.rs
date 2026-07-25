@@ -3,7 +3,10 @@
 //! and space membership) so hidden resources stay non-enumerable (§10.2).
 
 use kovee_core::problem::{Problem, ProblemKind};
-use kovee_core::records::{Contribution, Project, Space, SpaceFrontier, SpaceRelation};
+use kovee_core::records::{
+    AssistantAliasBinding, AssistantDefinition, Contribution, Project, Reaction, Space,
+    SpaceAccessGrant, SpaceFrontier, SpaceLens, SpaceParticipant, SpaceRelation,
+};
 use kovee_store::StoreError;
 use rusqlite::{params, Connection, OptionalExtension as _};
 use serde_json::Value;
@@ -668,27 +671,368 @@ pub struct DeploymentRow {
     pub assistant_revision_id: String,
     pub security_profile: String,
     pub status: String,
+    /// The full AssistantDeployment record JSON (V3 column).
+    pub record: Option<Value>,
 }
 
 pub fn get_deployment(
     conn: &Connection,
     deployment_id: &str,
 ) -> Result<Option<DeploymentRow>, StoreError> {
+    let row: Option<(String, i64, String, String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT deployment_id, revision, assistant_revision_id, security_profile,
+                    status, record
+             FROM assistant_deployments WHERE deployment_id = ?1",
+            [deployment_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    match row {
+        Some((
+            deployment_id,
+            revision,
+            assistant_revision_id,
+            security_profile,
+            status,
+            record,
+        )) => Ok(Some(DeploymentRow {
+            deployment_id,
+            revision: revision as u64,
+            assistant_revision_id,
+            security_profile,
+            status,
+            record: record.map(|r| serde_json::from_str(&r)).transpose()?,
+        })),
+        None => Ok(None),
+    }
+}
+
+// ------------------------------------------------------- participants ----
+
+pub fn get_participant(
+    conn: &Connection,
+    participant_id: &str,
+) -> Result<Option<(SpaceParticipant, Option<String>)>, StoreError> {
     conn.query_row(
-        "SELECT deployment_id, revision, assistant_revision_id, security_profile,
-                status
-         FROM assistant_deployments WHERE deployment_id = ?1",
-        [deployment_id],
+        "SELECT participant_id, space_id, subject_ref, subject_revision, kind,
+                role, authority_source_ref, status, revision, subject_digest
+         FROM space_participants WHERE participant_id = ?1",
+        [participant_id],
         |r| {
-            Ok(DeploymentRow {
-                deployment_id: r.get(0)?,
-                revision: r.get::<_, i64>(1)? as u64,
-                assistant_revision_id: r.get(2)?,
-                security_profile: r.get(3)?,
-                status: r.get(4)?,
+            Ok((
+                SpaceParticipant {
+                    participant_id: r.get(0)?,
+                    space_id: r.get(1)?,
+                    subject_ref: r.get(2)?,
+                    subject_revision: r.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+                    kind: r.get(4)?,
+                    role: r.get(5)?,
+                    authority_source_ref: r.get(6)?,
+                    status: r.get(7)?,
+                    revision: r.get::<_, i64>(8)? as u64,
+                },
+                r.get::<_, Option<String>>(9)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(StoreError::from)
+}
+
+// ------------------------------------------------------------- grants ----
+
+pub fn get_grant(
+    conn: &Connection,
+    space_access_id: &str,
+) -> Result<Option<SpaceAccessGrant>, StoreError> {
+    let row = conn
+        .query_row(
+            "SELECT space_access_id, space_id, subject_ref, revision,
+                    source_membership_or_policy_ref, allowed_actions,
+                    classification_ceiling_ref, authorization_epoch, expires_at,
+                    status, granted_by_or_policy_use_ref, created_at
+             FROM space_access_grants WHERE space_access_id = ?1",
+            [space_access_id],
+            row_to_grant_tuple,
+        )
+        .optional()?;
+    row.map(tuple_to_grant).transpose()
+}
+
+type GrantTuple = (
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    Option<String>,
+    i64,
+    Option<String>,
+    String,
+    String,
+    String,
+);
+
+pub(crate) fn row_to_grant_tuple(r: &rusqlite::Row<'_>) -> rusqlite::Result<GrantTuple> {
+    Ok((
+        r.get(0)?,
+        r.get(1)?,
+        r.get(2)?,
+        r.get(3)?,
+        r.get(4)?,
+        r.get(5)?,
+        r.get(6)?,
+        r.get(7)?,
+        r.get(8)?,
+        r.get(9)?,
+        r.get(10)?,
+        r.get(11)?,
+    ))
+}
+
+pub(crate) fn tuple_to_grant(row: GrantTuple) -> Result<SpaceAccessGrant, StoreError> {
+    Ok(SpaceAccessGrant {
+        space_access_id: row.0,
+        space_id: row.1,
+        subject_ref: row.2,
+        revision: row.3 as u64,
+        source_membership_or_policy_ref: row.4,
+        allowed_actions: serde_json::from_str(&row.5)?,
+        classification_ceiling_ref: row.6,
+        authorization_epoch: row.7 as u64,
+        expires_at: row.8,
+        status: row.9,
+        granted_by_or_policy_use_ref: row.10,
+        created_at: row.11,
+    })
+}
+
+// -------------------------------------------------------- full lenses ----
+
+type LensTuple = (
+    String,
+    String,
+    Option<String>,
+    i64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
+pub fn get_lens_full(conn: &Connection, lens_id: &str) -> Result<Option<SpaceLens>, StoreError> {
+    let row: Option<LensTuple> = conn
+        .query_row(
+            "SELECT lens_id, space_id, owner_ref, revision, kind, query_ast,
+                    sort_spec, presentation_options, visibility, status, created_at
+             FROM space_lenses WHERE lens_id = ?1 AND status != 'revoked'",
+            [lens_id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                ))
+            },
+        )
+        .optional()?;
+    match row {
+        Some(row) => Ok(Some(SpaceLens {
+            lens_id: row.0,
+            space_id: row.1,
+            owner_ref: row.2,
+            revision: row.3 as u64,
+            kind: row.4,
+            query_ast: serde_json::from_str(&row.5)?,
+            sort_spec: serde_json::from_str(&row.6)?,
+            presentation_options: serde_json::from_str(&row.7)?,
+            visibility: row.8,
+            status: row.9,
+            created_at: row.10,
+        })),
+        None => Ok(None),
+    }
+}
+
+// ----------------------------------------------------------- reactions ----
+
+pub fn get_reaction(
+    conn: &Connection,
+    target_ref: &str,
+    actor_ref: &str,
+    key: &str,
+) -> Result<Option<Reaction>, StoreError> {
+    conn.query_row(
+        "SELECT reaction_id, space_id, target_ref, target_revision, target_digest,
+                actor_ref, key, state, revision, updated_at
+         FROM reactions WHERE target_ref = ?1 AND actor_ref = ?2 AND key = ?3",
+        params![target_ref, actor_ref, key],
+        |r| {
+            Ok(Reaction {
+                reaction_id: r.get(0)?,
+                space_id: r.get(1)?,
+                target_ref: r.get(2)?,
+                target_revision: r.get::<_, i64>(3)? as u64,
+                target_digest: r.get(4)?,
+                actor_ref: r.get(5)?,
+                key: r.get(6)?,
+                state: r.get(7)?,
+                revision: r.get::<_, i64>(8)? as u64,
+                updated_at: r.get(9)?,
             })
         },
     )
     .optional()
     .map_err(StoreError::from)
+}
+
+// ---------------------------------------------------- prepared changes ----
+
+/// One prepared-change lookup row (`project_policy_changes` /
+/// `space_access_widenings`): scope id, state, revision, full record.
+pub struct PreparedChangeRow {
+    pub scope_id: String,
+    pub state: String,
+    pub revision: u64,
+    pub record: Value,
+}
+
+pub fn get_prepared_change(
+    conn: &Connection,
+    table: &str,
+    scope_column: &str,
+    id_column: &str,
+    id: &str,
+) -> Result<Option<PreparedChangeRow>, StoreError> {
+    let sql = format!(
+        "SELECT {scope_column}, state, revision, record FROM {table} WHERE {id_column} = ?1"
+    );
+    let row: Option<(String, String, i64, String)> = conn
+        .query_row(&sql, [id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .optional()?;
+    match row {
+        Some((scope_id, state, revision, record)) => Ok(Some(PreparedChangeRow {
+            scope_id,
+            state,
+            revision: revision as u64,
+            record: serde_json::from_str(&record)?,
+        })),
+        None => Ok(None),
+    }
+}
+
+// ----------------------------------------------------------- assistants ----
+
+pub fn get_assistant_definition(
+    conn: &Connection,
+    definition_id: &str,
+) -> Result<Option<AssistantDefinition>, StoreError> {
+    conn.query_row(
+        "SELECT definition_id, realm_id, owner_ref, revision, name, description,
+                status, created_at
+         FROM assistant_definitions WHERE definition_id = ?1",
+        [definition_id],
+        |r| {
+            Ok(AssistantDefinition {
+                definition_id: r.get(0)?,
+                realm_id: r.get(1)?,
+                owner_ref: r.get(2)?,
+                revision: r.get::<_, i64>(3)? as u64,
+                name: r.get(4)?,
+                description: r.get(5)?,
+                status: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(StoreError::from)
+}
+
+pub fn get_assistant_revision_record(
+    conn: &Connection,
+    assistant_revision_id: &str,
+) -> Result<Option<Value>, StoreError> {
+    let text: Option<String> = conn
+        .query_row(
+            "SELECT record FROM assistant_revisions WHERE assistant_revision_id = ?1",
+            [assistant_revision_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    text.map(|t| serde_json::from_str(&t).map_err(StoreError::from))
+        .transpose()
+}
+
+pub fn get_alias(
+    conn: &Connection,
+    alias_binding_id: &str,
+) -> Result<Option<AssistantAliasBinding>, StoreError> {
+    conn.query_row(
+        "SELECT alias_binding_id, realm_id, project_id, revision, normalized_alias,
+                display_alias, assistant_deployment_id, deployment_revision,
+                status, created_by, created_at
+         FROM assistant_aliases WHERE alias_binding_id = ?1",
+        [alias_binding_id],
+        |r| {
+            Ok(AssistantAliasBinding {
+                alias_binding_id: r.get(0)?,
+                realm_id: r.get(1)?,
+                project_id: r.get(2)?,
+                revision: r.get::<_, i64>(3)? as u64,
+                normalized_alias: r.get(4)?,
+                display_alias: r.get(5)?,
+                assistant_deployment_id: r.get(6)?,
+                deployment_revision: r.get::<_, i64>(7)? as u64,
+                status: r.get(8)?,
+                created_by: r.get(9)?,
+                created_at: r.get(10)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(StoreError::from)
+}
+
+/// The canonical activation subject digest of one participant proposal
+/// (KG19 "exact prepared subject digest").
+pub fn participant_subject_digest(participant: &SpaceParticipant) -> Result<String, Problem> {
+    let projection = serde_json::json!({
+        "participant_id": participant.participant_id,
+        "space_id": participant.space_id,
+        "subject_ref": participant.subject_ref,
+        "kind": participant.kind,
+        "role": participant.role,
+    });
+    let (_, digest) = kovee_core::canonical::canonical_object_digest(
+        "kovee-participant-subject",
+        "schema:space-participant-v1",
+        &projection,
+    )
+    .map_err(|_| internal())?;
+    Ok(digest)
 }

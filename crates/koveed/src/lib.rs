@@ -13,12 +13,16 @@
 //! ```
 
 pub mod artifact_ops;
+pub mod assistant_ops;
 pub mod dispatch;
+pub mod disposition_ops;
 pub mod handlers;
 pub mod invoke;
+pub mod lifecycle_ops;
 pub mod peercred;
 pub mod reads;
 pub mod socket;
+pub mod space_admin_ops;
 pub mod space_ops;
 pub mod state;
 

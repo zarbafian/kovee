@@ -152,7 +152,9 @@ pub struct NewEvent {
     /// The attributed actor; `None` means the owner principal. Worker
     /// surface commands attribute their deployment (§10.2).
     pub actor_ref: Option<String>,
-    pub event_type: &'static str,
+    /// A `dev.kovee.*` constant for Kovee's own events; a caller-supplied
+    /// registered type for `application_event_emit` (never `dev.kovee.*`).
+    pub event_type: String,
     pub schema_ref: String,
     pub resource_ref: String,
     pub resource_revision: Option<u64>,
@@ -218,7 +220,7 @@ impl CommandTxn<'_> {
             stream_id: new.stream_id,
             stream_sequence,
             project_sequence,
-            event_type: new.event_type.to_owned(),
+            event_type: new.event_type,
             schema_ref: new.schema_ref,
             resource_ref: new.resource_ref,
             resource_revision: new.resource_revision,

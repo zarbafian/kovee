@@ -65,17 +65,14 @@ pub fn scope_digest(meta: &kovee_core::envelope::CommandMeta) -> String {
 
 // ------------------------------------------------------------- hello ----
 
-pub fn hello(store: &Store, args: &ops::HelloArgs, now: i64) -> Result<Vec<u8>, Problem> {
-    if !args
-        .supported_versions
-        .iter()
-        .any(|v| v == kovee_core::PROTOCOL_VERSION)
-    {
-        return Err(Problem::new(
-            ProblemKind::UnsupportedVersion,
-            "no common protocol version",
-        ));
-    }
+/// The advertised feature bundles (§11.6: bundles are atomic — every
+/// operation of a listed bundle dispatches, or the bundle is not
+/// listed). Slice 3 closes the three K1 bundles; the tests prove
+/// ops-table/registry parity and per-entry dispatch before this list may
+/// carry them.
+pub const K1_FEATURE_BUNDLES: [&str; 3] = ["core_v1", "shared_space_v1", "developer_assistant_v1"];
+
+fn limits_digest() -> Result<String, Problem> {
     // §11.8 limits object; its digest construction is a recorded K0 gap
     // (shape-only), pinned here as a canonical-object digest over the
     // §11.8 caps this daemon enforces.
@@ -88,23 +85,144 @@ pub fn hello(store: &Store, args: &ops::HelloArgs, now: i64) -> Result<Vec<u8>, 
         "list_items": kovee_core::limits::LIST_MAX_ITEMS,
         "page_limit": kovee_core::limits::PAGE_MAX_LIMIT,
     });
-    let (_, limits_digest) =
+    let (_, digest) =
         canonical::canonical_object_digest("kcp-limits", "schema:kcp-limits-v1", &limits)
             .map_err(|_| internal())?;
+    Ok(digest)
+}
+
+pub fn hello(store: &Store, args: &ops::HelloArgs, now: i64) -> Result<Vec<u8>, Problem> {
+    if !args
+        .supported_versions
+        .iter()
+        .any(|v| v == kovee_core::PROTOCOL_VERSION)
+    {
+        return Err(Problem::new(
+            ProblemKind::UnsupportedVersion,
+            "no common protocol version",
+        ));
+    }
     let result = HelloResult {
         selected_version: kovee_core::PROTOCOL_VERSION.to_owned(),
         implementation: "koveed".to_owned(),
         implementation_version: env!("CARGO_PKG_VERSION").to_owned(),
-        // Honesty (§11.6): bundles are atomic — K1 slice 2 still
-        // implements only part of shared_space_v1/developer_assistant_v1
-        // (no dispositions, lifecycle, participants CRUD, snapshots), so
-        // nothing is advertised yet.
-        features: Vec::new(),
-        limits_digest,
+        features: K1_FEATURE_BUNDLES.map(str::to_owned).to_vec(),
+        limits_digest: limits_digest()?,
         server_time: kovee_core::time::rfc3339_utc(now),
         installation_id: store.installation_id().map_err(store_problem)?,
     };
     ok_reply(serde_json::to_value(&result).map_err(|_| internal())?, None)
+}
+
+// ----------------------------------------------------- protocol_info ----
+
+/// `protocol_info` (KG2): the bounded public installation metadata of the
+/// pre-auth row — the HelloResult members minus `selected_version` plus
+/// `supported_versions` (nothing was negotiated).
+pub fn protocol_info(store: &Store, now: i64) -> Result<Vec<u8>, Problem> {
+    let result = kovee_core::records::ProtocolInfoResult {
+        supported_versions: vec![kovee_core::PROTOCOL_VERSION.to_owned()],
+        implementation: "koveed".to_owned(),
+        implementation_version: env!("CARGO_PKG_VERSION").to_owned(),
+        features: K1_FEATURE_BUNDLES.map(str::to_owned).to_vec(),
+        limits_digest: limits_digest()?,
+        server_time: kovee_core::time::rfc3339_utc(now),
+        installation_id: store.installation_id().map_err(store_problem)?,
+    };
+    ok_reply(serde_json::to_value(&result).map_err(|_| internal())?, None)
+}
+
+// ---------------------------------------------------------- diagnose ----
+
+/// The registered K1 diagnostics (KG3). `checks` narrows this set only;
+/// an unregistered name fails closed.
+pub const DIAGNOSE_CHECKS: [&str; 4] = [
+    "store_bootstrap",
+    "journal_mode",
+    "audit_chain",
+    "artifact_store",
+];
+
+/// `diagnose` (operator surface, owner-bound in the personal profile):
+/// bounded diagnostics carrying ids/digests, never raw secrets (§17).
+pub fn diagnose(
+    store: &Store,
+    staging_dir: &std::path::Path,
+    args: &ops::DiagnoseArgs,
+    now: i64,
+) -> Result<Vec<u8>, Problem> {
+    let selected: Vec<&str> = match &args.checks {
+        Some(checks) if !checks.is_empty() => {
+            for check in checks {
+                if !DIAGNOSE_CHECKS.contains(&check.as_str()) {
+                    return Err(
+                        Problem::new(ProblemKind::Invalid, "invalid operation arguments")
+                            .with_detail(format!("{check} is not a registered diagnostic")),
+                    );
+                }
+            }
+            checks.iter().map(String::as_str).collect()
+        }
+        _ => DIAGNOSE_CHECKS.to_vec(),
+    };
+    let mut results = Vec::new();
+    let mut worst = "pass";
+    for check in selected {
+        let (status, detail) = match check {
+            "store_bootstrap" => match store.installation_id() {
+                Ok(id) => ("pass", format!("installation_id={id}")),
+                Err(_) => ("fail", "store is not bootstrapped".to_owned()),
+            },
+            "journal_mode" => {
+                let mode: Result<String, _> =
+                    store
+                        .conn()
+                        .query_row("PRAGMA journal_mode", [], |r| r.get(0));
+                match mode {
+                    Ok(mode) if mode == "wal" || mode == "memory" => {
+                        ("pass", format!("journal_mode={mode}"))
+                    }
+                    Ok(mode) => ("fail", format!("journal_mode={mode}, expected wal")),
+                    Err(_) => ("fail", "journal_mode unreadable".to_owned()),
+                }
+            }
+            "audit_chain" => match store.verify_audit() {
+                Ok(count) => ("pass", format!("records={count}")),
+                Err(e) => {
+                    eprintln!("koveed: audit chain fault: {e}");
+                    ("fail", "audit chain verification failed".to_owned())
+                }
+            },
+            "artifact_store" => {
+                if staging_dir.is_dir() {
+                    ("pass", "staging directory present".to_owned())
+                } else {
+                    // Created lazily on the first upload — a normal state.
+                    (
+                        "pass",
+                        "staging directory absent (no uploads yet)".to_owned(),
+                    )
+                }
+            }
+            _ => unreachable!("selection is validated above"),
+        };
+        if status == "fail" || (status == "warn" && worst == "pass") {
+            worst = if status == "fail" { "fail" } else { "warn" };
+        }
+        results.push(serde_json::json!({
+            "check": check,
+            "status": status,
+            "detail": detail,
+        }));
+    }
+    ok_reply(
+        serde_json::json!({
+            "status": worst,
+            "checks": results,
+            "generated_at": kovee_core::time::rfc3339_utc(now),
+        }),
+        None,
+    )
 }
 
 // -------------------------------------------------------- realm_show ----
@@ -182,7 +300,7 @@ pub fn project_create(
                 stream_id: project_id.clone(),
                 project_id: Some(project_id.clone()),
                 actor_ref: None,
-                event_type: EVENT_PROJECT_CREATED,
+                event_type: EVENT_PROJECT_CREATED.to_owned(),
                 schema_ref: PROJECT_SCHEMA_REF.to_owned(),
                 resource_ref: project_id.clone(),
                 resource_revision: Some(1),
@@ -298,14 +416,30 @@ pub fn space_create(
             .map_err(|e| store_problem(e.into()))?;
         // §10.2: the creator is the space's first participant (steward).
         let participant_id = new_id("part").map_err(store_problem)?;
+        let steward_digest = participant_subject_digest(&kovee_core::records::SpaceParticipant {
+            participant_id: participant_id.clone(),
+            space_id: space.space_id.clone(),
+            subject_ref: OWNER_ACTOR_REF.to_owned(),
+            subject_revision: None,
+            kind: "principal".to_owned(),
+            role: "steward".to_owned(),
+            authority_source_ref: "auth-local-uds".to_owned(),
+            status: "active".to_owned(),
+            revision: 1,
+        })?;
         txn.conn()
             .execute(
                 "INSERT INTO space_participants (participant_id, space_id,
                      subject_ref, subject_revision, kind, role,
-                     authority_source_ref, status, revision)
+                     authority_source_ref, status, revision, subject_digest)
                  VALUES (?1, ?2, ?3, NULL, 'principal', 'steward',
-                     'auth-local-uds', 'active', 1)",
-                params![participant_id, space.space_id, OWNER_ACTOR_REF],
+                     'auth-local-uds', 'active', 1, ?4)",
+                params![
+                    participant_id,
+                    space.space_id,
+                    OWNER_ACTOR_REF,
+                    steward_digest
+                ],
             )
             .map_err(|e| store_problem(e.into()))?;
         // §10.4/§10.7-in-plan: the two built-in presentation lenses with
@@ -341,7 +475,7 @@ pub fn space_create(
                 stream_id: space_id.clone(),
                 project_id: Some(project_id.clone()),
                 actor_ref: None,
-                event_type: EVENT_SPACE_CREATED,
+                event_type: EVENT_SPACE_CREATED.to_owned(),
                 schema_ref: SPACE_SCHEMA_REF.to_owned(),
                 resource_ref: space_id.clone(),
                 resource_revision: Some(1),
@@ -592,7 +726,7 @@ pub fn append_contribution(
                 stream_id: space.space_id.clone(),
                 project_id: Some(project_id.clone()),
                 actor_ref: Some(author.actor_ref.clone()),
-                event_type: EVENT_CONTRIBUTION_APPENDED,
+                event_type: EVENT_CONTRIBUTION_APPENDED.to_owned(),
                 schema_ref: CONTRIBUTION_SCHEMA_REF.to_owned(),
                 resource_ref: contribution_id.clone(),
                 resource_revision: Some(1),
@@ -696,13 +830,23 @@ fn validate_parts(
             ContributionPart::Mention {
                 target_kind,
                 target_ref,
+                target_revision,
                 ..
             } => match target_kind.as_str() {
                 "principal" if target_ref == OWNER_ACTOR_REF => {}
-                // No alias registry exists in K1; an unresolvable
-                // mention target is a uniform not-found (§10.4: a
-                // mention resolves an exact visible alias revision in
-                // the same transaction — or the append fails).
+                // §10.4: a mention resolves an exact visible alias
+                // revision in the same transaction — or the append fails
+                // (slice 3: the alias registry exists now).
+                "assistant_alias" => {
+                    let alias = get_alias(conn, target_ref)
+                        .map_err(store_problem)?
+                        .filter(|a| a.status == "active" && a.project_id == space.project_id)
+                        .ok_or_else(not_found)?;
+                    if alias.revision != *target_revision {
+                        return Err(stale_revision(alias.revision)
+                            .with_detail("mention pins a stale alias revision"));
+                    }
+                }
                 _ => return Err(not_found()),
             },
             ContributionPart::Text { .. } | ContributionPart::Data { .. } => {}

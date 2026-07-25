@@ -1,12 +1,15 @@
-//! The K1 slice-1 operation surface: per-operation argument shapes
-//! mirroring `spec/schemas/ops/<op>-request.schema.json`, plus the
-//! registry-derived read/mutation meta rule and envelope field placement.
+//! The K1 operation surface: per-operation argument shapes mirroring
+//! `spec/schemas/ops/<op>-request.schema.json`, plus the registry-derived
+//! read/mutation meta rule and envelope field placement.
 //!
 //! The registry (`spec/registry.json`) fixes which operations exist and on
 //! which surface; the per-op schemas fix the closed argument shapes. This
 //! module implements both in Rust — no JSON-Schema engine — and the vector
-//! round-trip test (`tests/k1_slice1_vectors.rs`) proves agreement with
-//! the schema files for every `spec/vectors/ops/` case of these ops.
+//! round-trip tests (`tests/k1_slice1_vectors.rs`, `tests/k1_vectors.rs`)
+//! prove agreement with the schema files for every `spec/vectors/ops/`
+//! case. Slice 3 closes the table: every distinct registry operation of
+//! the three K1 bundles has a row here (parity is machine-checked against
+//! `spec/registry.json` by `tests/k1_vectors.rs`).
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -42,17 +45,31 @@ pub struct OpSpec {
     pub project_id: FieldRule,
 }
 
-/// The K1 operation table (slice 1 + slice 2). Every operation here has a
+/// One row per distinct registry operation. Every operation here has a
 /// registry row (`spec/registry.json`); an operation absent from the
 /// registry is not callable (§11.6.1) and dispatch answers `unknown-op`.
-/// Surface acceptance (external_client vs worker) is enforced by the
-/// daemon's per-socket dispatch tables, not here.
-pub const K1_OPS: [OpSpec; 25] = [
+/// Surface acceptance (external_client vs worker vs operator — the
+/// operator entries bind to the owner principal in the personal profile,
+/// registry-README resolutions 5/6) is enforced by the daemon's
+/// per-socket dispatch tables, not here.
+pub const K1_OPS: [OpSpec; 86] = [
     OpSpec {
         name: "hello",
         kind: OpKind::Read,
         realm_id: FieldRule::Forbidden,
         project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "protocol_info",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Forbidden,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "diagnose",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
     },
     OpSpec {
         name: "realm_show",
@@ -199,6 +216,361 @@ pub const K1_OPS: [OpSpec; 25] = [
         realm_id: FieldRule::Required,
         project_id: FieldRule::Required,
     },
+    // ------------------------------------------------ slice-3 additions ----
+    OpSpec {
+        name: "project_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "project_update_metadata",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_access_policy_change_prepare",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_access_policy_change_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_access_policy_change_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_access_policy_change_confirm",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "project_access_policy_change_cancel",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_update_metadata",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_freeze",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_reopen",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_archive",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_restrict",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_policy_narrow",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_widen_prepare",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_widen_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_widen_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_widen_confirm",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_widen_cancel",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_participant_add",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_participant_activate",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_participant_update",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_participant_remove",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_participant_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_grant_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_grant_revoke",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "space_access_grant_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "contribution_withdraw",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "contribution_supersede",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "contribution_redact",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "relation_retract",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_update",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "lens_revoke",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "reaction_set",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "event_payload",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "snapshot_read",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "disclosure_manifest_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_revision_register",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_revision_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_revision_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "deployment_create",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "deployment_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "deployment_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "deployment_activate",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "deployment_drain",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Optional,
+    },
+    OpSpec {
+        name: "assistant_alias_bind",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "assistant_alias_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "assistant_alias_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "assistant_alias_update",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "assistant_alias_revoke",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "invocation_list",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "invocation_cancel",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    OpSpec {
+        name: "application_event_emit",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
 ];
 
 pub fn op_spec(name: &str) -> Option<&'static OpSpec> {
@@ -208,7 +580,7 @@ pub fn op_spec(name: &str) -> Option<&'static OpSpec> {
 impl OpSpec {
     /// The envelope [`Shape`] this op's request schema pins.
     pub fn shape(&self) -> Shape {
-        if self.name == "hello" {
+        if self.name == "hello" || self.name == "protocol_info" {
             return Shape::PreAuth;
         }
         match self.kind {
@@ -1150,6 +1522,1103 @@ impl InvocationShowArgs {
     }
 }
 
+// ------------------------------------------------- slice-3 shared bits ----
+
+/// `statusToken`: `^[a-z][a-z0-9_]{0,63}$` (gap note KG6 — bounded token,
+/// no invented enum).
+pub fn is_status_token(s: &str) -> bool {
+    let mut bytes = s.bytes();
+    matches!(bytes.next(), Some(b'a'..=b'z'))
+        && s.len() <= 64
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn check_status_token(field: &str, value: &str) -> Result<(), Problem> {
+    if is_status_token(value) {
+        Ok(())
+    } else {
+        Err(invalid(format!("{field} is not a bounded status token")))
+    }
+}
+
+fn check_opt_status_token(field: &str, value: &Option<String>) -> Result<(), Problem> {
+    match value {
+        Some(v) => check_status_token(field, v),
+        None => Ok(()),
+    }
+}
+
+fn check_opt_timestamp(field: &str, value: &Option<String>) -> Result<(), Problem> {
+    match value {
+        Some(v) if limits::is_timestamp(v) => Ok(()),
+        Some(_) => Err(invalid(format!("{field} is not an RFC 3339 date-time"))),
+        None => Ok(()),
+    }
+}
+
+fn check_object(field: &str, value: &Value) -> Result<(), Problem> {
+    if value.is_object() {
+        Ok(())
+    } else {
+        Err(invalid(format!("{field} must be a JSON object")))
+    }
+}
+
+fn check_opt_object(field: &str, value: &Option<Value>) -> Result<(), Problem> {
+    match value {
+        Some(v) => check_object(field, v),
+        None => Ok(()),
+    }
+}
+
+fn check_id_list(field: &str, items: &[String], unique: bool) -> Result<(), Problem> {
+    if items.len() > limits::LIST_MAX_ITEMS {
+        return Err(invalid(format!("{field} holds more than 256 items")));
+    }
+    if unique && !all_unique(items) {
+        return Err(invalid(format!("{field} items must be unique")));
+    }
+    for item in items {
+        check_identifier(field, item)?;
+    }
+    Ok(())
+}
+
+/// The closed empty-args rule shared by `protocol_info`, `project_show`,
+/// and `realm_show` (the read target travels in the envelope).
+pub fn empty_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
+    if args.is_empty() {
+        Ok(())
+    } else {
+        Err(invalid(format!("{op} args is the closed empty object")))
+    }
+}
+
+// ------------------------------------------------------------ diagnose ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnoseArgs {
+    #[serde(default)]
+    pub checks: Option<Vec<String>>,
+}
+
+impl DiagnoseArgs {
+    pub fn from_args(args: &JsonMap) -> Result<DiagnoseArgs, Problem> {
+        let parsed: DiagnoseArgs = parse_args(args)?;
+        if let Some(checks) = &parsed.checks {
+            check_id_list("checks", checks, true)?;
+        }
+        Ok(parsed)
+    }
+}
+
+// ----------------------------------------------------- generic id reads ----
+
+macro_rules! single_id_args {
+    ($name:ident, $field:ident) => {
+        #[derive(Debug, Clone, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            pub $field: String,
+        }
+
+        impl $name {
+            pub fn from_args(args: &JsonMap) -> Result<$name, Problem> {
+                let parsed: $name = parse_args(args)?;
+                check_identifier(stringify!($field), &parsed.$field)?;
+                Ok(parsed)
+            }
+        }
+    };
+}
+
+single_id_args!(ChangeIdArgs, change_id);
+single_id_args!(WideningIdArgs, widening_id);
+single_id_args!(SpaceIdArgs, space_id);
+single_id_args!(ParticipantIdArgs, participant_id);
+single_id_args!(GrantRevokeArgs, space_access_id);
+single_id_args!(LensIdArgs, lens_id);
+single_id_args!(EventPayloadArgs, event_id);
+single_id_args!(DisclosureManifestShowArgs, disclosure_id);
+single_id_args!(AssistantShowArgs, definition_id);
+single_id_args!(AssistantRevisionShowArgs, assistant_revision_id);
+single_id_args!(DeploymentIdArgs, assistant_deployment_id);
+single_id_args!(AliasIdArgs, alias_binding_id);
+
+// -------------------------------------------------------- generic pages ----
+
+/// The plain §11.5 page args `{ after?, limit, snapshot? }`
+/// (`project_list`, `project_access_policy_change_list`,
+/// `assistant_list`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageArgs {
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl PageArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PageArgs, Problem> {
+        let parsed: PageArgs = parse_args(args)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// A §11.5 page over one space's collection (`space_participant_list`,
+/// `space_access_grant_list`, `lens_list`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpacePageArgs {
+    pub space_id: String,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl SpacePageArgs {
+    pub fn from_args(args: &JsonMap) -> Result<SpacePageArgs, Problem> {
+        let parsed: SpacePageArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `space_access_widen_list` args (`space_id` narrows, optionally).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WidenListArgs {
+    #[serde(default)]
+    pub space_id: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl WidenListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<WidenListArgs, Problem> {
+        let parsed: WidenListArgs = parse_args(args)?;
+        check_opt_identifier("space_id", &parsed.space_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `assistant_revision_list` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantRevisionListArgs {
+    #[serde(default)]
+    pub definition_id: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl AssistantRevisionListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AssistantRevisionListArgs, Problem> {
+        let parsed: AssistantRevisionListArgs = parse_args(args)?;
+        check_opt_identifier("definition_id", &parsed.definition_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `deployment_list` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeploymentListArgs {
+    #[serde(default)]
+    pub assistant_revision_id: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl DeploymentListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<DeploymentListArgs, Problem> {
+        let parsed: DeploymentListArgs = parse_args(args)?;
+        check_opt_identifier("assistant_revision_id", &parsed.assistant_revision_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `assistant_alias_list` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AliasListArgs {
+    #[serde(default)]
+    pub assistant_deployment_id: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl AliasListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AliasListArgs, Problem> {
+        let parsed: AliasListArgs = parse_args(args)?;
+        check_opt_identifier("assistant_deployment_id", &parsed.assistant_deployment_id)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// Closed §10.6 invocation-state machine names.
+pub const INVOCATION_STATES: [&str; 10] = [
+    "queued",
+    "claimed",
+    "running",
+    "waiting_commitment",
+    "waiting_human",
+    "waiting_resource",
+    "succeeded",
+    "failed",
+    "canceled",
+    "ambiguous",
+];
+
+/// `invocation_list` args.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvocationListArgs {
+    #[serde(default)]
+    pub assistant_deployment_id: Option<String>,
+    #[serde(default)]
+    pub space_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl InvocationListArgs {
+    pub fn from_args(args: &JsonMap) -> Result<InvocationListArgs, Problem> {
+        let parsed: InvocationListArgs = parse_args(args)?;
+        check_opt_identifier("assistant_deployment_id", &parsed.assistant_deployment_id)?;
+        check_opt_identifier("space_id", &parsed.space_id)?;
+        if let Some(state) = &parsed.state {
+            if !INVOCATION_STATES.contains(&state.as_str()) {
+                return Err(invalid("state is not in the closed §10.6 enum"));
+            }
+        }
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+/// `snapshot_read` args (§11.5 page + the collection selector, KG28).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotReadArgs {
+    pub source: String,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u64,
+    #[serde(default)]
+    pub snapshot: Option<String>,
+}
+
+impl SnapshotReadArgs {
+    pub fn from_args(args: &JsonMap) -> Result<SnapshotReadArgs, Problem> {
+        let parsed: SnapshotReadArgs = parse_args(args)?;
+        check_identifier("source", &parsed.source)?;
+        check_cursor("after", &parsed.after)?;
+        check_limit(parsed.limit)?;
+        check_cursor("snapshot", &parsed.snapshot)?;
+        Ok(parsed)
+    }
+}
+
+// -------------------------------------------------- project mutations ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectUpdateMetadataArgs {
+    pub name: String,
+}
+
+impl ProjectUpdateMetadataArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ProjectUpdateMetadataArgs, Problem> {
+        let parsed: ProjectUpdateMetadataArgs = parse_args(args)?;
+        check_display("name", &parsed.name)?;
+        Ok(parsed)
+    }
+}
+
+/// `project_access_policy_change_prepare` args: proposal deltas only —
+/// prior values and digests are server-derived (KG5/KG17).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PapcPrepareArgs {
+    #[serde(default)]
+    pub proposed_policy_set_ref: Option<String>,
+    #[serde(default)]
+    pub proposed_default_classification_ref: Option<String>,
+}
+
+impl PapcPrepareArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PapcPrepareArgs, Problem> {
+        let parsed: PapcPrepareArgs = parse_args(args)?;
+        check_opt_identifier("proposed_policy_set_ref", &parsed.proposed_policy_set_ref)?;
+        check_opt_identifier(
+            "proposed_default_classification_ref",
+            &parsed.proposed_default_classification_ref,
+        )?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PapcConfirmArgs {
+    pub change_id: String,
+    pub decision_receipt_ref: String,
+}
+
+impl PapcConfirmArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PapcConfirmArgs, Problem> {
+        let parsed: PapcConfirmArgs = parse_args(args)?;
+        check_identifier("change_id", &parsed.change_id)?;
+        check_identifier("decision_receipt_ref", &parsed.decision_receipt_ref)?;
+        Ok(parsed)
+    }
+}
+
+// ---------------------------------------------------- space lifecycle ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceUpdateMetadataArgs {
+    pub space_id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub purpose_contribution_ref: Option<String>,
+}
+
+impl SpaceUpdateMetadataArgs {
+    pub fn from_args(args: &JsonMap) -> Result<SpaceUpdateMetadataArgs, Problem> {
+        let parsed: SpaceUpdateMetadataArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        if let Some(title) = &parsed.title {
+            check_display("title", title)?;
+        }
+        check_opt_identifier("purpose_contribution_ref", &parsed.purpose_contribution_ref)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpacePolicyNarrowArgs {
+    pub space_id: String,
+    #[serde(default)]
+    pub policy_set_ref: Option<String>,
+    #[serde(default)]
+    pub default_classification_ref: Option<String>,
+}
+
+impl SpacePolicyNarrowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<SpacePolicyNarrowArgs, Problem> {
+        let parsed: SpacePolicyNarrowArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_opt_identifier("policy_set_ref", &parsed.policy_set_ref)?;
+        check_opt_identifier(
+            "default_classification_ref",
+            &parsed.default_classification_ref,
+        )?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WidenPrepareArgs {
+    pub space_id: String,
+    #[serde(default)]
+    pub proposed_visibility: Option<String>,
+    #[serde(default)]
+    pub proposed_policy_set_ref: Option<String>,
+    #[serde(default)]
+    pub proposed_default_classification_ref: Option<String>,
+}
+
+impl WidenPrepareArgs {
+    pub fn from_args(args: &JsonMap) -> Result<WidenPrepareArgs, Problem> {
+        let parsed: WidenPrepareArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        if let Some(visibility) = &parsed.proposed_visibility {
+            if !SPACE_VISIBILITIES.contains(&visibility.as_str()) {
+                return Err(invalid(
+                    "proposed_visibility is not in the closed §10.2 enum",
+                ));
+            }
+        }
+        check_opt_identifier("proposed_policy_set_ref", &parsed.proposed_policy_set_ref)?;
+        check_opt_identifier(
+            "proposed_default_classification_ref",
+            &parsed.proposed_default_classification_ref,
+        )?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WidenConfirmArgs {
+    pub widening_id: String,
+    pub decision_receipt_ref: String,
+}
+
+impl WidenConfirmArgs {
+    pub fn from_args(args: &JsonMap) -> Result<WidenConfirmArgs, Problem> {
+        let parsed: WidenConfirmArgs = parse_args(args)?;
+        check_identifier("widening_id", &parsed.widening_id)?;
+        check_identifier("decision_receipt_ref", &parsed.decision_receipt_ref)?;
+        Ok(parsed)
+    }
+}
+
+// -------------------------------------------------------- participants ----
+
+/// Closed SpaceParticipant enums, verbatim §10.2.
+pub const PARTICIPANT_KINDS: [&str; 4] = [
+    "principal",
+    "assistant_deployment",
+    "service",
+    "peer_projection",
+];
+pub const PARTICIPANT_ROLES: [&str; 3] = ["steward", "contributor", "observer"];
+pub const PARTICIPANT_STATUSES: [&str; 4] = ["proposed", "active", "muted", "revoked"];
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParticipantAddArgs {
+    pub space_id: String,
+    pub subject_ref: String,
+    pub kind: String,
+    pub role: String,
+    #[serde(default)]
+    pub subject_revision: Option<u64>,
+}
+
+impl ParticipantAddArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ParticipantAddArgs, Problem> {
+        let parsed: ParticipantAddArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("subject_ref", &parsed.subject_ref)?;
+        if !PARTICIPANT_KINDS.contains(&parsed.kind.as_str()) {
+            return Err(invalid("kind is not in the closed SpaceParticipant enum"));
+        }
+        if !PARTICIPANT_ROLES.contains(&parsed.role.as_str()) {
+            return Err(invalid("role is not in the closed SpaceParticipant enum"));
+        }
+        if let Some(rev) = parsed.subject_revision {
+            check_safe("subject_revision", rev)?;
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParticipantActivateArgs {
+    pub participant_id: String,
+    pub subject_digest: String,
+}
+
+impl ParticipantActivateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ParticipantActivateArgs, Problem> {
+        let parsed: ParticipantActivateArgs = parse_args(args)?;
+        check_identifier("participant_id", &parsed.participant_id)?;
+        if !limits::is_digest_hex(&parsed.subject_digest) {
+            return Err(invalid("subject_digest is not 64 lowercase hex"));
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParticipantUpdateArgs {
+    pub participant_id: String,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+impl ParticipantUpdateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ParticipantUpdateArgs, Problem> {
+        let parsed: ParticipantUpdateArgs = parse_args(args)?;
+        check_identifier("participant_id", &parsed.participant_id)?;
+        if let Some(role) = &parsed.role {
+            if !PARTICIPANT_ROLES.contains(&role.as_str()) {
+                return Err(invalid("role is not in the closed SpaceParticipant enum"));
+            }
+        }
+        if let Some(status) = &parsed.status {
+            if !PARTICIPANT_STATUSES.contains(&status.as_str()) {
+                return Err(invalid("status is not in the closed SpaceParticipant enum"));
+            }
+        }
+        Ok(parsed)
+    }
+}
+
+// -------------------------------------------------------------- grants ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GrantCreateArgs {
+    pub space_id: String,
+    pub subject_ref: String,
+    pub allowed_actions: Vec<String>,
+    #[serde(default)]
+    pub classification_ceiling_ref: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+impl GrantCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<GrantCreateArgs, Problem> {
+        let parsed: GrantCreateArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("subject_ref", &parsed.subject_ref)?;
+        if parsed.allowed_actions.is_empty()
+            || parsed.allowed_actions.len() > limits::LIST_MAX_ITEMS
+        {
+            return Err(invalid("allowed_actions must hold 1-256 items"));
+        }
+        for action in &parsed.allowed_actions {
+            check_status_token("allowed_actions", action)?;
+        }
+        check_opt_identifier(
+            "classification_ceiling_ref",
+            &parsed.classification_ceiling_ref,
+        )?;
+        check_opt_timestamp("expires_at", &parsed.expires_at)?;
+        Ok(parsed)
+    }
+}
+
+// -------------------------------------------------------- dispositions ----
+
+/// `contribution_withdraw` / `contribution_redact` args (§10.2
+/// ContributionDisposition caller fields, KG22).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContributionDispositionArgs {
+    pub contribution_ref: String,
+    pub reason_class: String,
+}
+
+impl ContributionDispositionArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ContributionDispositionArgs, Problem> {
+        let parsed: ContributionDispositionArgs = parse_args(args)?;
+        check_identifier("contribution_ref", &parsed.contribution_ref)?;
+        check_status_token("reason_class", &parsed.reason_class)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContributionSupersedeArgs {
+    pub contribution_ref: String,
+    pub replacement_ref: String,
+    pub reason_class: String,
+}
+
+impl ContributionSupersedeArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ContributionSupersedeArgs, Problem> {
+        let parsed: ContributionSupersedeArgs = parse_args(args)?;
+        check_identifier("contribution_ref", &parsed.contribution_ref)?;
+        check_identifier("replacement_ref", &parsed.replacement_ref)?;
+        check_status_token("reason_class", &parsed.reason_class)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationRetractArgs {
+    pub relation_ref: String,
+    pub reason_class: String,
+}
+
+impl RelationRetractArgs {
+    pub fn from_args(args: &JsonMap) -> Result<RelationRetractArgs, Problem> {
+        let parsed: RelationRetractArgs = parse_args(args)?;
+        check_identifier("relation_ref", &parsed.relation_ref)?;
+        check_status_token("reason_class", &parsed.reason_class)?;
+        Ok(parsed)
+    }
+}
+
+// -------------------------------------------------------------- lenses ----
+
+/// Closed SpaceLens.kind enum, verbatim §10.2.
+pub const LENS_KINDS: [&str; 7] = [
+    "stream",
+    "workbench",
+    "pulse",
+    "branch_compare",
+    "ensemble",
+    "provenance",
+    "custom",
+];
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LensCreateArgs {
+    pub space_id: String,
+    pub kind: String,
+    pub query_ast: Value,
+    pub sort_spec: Value,
+    pub presentation_options: Value,
+    pub visibility: String,
+}
+
+impl LensCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<LensCreateArgs, Problem> {
+        let parsed: LensCreateArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        if !LENS_KINDS.contains(&parsed.kind.as_str()) {
+            return Err(invalid("kind is not in the closed SpaceLens enum"));
+        }
+        check_object("query_ast", &parsed.query_ast)?;
+        check_object("sort_spec", &parsed.sort_spec)?;
+        check_object("presentation_options", &parsed.presentation_options)?;
+        check_status_token("visibility", &parsed.visibility)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LensUpdateArgs {
+    pub lens_id: String,
+    #[serde(default)]
+    pub query_ast: Option<Value>,
+    #[serde(default)]
+    pub sort_spec: Option<Value>,
+    #[serde(default)]
+    pub presentation_options: Option<Value>,
+    #[serde(default)]
+    pub visibility: Option<String>,
+}
+
+impl LensUpdateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<LensUpdateArgs, Problem> {
+        let parsed: LensUpdateArgs = parse_args(args)?;
+        check_identifier("lens_id", &parsed.lens_id)?;
+        check_opt_object("query_ast", &parsed.query_ast)?;
+        check_opt_object("sort_spec", &parsed.sort_spec)?;
+        check_opt_object("presentation_options", &parsed.presentation_options)?;
+        check_opt_status_token("visibility", &parsed.visibility)?;
+        Ok(parsed)
+    }
+}
+
+// ------------------------------------------------------------ reactions ----
+
+/// Closed Reaction.state enum, verbatim §10.2.
+pub const REACTION_STATES: [&str; 2] = ["present", "removed"];
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReactionSetArgs {
+    pub space_id: String,
+    pub target_ref: String,
+    pub target_revision: u64,
+    pub target_digest: String,
+    pub key: String,
+    pub state: String,
+}
+
+impl ReactionSetArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ReactionSetArgs, Problem> {
+        let parsed: ReactionSetArgs = parse_args(args)?;
+        check_identifier("space_id", &parsed.space_id)?;
+        check_identifier("target_ref", &parsed.target_ref)?;
+        check_safe("target_revision", parsed.target_revision)?;
+        if !limits::is_digest_hex(&parsed.target_digest) {
+            return Err(invalid("target_digest is not 64 lowercase hex"));
+        }
+        check_status_token("key", &parsed.key)?;
+        if !REACTION_STATES.contains(&parsed.state.as_str()) {
+            return Err(invalid("state is not in the closed Reaction enum"));
+        }
+        Ok(parsed)
+    }
+}
+
+// ----------------------------------------------------------- assistants ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantCreateArgs {
+    pub name: String,
+    pub description: String,
+}
+
+impl AssistantCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AssistantCreateArgs, Problem> {
+        let parsed: AssistantCreateArgs = parse_args(args)?;
+        check_display("name", &parsed.name)?;
+        check_free_text("description", &parsed.description)?;
+        Ok(parsed)
+    }
+}
+
+/// Closed §14.4 security-profile names and §15.3 concurrency policies.
+pub const SECURITY_PROFILES: [&str; 3] = ["developer", "confined", "secure"];
+pub const CONCURRENCY_POLICIES: [&str; 3] =
+    ["serial-branch", "parallel-independent", "causal-keyed"];
+
+/// `resource_limits {cpu, memory, disk, output_bytes}` verbatim §14.2
+/// (units unpinned, gap note KG7).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceLimits {
+    pub cpu: u64,
+    pub memory: u64,
+    pub disk: u64,
+    pub output_bytes: u64,
+}
+
+/// The §14.2 assistant-revision manifest, typed per gap note KG7 — the
+/// closed field list verbatim; open members (`runtime`, `network_policy`,
+/// `attention_proposals[]`) carry no authority.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RevisionManifest {
+    pub schema_version: String,
+    pub definition_id: String,
+    pub version: String,
+    pub entrypoint: String,
+    pub package_digest: String,
+    pub runtime: Value,
+    pub supported_worker_protocols: Vec<String>,
+    pub input_schema_ref: String,
+    pub output_schema_ref: String,
+    pub skills: Vec<String>,
+    pub attention_proposals: Vec<Value>,
+    pub requested_capabilities: Vec<String>,
+    pub model_profiles: Vec<String>,
+    pub tool_profiles: Vec<String>,
+    pub network_policy: Value,
+    pub resource_limits: ResourceLimits,
+    pub default_timeout: u64,
+    pub max_concurrency: u64,
+    pub causal_concurrency_policy: String,
+    pub checkpoint_support: bool,
+    pub cancellation_support: bool,
+    pub security_profiles: Vec<String>,
+}
+
+impl RevisionManifest {
+    fn validate(&self) -> Result<(), Problem> {
+        for (field, value) in [
+            ("manifest.schema_version", &self.schema_version),
+            ("manifest.definition_id", &self.definition_id),
+            ("manifest.version", &self.version),
+            ("manifest.entrypoint", &self.entrypoint),
+            ("manifest.input_schema_ref", &self.input_schema_ref),
+            ("manifest.output_schema_ref", &self.output_schema_ref),
+        ] {
+            check_identifier(field, value)?;
+        }
+        if !limits::is_digest_hex(&self.package_digest) {
+            return Err(invalid("manifest.package_digest is not 64 lowercase hex"));
+        }
+        check_object("manifest.runtime", &self.runtime)?;
+        check_object("manifest.network_policy", &self.network_policy)?;
+        for (field, list) in [
+            (
+                "manifest.supported_worker_protocols",
+                &self.supported_worker_protocols,
+            ),
+            ("manifest.skills", &self.skills),
+            (
+                "manifest.requested_capabilities",
+                &self.requested_capabilities,
+            ),
+            ("manifest.model_profiles", &self.model_profiles),
+            ("manifest.tool_profiles", &self.tool_profiles),
+        ] {
+            check_id_list(field, list, true)?;
+        }
+        if self.attention_proposals.len() > limits::LIST_MAX_ITEMS {
+            return Err(invalid(
+                "manifest.attention_proposals holds more than 256 items",
+            ));
+        }
+        for proposal in &self.attention_proposals {
+            check_object("manifest.attention_proposals", proposal)?;
+        }
+        for (field, value) in [
+            ("manifest.resource_limits.cpu", self.resource_limits.cpu),
+            (
+                "manifest.resource_limits.memory",
+                self.resource_limits.memory,
+            ),
+            ("manifest.resource_limits.disk", self.resource_limits.disk),
+            (
+                "manifest.resource_limits.output_bytes",
+                self.resource_limits.output_bytes,
+            ),
+            ("manifest.default_timeout", self.default_timeout),
+            ("manifest.max_concurrency", self.max_concurrency),
+        ] {
+            check_safe(field, value)?;
+        }
+        if !CONCURRENCY_POLICIES.contains(&self.causal_concurrency_policy.as_str()) {
+            return Err(invalid(
+                "manifest.causal_concurrency_policy is not in the closed §15.3 set",
+            ));
+        }
+        if self.security_profiles.is_empty()
+            || self.security_profiles.len() > 3
+            || !all_unique(&self.security_profiles)
+        {
+            return Err(invalid(
+                "manifest.security_profiles must hold 1-3 unique profiles",
+            ));
+        }
+        for profile in &self.security_profiles {
+            if !SECURITY_PROFILES.contains(&profile.as_str()) {
+                return Err(invalid(
+                    "manifest.security_profiles item is not a §14.4 profile",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantRevisionRegisterArgs {
+    pub definition_id: String,
+    pub version: String,
+    pub manifest: RevisionManifest,
+    pub package_artifact_ref: String,
+    pub package_digest: String,
+    pub config_schema_digest: String,
+    pub sdk_protocol_range: String,
+    #[serde(default)]
+    pub signature_refs: Option<Vec<String>>,
+}
+
+impl AssistantRevisionRegisterArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AssistantRevisionRegisterArgs, Problem> {
+        let parsed: AssistantRevisionRegisterArgs = parse_args(args)?;
+        check_identifier("definition_id", &parsed.definition_id)?;
+        check_identifier("version", &parsed.version)?;
+        parsed.manifest.validate()?;
+        check_identifier("package_artifact_ref", &parsed.package_artifact_ref)?;
+        for (field, digest) in [
+            ("package_digest", &parsed.package_digest),
+            ("config_schema_digest", &parsed.config_schema_digest),
+        ] {
+            if !limits::is_digest_hex(digest) {
+                return Err(invalid(format!("{field} is not 64 lowercase hex")));
+            }
+        }
+        check_identifier("sdk_protocol_range", &parsed.sdk_protocol_range)?;
+        if let Some(refs) = &parsed.signature_refs {
+            check_id_list("signature_refs", refs, true)?;
+        }
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeploymentCreateArgs {
+    pub assistant_revision_id: String,
+    pub config_ref: String,
+    pub config_digest: String,
+    pub secret_binding_set_ref: String,
+    pub secret_binding_set_digest: String,
+    pub policy_ref: String,
+    pub pool_ref: String,
+    pub security_profile: String,
+    pub concurrency_policy: String,
+    pub rollout_policy: Value,
+}
+
+impl DeploymentCreateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<DeploymentCreateArgs, Problem> {
+        let parsed: DeploymentCreateArgs = parse_args(args)?;
+        for (field, value) in [
+            ("assistant_revision_id", &parsed.assistant_revision_id),
+            ("config_ref", &parsed.config_ref),
+            ("secret_binding_set_ref", &parsed.secret_binding_set_ref),
+            ("policy_ref", &parsed.policy_ref),
+            ("pool_ref", &parsed.pool_ref),
+        ] {
+            check_identifier(field, value)?;
+        }
+        for (field, digest) in [
+            ("config_digest", &parsed.config_digest),
+            (
+                "secret_binding_set_digest",
+                &parsed.secret_binding_set_digest,
+            ),
+        ] {
+            if !limits::is_digest_hex(digest) {
+                return Err(invalid(format!("{field} is not 64 lowercase hex")));
+            }
+        }
+        if !SECURITY_PROFILES.contains(&parsed.security_profile.as_str()) {
+            return Err(invalid("security_profile is not a §14.4 profile"));
+        }
+        if !CONCURRENCY_POLICIES.contains(&parsed.concurrency_policy.as_str()) {
+            return Err(invalid("concurrency_policy is not in the closed §15.3 set"));
+        }
+        check_object("rollout_policy", &parsed.rollout_policy)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AliasBindArgs {
+    pub display_alias: String,
+    pub assistant_deployment_id: String,
+    pub deployment_revision: u64,
+}
+
+impl AliasBindArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AliasBindArgs, Problem> {
+        let parsed: AliasBindArgs = parse_args(args)?;
+        check_display("display_alias", &parsed.display_alias)?;
+        check_identifier("assistant_deployment_id", &parsed.assistant_deployment_id)?;
+        check_safe("deployment_revision", parsed.deployment_revision)?;
+        Ok(parsed)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AliasUpdateArgs {
+    pub alias_binding_id: String,
+    pub assistant_deployment_id: String,
+    pub deployment_revision: u64,
+}
+
+impl AliasUpdateArgs {
+    pub fn from_args(args: &JsonMap) -> Result<AliasUpdateArgs, Problem> {
+        let parsed: AliasUpdateArgs = parse_args(args)?;
+        check_identifier("alias_binding_id", &parsed.alias_binding_id)?;
+        check_identifier("assistant_deployment_id", &parsed.assistant_deployment_id)?;
+        check_safe("deployment_revision", parsed.deployment_revision)?;
+        Ok(parsed)
+    }
+}
+
+// ---------------------------------------------------- invocation cancel ----
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvocationCancelArgs {
+    pub invocation_id: String,
+    #[serde(default)]
+    pub cancellation_scope: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Worker-surface binding (§15.2); refused on external_client.
+    #[serde(default)]
+    pub attempt_id: Option<String>,
+    #[serde(default)]
+    pub fence_epoch: Option<u64>,
+}
+
+impl InvocationCancelArgs {
+    pub fn from_args(args: &JsonMap) -> Result<InvocationCancelArgs, Problem> {
+        let parsed: InvocationCancelArgs = parse_args(args)?;
+        check_identifier("invocation_id", &parsed.invocation_id)?;
+        check_opt_status_token("cancellation_scope", &parsed.cancellation_scope)?;
+        if let Some(reason) = &parsed.reason {
+            check_free_text("reason", reason)?;
+        }
+        check_opt_identifier("attempt_id", &parsed.attempt_id)?;
+        if let Some(fence) = parsed.fence_epoch {
+            check_safe("fence_epoch", fence)?;
+        }
+        Ok(parsed)
+    }
+}
+
+// ---------------------------------------------- application_event_emit ----
+
+/// Registered application event payloads are capped at 64 KiB (§11.8).
+pub const APP_EVENT_PAYLOAD_MAX_BYTES: usize = 65_536;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplicationEventEmitArgs {
+    pub attempt_id: String,
+    pub fence_epoch: u64,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub payload: Value,
+}
+
+impl ApplicationEventEmitArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ApplicationEventEmitArgs, Problem> {
+        let parsed: ApplicationEventEmitArgs = parse_args(args)?;
+        check_identifier("attempt_id", &parsed.attempt_id)?;
+        check_safe("fence_epoch", parsed.fence_epoch)?;
+        if !limits::is_event_type(&parsed.event_type) {
+            return Err(invalid("type is not a versioned reverse-domain name"));
+        }
+        check_object("payload", &parsed.payload)?;
+        let bytes = serde_json::to_vec(&parsed.payload)
+            .map_err(|_| invalid("payload is not serializable"))?;
+        if bytes.len() > APP_EVENT_PAYLOAD_MAX_BYTES {
+            return Err(invalid("payload exceeds the §11.8 64 KiB cap"));
+        }
+        Ok(parsed)
+    }
+}
+
 /// Validates an operation's args against its K1 schema mirror, discarding
 /// the parse — the shared schema-conformance gate the vector round-trip
 /// tests drive directly.
@@ -1180,6 +2649,67 @@ pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
         "artifact_show" => ArtifactShowArgs::from_args(args).map(drop),
         "invocation_create" => InvocationCreateArgs::from_args(args).map(drop),
         "invocation_show" => InvocationShowArgs::from_args(args).map(drop),
+        // ---------------------------------------------------- slice 3 ----
+        "protocol_info" | "project_show" => empty_args(op, args),
+        "diagnose" => DiagnoseArgs::from_args(args).map(drop),
+        "project_list" | "project_access_policy_change_list" | "assistant_list" => {
+            PageArgs::from_args(args).map(drop)
+        }
+        "project_update_metadata" => ProjectUpdateMetadataArgs::from_args(args).map(drop),
+        "project_access_policy_change_prepare" => PapcPrepareArgs::from_args(args).map(drop),
+        "project_access_policy_change_show" | "project_access_policy_change_cancel" => {
+            ChangeIdArgs::from_args(args).map(drop)
+        }
+        "project_access_policy_change_confirm" => PapcConfirmArgs::from_args(args).map(drop),
+        "space_update_metadata" => SpaceUpdateMetadataArgs::from_args(args).map(drop),
+        "space_freeze" | "space_reopen" | "space_archive" | "space_restrict" => {
+            SpaceIdArgs::from_args(args).map(drop)
+        }
+        "space_policy_narrow" => SpacePolicyNarrowArgs::from_args(args).map(drop),
+        "space_access_widen_prepare" => WidenPrepareArgs::from_args(args).map(drop),
+        "space_access_widen_show" | "space_access_widen_cancel" => {
+            WideningIdArgs::from_args(args).map(drop)
+        }
+        "space_access_widen_list" => WidenListArgs::from_args(args).map(drop),
+        "space_access_widen_confirm" => WidenConfirmArgs::from_args(args).map(drop),
+        "space_participant_add" => ParticipantAddArgs::from_args(args).map(drop),
+        "space_participant_activate" => ParticipantActivateArgs::from_args(args).map(drop),
+        "space_participant_update" => ParticipantUpdateArgs::from_args(args).map(drop),
+        "space_participant_remove" => ParticipantIdArgs::from_args(args).map(drop),
+        "space_participant_list" | "space_access_grant_list" | "lens_list" => {
+            SpacePageArgs::from_args(args).map(drop)
+        }
+        "space_access_grant_create" => GrantCreateArgs::from_args(args).map(drop),
+        "space_access_grant_revoke" => GrantRevokeArgs::from_args(args).map(drop),
+        "contribution_withdraw" | "contribution_redact" => {
+            ContributionDispositionArgs::from_args(args).map(drop)
+        }
+        "contribution_supersede" => ContributionSupersedeArgs::from_args(args).map(drop),
+        "relation_retract" => RelationRetractArgs::from_args(args).map(drop),
+        "lens_create" => LensCreateArgs::from_args(args).map(drop),
+        "lens_show" | "lens_revoke" => LensIdArgs::from_args(args).map(drop),
+        "lens_update" => LensUpdateArgs::from_args(args).map(drop),
+        "reaction_set" => ReactionSetArgs::from_args(args).map(drop),
+        "event_payload" => EventPayloadArgs::from_args(args).map(drop),
+        "snapshot_read" => SnapshotReadArgs::from_args(args).map(drop),
+        "disclosure_manifest_show" => DisclosureManifestShowArgs::from_args(args).map(drop),
+        "assistant_create" => AssistantCreateArgs::from_args(args).map(drop),
+        "assistant_show" => AssistantShowArgs::from_args(args).map(drop),
+        "assistant_revision_register" => AssistantRevisionRegisterArgs::from_args(args).map(drop),
+        "assistant_revision_show" => AssistantRevisionShowArgs::from_args(args).map(drop),
+        "assistant_revision_list" => AssistantRevisionListArgs::from_args(args).map(drop),
+        "deployment_create" => DeploymentCreateArgs::from_args(args).map(drop),
+        "deployment_show" | "deployment_activate" | "deployment_drain" => {
+            DeploymentIdArgs::from_args(args).map(drop)
+        }
+        "deployment_list" => DeploymentListArgs::from_args(args).map(drop),
+        "assistant_alias_bind" => AliasBindArgs::from_args(args).map(drop),
+        "assistant_alias_show" | "assistant_alias_revoke" => AliasIdArgs::from_args(args).map(drop),
+        "assistant_alias_list" => AliasListArgs::from_args(args).map(drop),
+        "assistant_alias_update" => AliasUpdateArgs::from_args(args).map(drop),
+        "invocation_list" => InvocationListArgs::from_args(args).map(drop),
+        "invocation_cancel" => InvocationCancelArgs::from_args(args).map(drop),
+        "application_event_emit" => ApplicationEventEmitArgs::from_args(args).map(drop),
         other => Err(Problem::new(
             ProblemKind::UnknownOp,
             format!("operation {other} is not in the K1 table"),

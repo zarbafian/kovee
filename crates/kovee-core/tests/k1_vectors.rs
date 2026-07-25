@@ -41,26 +41,14 @@ fn vector_files() -> Vec<PathBuf> {
     files
 }
 
-/// The request-schema basenames of the K1 slice-2 op set.
-const SLICE2_REQUEST_SCHEMAS: [&str; 17] = [
-    "relation-assert-request",
-    "space-list-request",
-    "contribution-list-request",
-    "frontier-pin-request",
-    "frontier-show-request",
-    "lens-read-request",
-    "context-assembly-create-request",
-    "context-assembly-show-request",
-    "events-wait-request",
-    "artifact-upload-begin-request",
-    "artifact-upload-credential-request",
-    "artifact-upload-finalize-request",
-    "artifact-upload-abort-request",
-    "artifact-upload-show-request",
-    "artifact-show-request",
-    "invocation-create-request",
-    "invocation-show-request",
-];
+/// The request-schema basenames of the FULL K1 op table (slice 3 closes
+/// it): one `<op-with-dashes>-request` name per `ops::K1_OPS` row.
+fn k1_request_schemas() -> Vec<String> {
+    ops::K1_OPS
+        .iter()
+        .map(|spec| format!("{}-request", spec.name.replace('_', "-")))
+        .collect()
+}
 
 fn accepts_op_request(value: &Value) -> bool {
     let text = serde_json::to_string(value).unwrap();
@@ -79,7 +67,10 @@ fn accepts_op_request(value: &Value) -> bool {
 }
 
 #[test]
-fn slice2_op_request_vectors_round_trip() {
+fn k1_op_request_vectors_round_trip() {
+    // EVERY K1 operation's request vectors — positives and the §25.1
+    // negative classes — must agree with the Rust schema mirrors.
+    let schemas = k1_request_schemas();
     let mut checked = 0;
     let mut negatives = 0;
     for path in vector_files() {
@@ -87,7 +78,7 @@ fn slice2_op_request_vectors_round_trip() {
         let Some(schema) = vector["input"]["schema"].as_str() else {
             continue;
         };
-        if !SLICE2_REQUEST_SCHEMAS.contains(&schema) {
+        if !schemas.iter().any(|s| s == schema) {
             continue;
         }
         let value = &vector["input"]["value"];
@@ -104,10 +95,10 @@ fn slice2_op_request_vectors_round_trip() {
             negatives += 1;
         }
     }
-    // 17 ops × 3 negatives (missing-required, wrong-surface-args,
+    // 86 ops × 3 negatives (missing-required, wrong-surface-args,
     // replay) plus the positive requests.
-    assert!(checked >= 55, "only {checked} slice-2 op vectors found");
-    assert!(negatives >= 51, "only {negatives} negatives found");
+    assert!(checked >= 280, "only {checked} K1 op vectors found");
+    assert!(negatives >= 255, "only {negatives} negatives found");
 }
 
 #[test]
@@ -115,7 +106,7 @@ fn every_k1_op_has_wrong_surface_replay_and_missing_required_negatives() {
     // §25.1 verbatim: every operation carries the four negative classes
     // where they are expressible. Prove file-level coverage per op.
     let dir = vectors_dir().join("ops");
-    for schema in SLICE2_REQUEST_SCHEMAS {
+    for schema in k1_request_schemas() {
         let base = schema.trim_end_matches("-request");
         for suffix in ["invalid-missing-required", "invalid-wrong-surface-args"] {
             let path = dir.join(format!("{base}-{suffix}.json"));
@@ -129,6 +120,45 @@ fn every_k1_op_has_wrong_surface_replay_and_missing_required_negatives() {
             "missing replay negative for {base}"
         );
     }
+}
+
+#[test]
+fn ops_table_matches_the_frozen_registry_exactly() {
+    // §11.6.1 parity, both directions: every distinct registry operation
+    // has a K1 ops-table row, and every table row has a registry entry.
+    // (Per-surface dispatch parity is proven end-to-end by the daemon's
+    // `k1_bundles` suite.)
+    let registry = load(
+        &vectors_dir()
+            .parent()
+            .unwrap()
+            .join("registry.json")
+            .to_path_buf(),
+    );
+    let registry_ops: std::collections::BTreeSet<&str> = registry["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["operation"].as_str().unwrap())
+        .collect();
+    let table_ops: std::collections::BTreeSet<&str> =
+        ops::K1_OPS.iter().map(|spec| spec.name).collect();
+    assert_eq!(
+        registry_ops, table_ops,
+        "the ops table and spec/registry.json must carry the same exact operation set"
+    );
+    assert_eq!(table_ops.len(), 86, "86 distinct K1 operations");
+    // The three bundles the registry pins are exactly the K1 bundles.
+    let bundles: Vec<&str> = registry["bundles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        bundles,
+        vec!["core_v1", "shared_space_v1", "developer_assistant_v1"]
+    );
 }
 
 #[test]

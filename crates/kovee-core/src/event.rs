@@ -24,6 +24,49 @@ pub const EVENT_ARTIFACT_REJECTED: &str = "dev.kovee.artifact.rejected.v1";
 pub const EVENT_INVOCATION_CREATED: &str = "dev.kovee.invocation.created.v1";
 pub const EVENT_INVOCATION_CLAIMED: &str = "dev.kovee.invocation.claimed.v1";
 pub const EVENT_INVOCATION_SUCCEEDED: &str = "dev.kovee.invocation.succeeded.v1";
+pub const EVENT_INVOCATION_CANCELED: &str = "dev.kovee.invocation.canceled.v1";
+// Slice-3 lifecycle/disposition/registry event types.
+pub const EVENT_PROJECT_UPDATED: &str = "dev.kovee.project.updated.v1";
+pub const EVENT_PROJECT_POLICY_CHANGE_PREPARED: &str =
+    "dev.kovee.project.policy-change-prepared.v1";
+pub const EVENT_PROJECT_POLICY_CHANGE_CONFIRMED: &str =
+    "dev.kovee.project.policy-change-confirmed.v1";
+pub const EVENT_PROJECT_POLICY_CHANGE_CANCELED: &str =
+    "dev.kovee.project.policy-change-canceled.v1";
+pub const EVENT_SPACE_UPDATED: &str = "dev.kovee.space.updated.v1";
+pub const EVENT_SPACE_FROZEN: &str = "dev.kovee.space.frozen.v1";
+pub const EVENT_SPACE_REOPENED: &str = "dev.kovee.space.reopened.v1";
+pub const EVENT_SPACE_ARCHIVED: &str = "dev.kovee.space.archived.v1";
+pub const EVENT_SPACE_RESTRICTED: &str = "dev.kovee.space.restricted.v1";
+pub const EVENT_SPACE_POLICY_NARROWED: &str = "dev.kovee.space.policy-narrowed.v1";
+pub const EVENT_SPACE_WIDENING_PREPARED: &str = "dev.kovee.space.access-widening-prepared.v1";
+pub const EVENT_SPACE_WIDENING_CONFIRMED: &str = "dev.kovee.space.access-widening-confirmed.v1";
+pub const EVENT_SPACE_WIDENING_CANCELED: &str = "dev.kovee.space.access-widening-canceled.v1";
+pub const EVENT_PARTICIPANT_ADDED: &str = "dev.kovee.space.participant-added.v1";
+pub const EVENT_PARTICIPANT_ACTIVATED: &str = "dev.kovee.space.participant-activated.v1";
+pub const EVENT_PARTICIPANT_UPDATED: &str = "dev.kovee.space.participant-updated.v1";
+pub const EVENT_PARTICIPANT_REMOVED: &str = "dev.kovee.space.participant-removed.v1";
+pub const EVENT_GRANT_CREATED: &str = "dev.kovee.space.access-grant-created.v1";
+pub const EVENT_GRANT_REVOKED: &str = "dev.kovee.space.access-grant-revoked.v1";
+pub const EVENT_CONTRIBUTION_WITHDRAWN: &str = "dev.kovee.space.contribution-withdrawn.v1";
+pub const EVENT_CONTRIBUTION_SUPERSEDED: &str = "dev.kovee.space.contribution-superseded.v1";
+pub const EVENT_CONTRIBUTION_REDACTED: &str = "dev.kovee.space.contribution-redacted.v1";
+pub const EVENT_RELATION_RETRACTED: &str = "dev.kovee.space.relation-retracted.v1";
+pub const EVENT_LENS_CREATED: &str = "dev.kovee.space.lens-created.v1";
+pub const EVENT_LENS_UPDATED: &str = "dev.kovee.space.lens-updated.v1";
+pub const EVENT_LENS_REVOKED: &str = "dev.kovee.space.lens-revoked.v1";
+pub const EVENT_REACTION_SET: &str = "dev.kovee.space.reaction-set.v1";
+pub const EVENT_ASSISTANT_CREATED: &str = "dev.kovee.assistant.created.v1";
+pub const EVENT_ASSISTANT_REVISION_REGISTERED: &str = "dev.kovee.assistant.revision-registered.v1";
+pub const EVENT_DEPLOYMENT_CREATED: &str = "dev.kovee.assistant.deployment-created.v1";
+pub const EVENT_DEPLOYMENT_ACTIVATED: &str = "dev.kovee.assistant.deployment-activated.v1";
+pub const EVENT_DEPLOYMENT_DRAINED: &str = "dev.kovee.assistant.deployment-drained.v1";
+pub const EVENT_ALIAS_BOUND: &str = "dev.kovee.assistant.alias-bound.v1";
+pub const EVENT_ALIAS_UPDATED: &str = "dev.kovee.assistant.alias-updated.v1";
+pub const EVENT_ALIAS_REVOKED: &str = "dev.kovee.assistant.alias-revoked.v1";
+/// The reserved Kovee event namespace (§11.3): application events may
+/// never emit under it.
+pub const RESERVED_EVENT_NAMESPACE: &str = "dev.kovee.";
 
 /// One §11.3 event. Exactly one of `payload` / `payload_ref` is present.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

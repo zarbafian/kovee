@@ -213,12 +213,13 @@ fn end_to_end_flow_idempotency_and_dense_sequences() {
     let base = tmp("k1-flow");
     let daemon = DaemonProc::start(&base.join("data"), &base.join("run"), None);
 
-    // hello: negotiation, honest (empty) feature set, installation id.
+    // hello: negotiation, the three complete K1 bundles (slice 3 closed
+    // them — bundles are atomic, §11.6), installation id.
     let hello = daemon.expect_ok(&hello_cmd());
     assert_eq!(hello["result"]["selected_version"].as_str(), Some("0.1"));
     assert_eq!(
-        hello["result"]["features"].as_array().map(Vec::len),
-        Some(0)
+        hello["result"]["features"],
+        json!(["core_v1", "shared_space_v1", "developer_assistant_v1"])
     );
     let installation = hello["result"]["installation_id"]
         .as_str()
@@ -369,12 +370,14 @@ fn end_to_end_flow_idempotency_and_dense_sequences() {
     worker_append["args"]["fence_epoch"] = json!(1);
     daemon.expect_problem(&worker_append, "forbidden-surface");
 
-    // A foreign realm is an invisible resource; an unknown op is closed.
+    // A foreign realm is an invisible resource; an operation absent from
+    // the registry is closed (§11.6.1 — slice 3 dispatches the whole
+    // registry, so the probe uses a genuinely unregistered name).
     let mut foreign = read_cmd("realm_show", None, json!({}));
     foreign["realm_id"] = json!("realm-other");
     daemon.expect_problem(&foreign, "not-found");
     daemon.expect_problem(
-        &read_cmd("space_freeze", Some(&project_id), json!({})),
+        &read_cmd("space_dissolve", Some(&project_id), json!({})),
         "unknown-op",
     );
 }
