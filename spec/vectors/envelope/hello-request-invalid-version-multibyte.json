@@ -1,0 +1,20 @@
+{
+  "name": "envelope/hello-request-invalid-version-multibyte",
+  "description": "implementation_version of 128 emoji is 128 characters but 512 UTF-8 bytes; the §11.8 identifier shape (visible ASCII, at most 128 bytes) rejects it — the old character-count bound admitted the overflow (R0 KENV-05)",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloRequest",
+    "value": {
+      "supported_versions": [
+        "0.1"
+      ],
+      "implementation": "kovee-cli",
+      "implementation_version": "🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀",
+      "requested_features": []
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "implementation_version must be the visible-ASCII/128-byte identifier shape"
+  }
+}

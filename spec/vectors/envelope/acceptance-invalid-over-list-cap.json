@@ -1,0 +1,15 @@
+{
+  "name": "envelope/acceptance-invalid-over-list-cap",
+  "description": "a request list of 257 items exceeds the §11.8 cap of 256 list items per request; the cap is request-context only (pages may carry up to 512 events)",
+  "input": {
+    "synthetic": "json_synth",
+    "prefix": "{\"version\":\"0.1\",\"op\":\"diagnose\",\"realm_id\":\"realm-0001\",\"args\":{\"xs\":[0",
+    "repeat": ",0",
+    "count": 256,
+    "suffix": "]}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "over-list-items"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-float-above-boundary",
+  "description": "9007199254740992.0 (2^53) is an integer-valued float one past the safe range; rejected as unsafe-number",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"op\":\"diagnose\",\"realm_id\":\"realm-0001\",\"args\":{\"n\":9007199254740992.0}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "unsafe-number"
+  }
+}

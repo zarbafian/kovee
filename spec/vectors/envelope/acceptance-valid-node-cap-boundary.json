@@ -1,0 +1,15 @@
+{
+  "name": "envelope/acceptance-valid-node-cap-boundary",
+  "description": "one array holding 65535 numbers is exactly 65536 JSON values, the inclusive profile-pinned node cap (family PROFILE section 1); response context, since a 65535-item list is over the request-only 256-item cap",
+  "input": {
+    "cap": "response",
+    "synthetic": "json_synth",
+    "prefix": "[1",
+    "repeat": ",1",
+    "count": 65534,
+    "suffix": "]"
+  },
+  "expected": {
+    "valid": true
+  }
+}

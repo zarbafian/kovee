@@ -1,0 +1,14 @@
+{
+  "name": "envelope/acceptance-valid-request-cap-boundary",
+  "description": "well-formed command envelope of exactly 262144 bytes: the 256 KiB request cap is inclusive (§11.8), so the exact boundary is accepted; command-invalid-oversized pins 262145 as the rejection",
+  "input": {
+    "synthetic": "json_synth",
+    "prefix": "{\"version\":\"0.1\",\"op\":\"diagnose\",\"realm_id\":\"realm-0001\",\"args\":{\"pad\":\"",
+    "repeat": "a",
+    "count": 262069,
+    "suffix": "\"}}"
+  },
+  "expected": {
+    "valid": true
+  }
+}

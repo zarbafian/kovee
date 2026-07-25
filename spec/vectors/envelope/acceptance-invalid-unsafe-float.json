@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-unsafe-float",
+  "description": "1e20 is a finite float whose integer value is outside the +/-(2^53 - 1) safe range; the family rule rejects unsafe integer-valued floats (family PROFILE section 1; R0 KENV-04)",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"op\":\"diagnose\",\"realm_id\":\"realm-0001\",\"args\":{\"n\":1e20}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "unsafe-number"
+  }
+}

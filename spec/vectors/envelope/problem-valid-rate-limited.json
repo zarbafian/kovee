@@ -1,12 +1,17 @@
 {
   "name": "envelope/problem-valid-rate-limited",
-  "description": "rate-limited problem with the §11.7 table status 429",
+  "description": "rate-limited problem with the §11.7 table status 429 and the required bounded retry guidance under ext[\"dev.kovee.recovery.rate-limited\"] (§11.7: rate-limited includes bounded retry guidance)",
   "input": {
     "schema": "kcp-problem",
     "value": {
       "type": "urn:kovee:error:rate-limited",
       "title": "Rate limited",
-      "status": 429
+      "status": 429,
+      "ext": {
+        "dev.kovee.recovery.rate-limited": {
+          "retry_after_seconds": 30
+        }
+      }
     }
   },
   "expected": {

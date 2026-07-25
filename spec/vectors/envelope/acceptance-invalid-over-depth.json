@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-over-depth",
+  "description": "65 nested containers exceed the profile-pinned depth cap of 64 (family PROFILE section 1)",
+  "input": {
+    "raw": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "over-depth"
+  }
+}

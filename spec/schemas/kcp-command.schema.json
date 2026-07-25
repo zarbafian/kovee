@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kovee.example/kcp/v0/kcp-command.schema.json",
   "title": "KCP command envelope (DESIGN.md §11.2): version, op, meta, realm_id, project_id?, args, ext?",
-  "description": "Generic KCP 0.1 command envelope. Every concrete operation in the K0 registry has its own closed schema that restates these envelope fields plus that operation's exact argument fields; operation arguments never validate against this generic schema's open `args`. §11.2 renders `meta` unmarked in the Command struct but scopes the requirement to state-changing operations (“Every state-changing operation requires meta”); reads “do not carry an idempotency key”, and meta's closed shape requires idempotency_key, so reads omit meta entirely and mutations validate against #/$defs/mutationCommand. Instances must pass strict I-JSON acceptance and the §11.8 byte limits before schema validation.",
+  "description": "Generic KCP 0.1 command envelope. Every concrete operation in the K0 registry has its own closed schema that restates these envelope fields plus that operation's exact argument fields; operation arguments never validate against this generic schema's open `args`. §11.2 renders `meta` unmarked in the Command struct but scopes the requirement to state-changing operations (“Every state-changing operation requires meta”); reads “do not carry an idempotency key”, and meta's closed shape requires idempotency_key, so reads omit meta entirely: mutations validate against #/$defs/mutationCommand (meta required) and reads against #/$defs/readCommand (a closed shape with no meta member at all — a read carrying meta fails). Instances must pass strict I-JSON acceptance and the §11.8 byte limits before schema validation.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "op", "realm_id", "args"],
@@ -80,6 +80,20 @@
         "ext": { "$ref": "#/$defs/ext" }
       },
       "description": "Envelope shape for a state-changing operation: meta is required (§11.2 — every state-changing operation requires meta; reads MUST NOT mutate authoritative or user-visible state)."
+    },
+    "readCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "op", "realm_id", "args"],
+      "properties": {
+        "version": { "$ref": "#/$defs/protocolVersion" },
+        "op": { "$ref": "#/$defs/operationId" },
+        "realm_id": { "$ref": "#/$defs/identifier" },
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "args": { "$ref": "#/$defs/args" },
+        "ext": { "$ref": "#/$defs/ext" }
+      },
+      "description": "Closed envelope shape for a read operation: no meta member exists (§11.2 — reads do not carry an idempotency key, and meta's closed shape requires one, so reads omit meta entirely; the closed object makes a read carrying meta — for example with an idempotency_key — fail schema validation instead of being silently accepted). Which registry operations are reads is fixed by the K0 registry; the per-operation schema suite (remaining K0 work, plan/sheets/K0.md) binds each read to this shape."
     }
   }
 }

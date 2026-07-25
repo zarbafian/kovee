@@ -1,0 +1,16 @@
+{
+  "name": "envelope/problem-invalid-rate-limited-missing-retry",
+  "description": "rate-limited problem without the dev.kovee.recovery.rate-limited ext branch is invalid: §11.7 requires bounded retry guidance, and the schema conditionally requires the recovery branch for this kind (R0 KENV-02 — omission is no longer blessed)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:rate-limited",
+      "title": "Rate limited",
+      "status": 429
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "rate-limited requires ext[\"dev.kovee.recovery.rate-limited\"].retry_after_seconds"
+  }
+}

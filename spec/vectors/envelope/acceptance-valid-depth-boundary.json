@@ -1,0 +1,10 @@
+{
+  "name": "envelope/acceptance-valid-depth-boundary",
+  "description": "64 nested containers: the profile-pinned container nesting depth cap is 64, inclusive at the boundary (family PROFILE section 1)",
+  "input": {
+    "raw": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+  },
+  "expected": {
+    "valid": true
+  }
+}

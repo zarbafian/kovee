@@ -1,6 +1,6 @@
 {
   "name": "envelope/hello-result-valid",
-  "description": "HelloResult per §11.1; limits_digest is the dev.kovee.canonical-object-digest.v1 value derived by envelope/digest-canonical-object-basic",
+  "description": "HelloResult per §11.1; limits_digest is a shape-only 64-hex fixture: DESIGN.md names the field without pinning the limits object or its §11.8 construction, a recorded K0 gap (spec/schemas/README.md), so no vector binds it to a derivation",
   "input": {
     "schema": "kcp-hello",
     "ref": "#/$defs/helloResult",
@@ -13,7 +13,7 @@
         "shared_space_v1",
         "developer_assistant_v1"
       ],
-      "limits_digest": "4af6b31071ff4cc2f66485dcf0b6a853007bd154604538e0aacb9e6e69d7c39b",
+      "limits_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
       "server_time": "2026-07-25T12:00:00Z",
       "installation_id": "inst-0001"
     }

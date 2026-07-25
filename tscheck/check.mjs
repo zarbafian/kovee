@@ -14,11 +14,15 @@
  *    object whose `name` matches its path and which carries `description`,
  *    `input`, and `expected`) passes its family checker: schema vectors
  *    match their expected verdict against this file's minimal draft
- *    2020-12 validator, raw/synthetic vectors match strict I-JSON + §11.8
- *    limit acceptance, digest vectors re-derive the family-PROFILE
- *    canonical bytes (RFC 8785 JCS with the reserved $domain member
- *    injected at top level) and their SHA-256, plus the §11.8 framed
- *    typed-bytes digests.
+ *    2020-12 validator (including semantic RFC 3339 date-time via
+ *    `format`), raw/synthetic vectors match the full family acceptance
+ *    order (PROFILE section 1: size cap, UTF-8, order-3 token classes in
+ *    token order, surrogates, depth 64, 65 536 nodes) plus the kovee
+ *    §11.8 contextual caps (1 MiB response, 256 list items per request,
+ *    64 KiB inline event payload), digest vectors re-derive the
+ *    family-PROFILE canonical bytes (RFC 8785 JCS with the reserved
+ *    $domain member injected at top level) and their SHA-256, plus the
+ *    §11.8 framed typed-bytes digests.
  *
  * The derivations are implemented from spec/schemas/README.md, DESIGN.md
  * §11.8, and the family profile (byom/family-vectors/PROFILE.md) — not
@@ -34,9 +38,16 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
-const MAX_REQUEST_BYTES = 262144; // DESIGN.md §11.8: request body at most 256 KiB
 const SAFE_MAX = 9007199254740991; // 2^53 - 1 (I-JSON safe range)
 const SAFE_MAX_BIG = 9007199254740991n;
+
+// DESIGN.md §11.8 + family PROFILE section 1 acceptance caps.
+const MAX_REQUEST_BYTES = 262144; // request body: 256 KiB
+const MAX_RESPONSE_BYTES = 1048576; // reply: 1 MiB (PROFILE: same rules, 1 MiB cap)
+const DEPTH_CAP = 64; // container nesting depth (profile-pinned)
+const NODE_CAP = 65536; // JSON values per document (profile-pinned)
+const LIST_CAP = 256; // §11.8: a request contains at most 256 list items
+const INLINE_CONTENT_CAP = 65536; // §11.8: inline event payload content, 64 KiB
 
 /** @type {string[]} */
 const FAILURES = [];
@@ -79,29 +90,45 @@ function isPlainObject(v) {
 // Strict I-JSON acceptance (DESIGN.md §11.8)
 // ---------------------------------------------------------------------------
 
-/** A strict-acceptance rejection carrying its reason. */
-class AcceptError extends Error {}
+/** A strict-acceptance rejection carrying its PROFILE error class. */
+class AcceptError extends Error {
+  /** @param {string} cls */
+  constructor(cls) {
+    super(cls);
+    this.cls = cls;
+  }
+}
 
 /**
  * Validating scanner for exactly one strict I-JSON text. Iterative (an
  * explicit container stack, no recursion), so nesting bounded only by the
  * byte cap can never overflow the call stack. Values are never
- * materialized; the scanner enforces, in token order: well-formed single
- * JSON text, no duplicate member names at any depth (compared after escape
- * decoding, RFC 7493), integers within ±(2^53 − 1) checked exactly on the
- * token via BigInt, finite floats, no NaN/Infinity literals, no unpaired
- * surrogates after escape decoding.
+ * materialized. The family PROFILE section 1 order: the order-3 classes
+ * (`syntax`/`trailing-data`, `duplicate` at any depth after escape
+ * decoding, `unsafe-integer` checked exactly on the token via BigInt,
+ * `non-finite` literals, `unsafe-number` for non-finite or unsafe
+ * integer-valued floats) surface in token order and abort the scan;
+ * surrogates (order 4), container depth, node count, the largest list, and
+ * the byte span of a root-level `payload` member (the one §11.3 envelope
+ * member carrying inline content) are collected for the later-order
+ * checks, so an order-3 error anywhere in the text always wins over them.
  * @param {string} text
+ * @returns {{ maxDepth: number, nodes: number, maxListItems: number,
+ *             payloadBytes: number | null, surrogate: boolean }}
  */
 function scanStrictText(text) {
   let i = 0;
   const n = text.length;
-  /** @type {(Set<string> | null)[]} member-name sets of open containers; null for arrays */
+  /** @type {(Set<string> | { items: number })[]} open containers: key sets for objects, item counters for arrays */
   const stack = [];
+  const scan = { maxDepth: 0, nodes: 0, maxListItems: 0, payloadBytes: /** @type {number | null} */ (null), surrogate: false };
+  let payloadPending = false;
+  let payloadActive = false;
+  let payloadStart = 0;
 
-  /** @param {string} reason @returns {never} */
-  const reject = (reason) => {
-    throw new AcceptError(reason);
+  /** @param {string} cls @returns {never} */
+  const reject = (cls) => {
+    throw new AcceptError(cls);
   };
   const skipWs = () => {
     for (; i < n; i++) {
@@ -116,13 +143,13 @@ function scanStrictText(text) {
   const readString = () => {
     let s = "";
     for (i++; ; ) {
-      if (i >= n) reject("syntax error: unterminated string");
+      if (i >= n) reject("syntax");
       const u = text.charCodeAt(i);
       if (u === 0x22) {
         i++;
         break;
       }
-      if (u < 0x20) reject("syntax error: raw control character in string");
+      if (u < 0x20) reject("syntax");
       if (u === 0x5c) {
         const e = text[i + 1];
         i += 2;
@@ -134,24 +161,25 @@ function scanStrictText(text) {
         else if (e === "t") s += "\t";
         else if (e === "u") {
           const hex = text.slice(i, i + 4);
-          if (!/^[0-9A-Fa-f]{4}$/.test(hex)) reject("syntax error: bad \\u escape");
+          if (!/^[0-9A-Fa-f]{4}$/.test(hex)) reject("syntax");
           s += String.fromCharCode(parseInt(hex, 16));
           i += 4;
-        } else reject("syntax error: bad escape");
+        } else reject("syntax");
       } else {
         s += text[i];
         i++;
       }
     }
-    // I-JSON: no unpaired surrogates once escapes are decoded (raw text
-    // from a strict UTF-8 decode cannot carry them; \uXXXX can).
+    // I-JSON order 4: unpaired surrogates once escapes are decoded (raw
+    // text from a strict UTF-8 decode cannot carry them; \uXXXX can).
+    // Flagged, not thrown: order-3 classes later in the text still win.
     for (let k = 0; k < s.length; k++) {
       const u = s.charCodeAt(k);
       if (u >= 0xd800 && u <= 0xdbff) {
         const next = k + 1 < s.length ? s.charCodeAt(k + 1) : 0;
         if (next >= 0xdc00 && next <= 0xdfff) k++;
-        else reject("unpaired surrogate");
-      } else if (u >= 0xdc00 && u <= 0xdfff) reject("unpaired surrogate");
+        else scan.surrogate = true;
+      } else if (u >= 0xdc00 && u <= 0xdfff) scan.surrogate = true;
     }
     return s;
   };
@@ -161,31 +189,33 @@ function scanStrictText(text) {
     const start = i;
     if (text[i] === "-") {
       i++;
-      if (text.startsWith("Infinity", i)) reject("non-finite number");
+      if (text.startsWith("Infinity", i)) reject("non-finite");
     }
     if (text[i] === "0") i++;
     else if (isDigit(text[i])) while (isDigit(text[i])) i++;
-    else reject("syntax error: bad number");
+    else reject("syntax");
     let integral = true;
     if (text[i] === ".") {
       integral = false;
       i++;
-      if (!isDigit(text[i])) reject("syntax error: bad number");
+      if (!isDigit(text[i])) reject("syntax");
       while (isDigit(text[i])) i++;
     }
     if (text[i] === "e" || text[i] === "E") {
       integral = false;
       i++;
       if (text[i] === "+" || text[i] === "-") i++;
-      if (!isDigit(text[i])) reject("syntax error: bad number");
+      if (!isDigit(text[i])) reject("syntax");
       while (isDigit(text[i])) i++;
     }
     const token = text.slice(start, i);
     if (integral) {
       const v = BigInt(token); // exact, immune to double rounding
-      if (v > SAFE_MAX_BIG || v < -SAFE_MAX_BIG) reject(`unsafe integer: ${token}`);
-    } else if (!Number.isFinite(Number(token))) {
-      reject("non-finite number");
+      if (v > SAFE_MAX_BIG || v < -SAFE_MAX_BIG) reject("unsafe-integer");
+    } else {
+      const v = Number(token);
+      if (!Number.isFinite(v)) reject("unsafe-number");
+      if (Number.isInteger(v) && Math.abs(v) > SAFE_MAX) reject("unsafe-number");
     }
   };
 
@@ -199,106 +229,187 @@ function scanStrictText(text) {
   let state = WANT_VALUE;
   let complete = false;
 
-  const valueDone = () => {
+  /** @param {number} end index one past the completed value's last char */
+  const valueDone = (end) => {
+    const top = stack[stack.length - 1];
+    if (top !== undefined && !(top instanceof Set)) {
+      top.items += 1;
+      if (top.items > scan.maxListItems) scan.maxListItems = top.items;
+    }
+    if (payloadActive && stack.length === 1) {
+      scan.payloadBytes = Buffer.byteLength(text.slice(payloadStart, end), "utf8");
+      payloadActive = false;
+    }
     if (stack.length === 0) complete = true;
     else state = WANT_COMMA_OR_END;
   };
 
   while (!complete) {
     skipWs();
-    if (i >= n) reject("syntax error: unexpected end of input");
+    if (i >= n) reject("syntax");
     const c = text[i];
     if (state === WANT_VALUE || state === WANT_VALUE_OR_ARRAY_END) {
+      if (payloadPending && c !== "]") {
+        payloadStart = i;
+        payloadActive = true;
+        payloadPending = false;
+      }
       if (state === WANT_VALUE_OR_ARRAY_END && c === "]") {
         i++;
         stack.pop();
-        valueDone();
+        valueDone(i);
       } else if (c === "{") {
         i++;
         stack.push(new Set());
+        scan.nodes += 1;
+        if (stack.length > scan.maxDepth) scan.maxDepth = stack.length;
         state = WANT_KEY_OR_OBJECT_END;
       } else if (c === "[") {
         i++;
-        stack.push(null);
+        stack.push({ items: 0 });
+        scan.nodes += 1;
+        if (stack.length > scan.maxDepth) scan.maxDepth = stack.length;
         state = WANT_VALUE_OR_ARRAY_END;
       } else if (c === '"') {
         readString();
-        valueDone();
+        scan.nodes += 1;
+        valueDone(i);
       } else if (c === "-" || isDigit(c)) {
         readNumber();
-        valueDone();
+        scan.nodes += 1;
+        valueDone(i);
       } else if (text.startsWith("true", i)) {
         i += 4;
-        valueDone();
+        scan.nodes += 1;
+        valueDone(i);
       } else if (text.startsWith("false", i)) {
         i += 5;
-        valueDone();
+        scan.nodes += 1;
+        valueDone(i);
       } else if (text.startsWith("null", i)) {
         i += 4;
-        valueDone();
+        scan.nodes += 1;
+        valueDone(i);
       } else if (text.startsWith("NaN", i) || text.startsWith("Infinity", i)) {
-        reject("non-finite number");
-      } else reject("syntax error: bad value");
+        reject("non-finite");
+      } else reject("syntax");
     } else if (state === WANT_KEY_OR_OBJECT_END || state === WANT_KEY) {
       if (state === WANT_KEY_OR_OBJECT_END && c === "}") {
         i++;
         stack.pop();
-        valueDone();
+        valueDone(i);
       } else if (c === '"') {
         const key = readString();
         const keys = /** @type {Set<string>} */ (stack[stack.length - 1]);
-        if (keys.has(key)) reject(`duplicate object key: ${JSON.stringify(key)}`);
+        if (keys.has(key)) reject("duplicate");
         keys.add(key);
+        if (stack.length === 1 && key === "payload") payloadPending = true;
         state = WANT_COLON;
-      } else reject("syntax error: expected object key");
+      } else reject("syntax");
     } else if (state === WANT_COLON) {
-      if (c !== ":") reject("syntax error: expected ':'");
+      if (c !== ":") reject("syntax");
       i++;
       state = WANT_VALUE;
     } else {
       // WANT_COMMA_OR_END
-      const inObject = stack[stack.length - 1] !== null;
+      const inObject = stack[stack.length - 1] instanceof Set;
       if (c === ",") {
         i++;
         state = inObject ? WANT_KEY : WANT_VALUE;
       } else if (c === (inObject ? "}" : "]")) {
         i++;
         stack.pop();
-        valueDone();
-      } else reject("syntax error: expected ',' or close");
+        valueDone(i);
+      } else reject("syntax");
     }
   }
   skipWs();
-  if (i < n) reject("trailing data after the JSON text");
+  if (i < n) reject("trailing-data");
+  return scan;
 }
 
-const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
+// ignoreBOM keeps a leading U+FEFF in the decoded text (instead of the
+// decoder silently discarding it), so the scanner rejects BOM-prefixed
+// bodies as a syntax error — RFC 8259 §8.1 forbids adding a BOM, and
+// strict acceptance fails closed rather than "MAY ignore".
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /**
- * Pre-schema acceptance of one request envelope's exact bytes (§11.8):
- * size cap first, then a strict UTF-8 decode, then the strict scan.
+ * Full acceptance of one envelope's exact bytes; returns without throwing
+ * when accepted, else throws AcceptError with the first-failing class in
+ * the pinned order (family PROFILE section 1, then the kovee §11.8
+ * contextual caps): oversize, invalid-utf8, the order-3 token classes in
+ * token order, unpaired-surrogate, over-depth, over-nodes, over-list-items
+ * (request context only — pages may carry up to 512 events),
+ * over-inline-content (a root-level `payload` member over 64 KiB).
  * @param {Buffer} raw
+ * @param {"request" | "response"} capContext
  */
-function acceptRequestBytes(raw) {
-  if (raw.length > MAX_REQUEST_BYTES) throw new AcceptError(`request over 256 KiB: ${raw.length} bytes`);
+function acceptEnvelopeBytes(raw, capContext = "request") {
+  const cap = capContext === "response" ? MAX_RESPONSE_BYTES : MAX_REQUEST_BYTES;
+  if (raw.length > cap) throw new AcceptError("oversize");
   let text;
   try {
     text = STRICT_UTF8.decode(raw);
   } catch {
-    throw new AcceptError("invalid UTF-8");
+    throw new AcceptError("invalid-utf8");
   }
-  scanStrictText(text);
+  const scan = scanStrictText(text);
+  if (scan.surrogate) throw new AcceptError("unpaired-surrogate");
+  if (scan.maxDepth > DEPTH_CAP) throw new AcceptError("over-depth");
+  if (scan.nodes > NODE_CAP) throw new AcceptError("over-nodes");
+  if (capContext === "request" && scan.maxListItems > LIST_CAP) throw new AcceptError("over-list-items");
+  if (scan.payloadBytes !== null && scan.payloadBytes > INLINE_CONTENT_CAP) {
+    throw new AcceptError("over-inline-content");
+  }
 }
 
 /**
  * Strict I-JSON parse for spec files (schemas and vector files): the
- * scanner enforces I-JSON, then JSON.parse materializes the value.
+ * family token rules and structural caps (no contextual request/response
+ * caps), then JSON.parse materializes the value.
  * @param {string} text
  * @returns {unknown}
  */
 function strictParse(text) {
-  scanStrictText(text);
+  const scan = scanStrictText(text);
+  if (scan.surrogate) throw new AcceptError("unpaired-surrogate");
+  if (scan.maxDepth > DEPTH_CAP) throw new AcceptError("over-depth");
+  if (scan.nodes > NODE_CAP) throw new AcceptError("over-nodes");
   return JSON.parse(text);
+}
+
+// ---------------------------------------------------------------------------
+// Semantic RFC 3339 date-time (R0 KENV-05)
+// ---------------------------------------------------------------------------
+
+const RFC3339_RE =
+  /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?(Z|[+-]([0-9]{2}):([0-9]{2}))$/;
+
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * Semantic RFC 3339 date-time: real calendar dates (month lengths, leap
+ * years) and real time/offset ranges; second 60 admitted per the RFC 3339
+ * leap-second grammar.
+ * @param {string} value
+ */
+function isRfc3339DateTime(value) {
+  const m = RFC3339_RE.exec(value);
+  if (m === null) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6]);
+  if (month < 1 || month > 12) return false;
+  let days = MONTH_DAYS[month - 1];
+  if (month === 2 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) days = 29;
+  if (day < 1 || day > days) return false;
+  if (hour > 23 || minute > 59 || second > 60) return false;
+  if (m[7] !== "Z" && (Number(m[8]) > 23 || Number(m[9]) > 59)) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +722,7 @@ function schemaValid(root, schema, instance) {
       if (schema.minLength !== undefined && len < schema.minLength) return false;
       if (schema.maxLength !== undefined && len > schema.maxLength) return false;
     }
+    if (schema.format === "date-time" && !isRfc3339DateTime(instance)) return false;
   }
 
   if (typeof instance === "number") {
@@ -758,15 +870,16 @@ function checkSchemaVector(name, inp, expected) {
  * @param {Record<string, any>} expected
  */
 function checkAcceptanceVector(name, inp, expected) {
+  const capContext = inp.cap ?? "request";
+  if (capContext !== "request" && capContext !== "response") {
+    fail(name, `unknown cap context ${JSON.stringify(capContext)}`);
+    return;
+  }
   /** @type {Buffer} */
   let raw;
   if (Object.hasOwn(inp, "raw")) {
     raw = Buffer.from(inp.raw, "utf8");
-  } else {
-    if (inp.synthetic !== "oversized_request") {
-      fail(name, `unknown synthetic kind ${JSON.stringify(inp.synthetic)}`);
-      return;
-    }
+  } else if (inp.synthetic === "oversized_request") {
     const prefix = '{"version":"0.1","op":"diagnose","realm_id":"realm-0001","args":{"pad":"';
     const suffix = '"}}';
     const pad = inp.target_bytes - prefix.length - suffix.length;
@@ -779,16 +892,28 @@ function checkAcceptanceVector(name, inp, expected) {
       fail(name, `synthesized ${raw.length} bytes, wanted ${inp.target_bytes}`);
       return;
     }
+  } else if (inp.synthetic === "json_synth") {
+    // Family PROFILE section 8 synthesized repetition for cap cases.
+    raw = Buffer.from((inp.prefix ?? "") + (inp.repeat ?? "").repeat(inp.count ?? 0) + (inp.suffix ?? ""), "utf8");
+  } else {
+    fail(name, `unknown synthetic kind ${JSON.stringify(inp.synthetic)}`);
+    return;
   }
-  let verdict = true;
+  /** @type {string | null} */
+  let cls = null;
   try {
-    acceptRequestBytes(raw);
+    acceptEnvelopeBytes(raw, capContext);
   } catch (e) {
     if (!(e instanceof AcceptError)) throw e;
-    verdict = false;
+    cls = e.cls;
   }
+  const verdict = cls === null;
   if (verdict !== expected.valid) {
-    fail(name, `expected valid=${expected.valid}, got ${verdict}`);
+    fail(name, `expected valid=${expected.valid}, got ${verdict} (class ${JSON.stringify(cls)})`);
+    return;
+  }
+  if (Object.hasOwn(expected, "error_class") && cls !== expected.error_class) {
+    fail(name, `expected error class ${JSON.stringify(expected.error_class)}, got ${JSON.stringify(cls)}`);
     return;
   }
   COUNTS.acceptance += 1;

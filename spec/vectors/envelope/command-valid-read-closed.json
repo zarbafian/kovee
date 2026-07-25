@@ -1,0 +1,19 @@
+{
+  "name": "envelope/command-valid-read-closed",
+  "description": "read envelope against the closed #/$defs/readCommand shape: version, op, realm_id, args and nothing else; reads omit meta entirely (§11.2)",
+  "input": {
+    "schema": "kcp-command",
+    "ref": "#/$defs/readCommand",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "space_id": "space-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "envelope/acceptance-invalid-over-node-cap",
+  "description": "one array holding 65536 numbers is 65537 JSON values, one over the profile-pinned node cap (family PROFILE section 1)",
+  "input": {
+    "cap": "response",
+    "synthetic": "json_synth",
+    "prefix": "[1",
+    "repeat": ",1",
+    "count": 65535,
+    "suffix": "]"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "over-nodes"
+  }
+}

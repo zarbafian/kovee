@@ -1,6 +1,6 @@
 {
   "title": "Kovee KCP operation registry — K0 frozen (K1 bundles)",
-  "registry_version": "k0-1",
+  "registry_version": "k0-2",
   "bundles": [
     "core_v1",
     "shared_space_v1",
@@ -8,8 +8,32 @@
   ],
   "sources": {
     "design": "DESIGN.md §11.6 (feature bundles) and §11.6.1 (normative authority matrix), with §9.2 as the AuthorizationDependencySet category key",
-    "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)"
+    "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)",
+    "revision": "k0-2: R0 findings KREG-01/KREG-02 applied — canonical §9.2 dependency tokens, action_scope/constraints fields, connector authority split (spec/registry-README.md)"
   },
+  "dependency_category_tokens": [
+    "principal_status",
+    "authentication_binding_security_epoch",
+    "current_authentication_observation",
+    "service_identity_capability",
+    "installation_recovery_epoch",
+    "realm_status_kill_epoch",
+    "project_status_revision",
+    "target_resource_revision",
+    "membership",
+    "space_access_participant_binding",
+    "branch_status_frontier",
+    "contribution_relation_endpoint_visibility",
+    "lens_scope",
+    "attention_revision_acceptance",
+    "context_item_visibility",
+    "commitment_terms_acceptance",
+    "classification_retention_policy",
+    "remaining_use_grant",
+    "kovee_policy_set",
+    "realm_authority_binding",
+    "external_visibility_proof"
+  ],
   "a5_renames_applied": [],
   "a5_note": "No A5 wire-name rename applies to these three bundles: every renamed operation (personal_governed_work_enable/show/disable, mission_promotion_prepare/start/show/cancel/reconcile, sage_turn_binding_show) belongs to governed_work_binding_v1 (K2). See spec/registry-README.md.",
   "entry_counts": {
@@ -25,10 +49,12 @@
       "allowed_actor_kinds": [
         "pre-auth channel"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "protocol negotiation only",
         "bounded public installation metadata"
       ],
+      "dependency_categories": [],
+      "constraints": [],
       "fence": "none",
       "assurance": "none",
       "offline": "no",
@@ -41,10 +67,12 @@
       "allowed_actor_kinds": [
         "pre-auth channel"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "protocol negotiation only",
         "bounded public installation metadata"
       ],
+      "dependency_categories": [],
+      "constraints": [],
       "fence": "none",
       "assurance": "none",
       "offline": "no",
@@ -57,12 +85,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "installation diagnostics/audit action"
+      ],
       "dependency_categories": [
-        "installation diagnostics/audit action",
-        "principal",
-        "auth observation",
-        "installation recovery epoch",
-        "realm and role where scoped"
+        "principal_status",
+        "current_authentication_observation",
+        "installation_recovery_epoch",
+        "realm_status_kill_epoch",
+        "membership"
+      ],
+      "constraints": [
+        "realm and role dependencies bind only where the diagnostic is realm-scoped"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -77,15 +111,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -99,15 +142,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -122,15 +171,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -145,15 +203,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -167,15 +234,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -189,12 +262,17 @@
       "allowed_actor_kinds": [
         "authenticated project owner principal only"
       ],
-      "dependency_categories": [
-        "exact Project revision",
+      "action_scope": [
         "prior/proposed policy/default classification",
         "affected Space frontier/item/audience digests",
         "effective-change class"
       ],
+      "dependency_categories": [
+        "project_status_revision",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -208,15 +286,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -231,15 +318,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -253,13 +349,18 @@
       "allowed_actor_kinds": [
         "authenticated project owner principal only"
       ],
-      "dependency_categories": [
-        "exact Project revision",
+      "action_scope": [
         "prior/proposed policy/default classification",
         "affected Space frontier/item/audience digests",
         "effective-change class",
-        "decision receipt"
+        "authorization decision receipt"
       ],
+      "dependency_categories": [
+        "project_status_revision",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "risk-required step-up",
       "offline": "no",
@@ -272,12 +373,17 @@
       "allowed_actor_kinds": [
         "authenticated project owner principal only"
       ],
-      "dependency_categories": [
-        "exact Project revision",
+      "action_scope": [
         "prior/proposed policy/default classification",
         "affected Space frontier/item/audience digests",
         "effective-change class"
       ],
+      "dependency_categories": [
+        "project_status_revision",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -290,15 +396,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -313,15 +425,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -336,15 +457,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -358,15 +488,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -380,15 +516,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -402,15 +544,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -424,15 +572,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -446,15 +600,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -468,15 +628,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -490,12 +656,20 @@
       "allowed_actor_kinds": [
         "authenticated steward/owner principal"
       ],
-      "dependency_categories": [
-        "exact Space revision",
+      "action_scope": [
         "prior/proposed visibility/policy/classification",
-        "affected frontier/item/audience digests",
-        "current read/disclosure dependencies"
+        "affected frontier/item/audience digests"
       ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "context_item_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login; policy may require step-up",
       "offline": "no",
@@ -509,15 +683,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -532,15 +715,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -554,10 +746,14 @@
       "allowed_actor_kinds": [
         "authenticated steward/owner principal only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact prepared widening subject",
-        "unchanged Space/item-set revisions",
-        "authorization decision receipt",
+        "authorization decision receipt"
+      ],
+      "dependency_categories": [
+        "target_resource_revision"
+      ],
+      "constraints": [
         "item-level policies remain intersected"
       ],
       "fence": "none",
@@ -572,12 +768,20 @@
       "allowed_actor_kinds": [
         "authenticated steward/owner principal"
       ],
-      "dependency_categories": [
-        "exact Space revision",
+      "action_scope": [
         "prior/proposed visibility/policy/classification",
-        "affected frontier/item/audience digests",
-        "current read/disclosure dependencies"
+        "affected frontier/item/audience digests"
       ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "context_item_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -590,15 +794,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -613,13 +823,19 @@
         "authenticated principal",
         "narrow policy service consuming an exact active standing-policy/contract receipt"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact prepared subject digest",
-        "current target acceptance",
-        "space/branch/frontier/terms revisions",
-        "use account",
-        "budget/disclosure union",
-        "complete dependency set"
+        "budget/disclosure union"
+      ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "branch_status_frontier",
+        "attention_revision_acceptance",
+        "commitment_terms_acceptance",
+        "remaining_use_grant"
+      ],
+      "constraints": [
+        "the complete current dependency set is required"
       ],
       "fence": "none; never model prose or a worker self-decision",
       "assurance": "current assurance required by policy",
@@ -633,15 +849,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -655,15 +877,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -678,15 +906,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -700,14 +937,25 @@
       "allowed_actor_kinds": [
         "principal only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact administrative/governance action",
-        "complete identity",
-        "realm/project/space",
-        "membership/role",
-        "target revision",
-        "policy/grant/binding dependencies",
         "prepared subject digest"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "classification_retention_policy",
+        "remaining_use_grant",
+        "kovee_policy_set",
+        "realm_authority_binding"
+      ],
+      "constraints": [
+        "this family excludes access-widening confirms and handoff-transfer reconciliation"
       ],
       "fence": "none; cannot impersonate a worker",
       "assurance": "current step-up observation at risk-required level",
@@ -721,14 +969,25 @@
       "allowed_actor_kinds": [
         "principal only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact administrative/governance action",
-        "complete identity",
-        "realm/project/space",
-        "membership/role",
-        "target revision",
-        "policy/grant/binding dependencies",
         "prepared subject digest"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "classification_retention_policy",
+        "remaining_use_grant",
+        "kovee_policy_set",
+        "realm_authority_binding"
+      ],
+      "constraints": [
+        "this family excludes access-widening confirms and handoff-transfer reconciliation"
       ],
       "fence": "none; cannot impersonate a worker",
       "assurance": "current step-up observation at risk-required level",
@@ -743,15 +1002,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -766,18 +1034,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "queueable",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -788,14 +1063,21 @@
       "allowed_actor_kinds": [
         "invocation attempt only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact operation and space/object scope listed in the invocation capability",
         "invocation manifest",
-        "deployment/config",
         "attempt",
-        "branch/context",
-        "budget",
-        "policy and authorization dependencies"
+        "budget"
+      ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "the complete current authorization dependency set is required"
       ],
       "fence": "current Kovee fence and byom fence when bound",
       "assurance": "workload identity plus invocation capability",
@@ -810,15 +1092,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -833,15 +1124,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -856,18 +1156,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "no",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -879,18 +1186,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "no",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -899,18 +1213,24 @@
       "bundle": "shared_space_v1",
       "surface": "external_client",
       "allowed_actor_kinds": [
-        "principal",
-        "mapped connector (only for contribution/reaction/upload operations granted to it)"
+        "principal"
+      ],
+      "action_scope": [
+        "exact action and space scope"
       ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation",
+        "connector redaction disallowed pending a design amendment (R0 KREG-02 decision)"
       ],
       "fence": "none",
       "assurance": "current login; policy may require step-up",
@@ -924,15 +1244,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -946,14 +1272,21 @@
       "allowed_actor_kinds": [
         "invocation attempt only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact operation and space/object scope listed in the invocation capability",
         "invocation manifest",
-        "deployment/config",
         "attempt",
-        "branch/context",
-        "budget",
-        "policy and authorization dependencies"
+        "budget"
+      ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "the complete current authorization dependency set is required"
       ],
       "fence": "current Kovee fence and byom fence when bound",
       "assurance": "workload identity plus invocation capability",
@@ -967,15 +1300,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -989,15 +1328,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -1012,15 +1357,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1034,15 +1388,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -1057,15 +1417,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1080,15 +1449,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1102,15 +1480,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -1124,15 +1508,21 @@
       "allowed_actor_kinds": [
         "principal"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
       "assurance": "current login",
@@ -1147,15 +1537,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1169,11 +1568,17 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact prepare/propose action",
-        "space/branch/context/terms revision",
         "subject digest"
       ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "commitment_terms_acceptance"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1186,9 +1591,8 @@
       "allowed_actor_kinds": [
         "fenced worker (exact listed proposal operation in its capability)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact prepare/propose action",
-        "space/branch/context/terms revision",
         "subject digest",
         "current invocation",
         "fence",
@@ -1196,6 +1600,14 @@
         "ceilings",
         "output scope"
       ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "commitment_terms_acceptance"
+      ],
+      "constraints": [],
       "fence": "current attempt fence",
       "assurance": "worker capability",
       "offline": "no",
@@ -1209,15 +1621,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1232,18 +1653,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "queueable",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -1255,15 +1683,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1278,15 +1715,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1301,15 +1747,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1324,15 +1779,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1347,18 +1811,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "no",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -1370,15 +1841,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1393,15 +1873,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1416,18 +1905,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "no",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -1439,18 +1935,25 @@
         "principal",
         "mapped connector (only for contribution/reaction/upload operations granted to it)"
       ],
+      "action_scope": [
+        "exact action and space scope"
+      ],
       "dependency_categories": [
-        "exact action and space scope",
-        "identity",
+        "principal_status",
+        "service_identity_capability",
+        "target_resource_revision",
         "membership",
-        "space access",
-        "branch/frontier",
-        "target revision",
-        "referenced-object visibility",
-        "policy/classification"
+        "space_access_participant_binding",
+        "branch_status_frontier",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "this family excludes project status and every prepared access-widening operation"
       ],
       "fence": "none",
-      "assurance": "current login",
+      "assurance": "current login (principal); workload identity (mapped connector)",
       "offline": "no",
       "source": "DESIGN.md §11.6 (shared_space_v1 row) + §11.6.1 (family: project/Space creation and metadata; Space lifecycle/restrict/policy-narrow; participant proposal/update/removal; contribution/disposition; semantic-relation/disposition; lens, reaction, frontier, and artifact-upload mutations)"
     },
@@ -1462,15 +1965,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1485,15 +1997,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1507,13 +2028,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1527,15 +2053,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1550,15 +2085,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1572,13 +2116,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1592,15 +2141,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1615,15 +2173,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1637,13 +2204,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1657,15 +2229,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1680,15 +2261,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1702,13 +2292,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login; step-up for production activation",
       "offline": "no",
@@ -1721,13 +2316,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1740,13 +2340,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1760,15 +2365,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1783,15 +2397,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1805,13 +2428,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1824,13 +2452,18 @@
       "allowed_actor_kinds": [
         "principal"
       ],
-      "dependency_categories": [
-        "exact author/deploy action",
-        "identity",
-        "realm/project",
-        "membership",
-        "target/config/policy revisions"
+      "action_scope": [
+        "exact author/deploy action"
       ],
+      "dependency_categories": [
+        "principal_status",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "kovee_policy_set"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1844,13 +2477,20 @@
         "authenticated principal",
         "authenticated operator"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact manual/deployment-test create action",
-        "full target deployment/revision",
         "ContextAssembly/input manifest",
         "budget",
-        "disclosure",
-        "policy and authorization dependencies"
+        "disclosure"
+      ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "context_item_visibility",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "cannot name a worker as requester or create a Commitment",
+        "the complete current authorization dependency set is required"
       ],
       "fence": "none",
       "assurance": "current login; production test may require step-up",
@@ -1865,15 +2505,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1888,15 +2537,24 @@
         "principal",
         "connector service (only for its mapped resources)"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact resource read/resume action",
-        "principal or service identity",
-        "realm/project/space",
-        "membership and space access",
-        "target and endpoint visibility",
-        "classification/retention",
-        "external visibility proof where applicable",
         "resume cursor where applicable"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "service_identity_capability",
+        "realm_status_kill_epoch",
+        "project_status_revision",
+        "target_resource_revision",
+        "membership",
+        "space_access_participant_binding",
+        "contribution_relation_endpoint_visibility",
+        "classification_retention_policy",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "external visibility proof required only where the target carries external-sourced material"
       ],
       "fence": "none",
       "assurance": "current login or workload identity",
@@ -1910,12 +2568,15 @@
       "allowed_actor_kinds": [
         "authenticated creator or authorized principal"
       ],
-      "dependency_categories": [
-        "exact current invocation/commitment/realization revisions",
-        "terms",
+      "action_scope": [
         "ancestry",
         "cancellation scope"
       ],
+      "dependency_categories": [
+        "target_resource_revision",
+        "commitment_terms_acceptance"
+      ],
+      "constraints": [],
       "fence": "none",
       "assurance": "current login",
       "offline": "no",
@@ -1928,14 +2589,18 @@
       "allowed_actor_kinds": [
         "current attempt (own exact child invocation under an explicit parent capability)"
       ],
-      "dependency_categories": [
-        "exact current invocation/commitment/realization revisions",
-        "terms",
+      "action_scope": [
         "ancestry",
         "cancellation scope",
         "parent attempt binding",
         "inherited ceilings"
       ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "commitment_terms_acceptance"
+      ],
+      "constraints": [],
       "fence": "current attempt fence, plus byom fence when bound",
       "assurance": "worker capability",
       "offline": "no",
@@ -1948,14 +2613,21 @@
       "allowed_actor_kinds": [
         "invocation attempt only"
       ],
-      "dependency_categories": [
+      "action_scope": [
         "exact operation and space/object scope listed in the invocation capability",
         "invocation manifest",
-        "deployment/config",
         "attempt",
-        "branch/context",
-        "budget",
-        "policy and authorization dependencies"
+        "budget"
+      ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "kovee_policy_set"
+      ],
+      "constraints": [
+        "the complete current authorization dependency set is required"
       ],
       "fence": "current Kovee fence and byom fence when bound",
       "assurance": "workload identity plus invocation capability",

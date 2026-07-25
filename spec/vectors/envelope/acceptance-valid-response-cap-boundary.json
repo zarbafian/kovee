@@ -1,0 +1,15 @@
+{
+  "name": "envelope/acceptance-valid-response-cap-boundary",
+  "description": "well-formed result envelope of exactly 1048576 bytes under the response context: replies follow the same acceptance rules under a 1 MiB cap (§11.8; family PROFILE section 1), inclusive at the boundary",
+  "input": {
+    "cap": "response",
+    "synthetic": "json_synth",
+    "prefix": "{\"outcome\":\"ok\",\"result\":{\"pad\":\"",
+    "repeat": "a",
+    "count": 1048540,
+    "suffix": "\"}}"
+  },
+  "expected": {
+    "valid": true
+  }
+}

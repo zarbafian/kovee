@@ -15,13 +15,18 @@ What lives here (per the K0 milestone sheet, `plan/sheets/K0.md`):
   Sage-era wire name survives: `governance_enable/show/disable`,
   `endeavor_promotion_*`, `byom_episode_binding_show`. The K0-frozen
   registry is the source of all later counts.
-- **`schemas/`** — JSON Schemas for every command, result, event, problem,
-  record, and manifest in the K1 bundles.
-- **`vectors/`** — golden vectors and per-operation negative vectors (wrong
-  surface, wrong actor, dependency invalidation, replay); limits/errors/
-  digest vectors aligned to C1 (typed artifact digest classes per amendment
-  A5 — no retained plaintext `raw_sha256`). Independently re-derived by
-  `xcheck/` (Python) and `tscheck/` (TypeScript) in CI.
+- **`schemas/`** — the five generic KCP envelope schemas (command, result,
+  event, problem, hello — extraction notes in `schemas/README.md`). The
+  per-operation command/result schema suite for the three K1 bundles is
+  **not yet delivered**; it is remaining K0 work (see `plan/sheets/K0.md`).
+- **`vectors/`** — golden envelope vectors: schema valid/invalid cases,
+  acceptance boundary/negative cases for every §11.8 and family cap, and
+  digest derivations aligned to C1 (typed artifact digest classes per
+  amendment A5 — no retained plaintext `raw_sha256`). Independently
+  re-derived by `xcheck/` (Python) and `tscheck/` (TypeScript) in CI. The
+  per-operation negative matrices (wrong surface, wrong actor, dependency
+  invalidation, replay) are **not yet delivered** — remaining K0 work with
+  the per-operation schemas.
 - **`adr/`** — architecture decision records ([index](adr/README.md)).
 - **`family-lock.pin.json`** — the vendored family-lock pointer (plan D3):
   the pinned manifest binding kovee's spec surface to the byom/akson family

@@ -5,10 +5,16 @@ design is exact and with every unpinned choice recorded here. Conventions
 follow akson/byom: draft 2020-12, `$id` on every file, closed objects
 (`additionalProperties: false` wherever `properties` appear), self-contained
 (internal `$ref` only). Instances must pass strict I-JSON acceptance and the
-§11.8 byte limits before schema validation; byte caps a JSON Schema cannot
-express (256 KiB request, 1 MiB reply, 64 KiB inline content, 256 list
-items, admission re-bounding of free text) are enforced in code and covered
-by acceptance vectors.
+§11.8 byte limits before schema validation. Byte caps a JSON Schema cannot
+express are enforced by both rederivers' acceptance layers and pinned by
+boundary + negative vectors (R0 KENV-04): the full family order (256 KiB
+request / 1 MiB reply, UTF-8, token-order error classes, surrogates, depth
+64, 65 536 nodes — family PROFILE section 1) plus the kovee contextual caps
+(256 list items per request; 64 KiB inline event `payload` content — the
+one envelope member carrying inline content in these five schemas).
+Contribution inline content (also 64 KiB, §11.8) binds through
+`contribution_append`'s own operation schema, which is remaining K0 work
+(plan/sheets/K0.md); admission re-bounding of free text stays code-side.
 
 | Schema | Pins | Source |
 |---|---|---|
@@ -25,15 +31,28 @@ by acceptance vectors.
    operations and says reads "do not carry an idempotency key" — while
    meta's own shape makes `idempotency_key` unconditional. Resolved: reads
    omit `meta` entirely (a read carrying meta would be forced to carry the
-   very key it must not); the generic envelope leaves `meta` optional and
-   mutations validate against `#/$defs/mutationCommand`. Mirrors byom's
+   very key it must not); the generic envelope leaves `meta` optional,
+   mutations validate against `#/$defs/mutationCommand`, and reads against
+   the closed `#/$defs/readCommand`, which has no `meta` member at all — a
+   read carrying `meta.idempotency_key` fails (R0 KENV-01). Mirrors byom's
    request/mutationRequest split.
-2. **Problem "includes" data with no named members.** §11.7 says
-   `stale-revision` "includes current visible revision", `cursor-expired`
-   "includes … snapshot recovery data", `rate-limited` "includes bounded
-   retry guidance", but names no members. Not invented: the problem object
-   is closed over the RFC 9457 members plus the §11.9 `ext` mechanism,
-   which carries that data until a spec revision names dedicated members.
+2. **Problem recovery members (normative).** §11.7 requires
+   `stale-revision` to include the current visible revision,
+   `cursor-expired` snapshot recovery data (§11.4: the oldest cursor and a
+   snapshot boundary), and `rate-limited` bounded retry guidance, without
+   naming members. Resolved (R0 KENV-02): the members are defined under
+   reverse-domain `ext` branches, conditionally REQUIRED by kind in
+   `kcp-problem.schema.json`:
+   - `ext["dev.kovee.recovery.stale-revision"]` = `{current_revision}` (a
+     safe non-negative integer);
+   - `ext["dev.kovee.recovery.cursor-expired"]` = `{oldest_cursor,
+     snapshot_boundary}` (opaque cursors, 1–4096 chars — the event_cursor
+     ceiling of item 9);
+   - `ext["dev.kovee.recovery.rate-limited"]` = `{retry_after_seconds}`
+     (0–86 400; the 24-hour ceiling is the recorded extraction bound
+     making the guidance "bounded").
+   A problem of one of these kinds without its branch is invalid; other
+   reverse-domain `ext` branches remain open and carry no authority.
 3. **No separate `kind` member.** §11.7 puts the kind inside the `type`
    URN (`urn:kovee:error:<kind>`) and defines no standalone member (unlike
    byom §14.9). The schema enums the 21 exact URNs; `#/$defs/problemKind`
@@ -42,7 +61,10 @@ by acceptance vectors.
    every security-sensitive `*_digest` to have a schema-registry entry with
    an exact projection, but DESIGN.md never defines the limits object or
    which of the two §11.8 constructions covers it. Gap recorded; K0 pins
-   only the 64-hex value shape.
+   only the 64-hex value shape, and no vector binds the field to any
+   derivation (R0 KENV-03 removed an invented `kcp-limits` binding).
+   Assigning the limits object, projection, and construction is a spec
+   revision with a real registry/schema entry.
 5. **`payload_digest` construction.** Same gap as 4: §11.3 names the
    field, §11.8 defines the two digest types, but the event-payload digest
    is never assigned a construction/projection. K0 pins the value shape.
@@ -50,10 +72,18 @@ by acceptance vectors.
    alphabet. Pinned here as visible ASCII (`^[\x21-\x7e]{1,128}$`),
    mirroring the byom family convention so byte length and schema length
    coincide. A wider alphabet would be a spec revision, not a silent
-   schema change.
+   schema change. Both `implementation_version` fields use this identifier
+   shape (R0 KENV-05): the earlier character-count bound admitted 128
+   emoji — 512 UTF-8 bytes — past the 128-byte cap.
 7. **Timestamp encoding.** §11.3/§11.1 (`occurred_at`, `server_time`) pin
    no encoding. Pinned as RFC 3339 date-time per I-JSON's (RFC 7493 §4.3)
    recommendation, which §11.8 adopts by requiring strict I-JSON.
+   Semantic validity is enforced (R0 KENV-05): the pattern constrains
+   every field to its real range and `format: date-time` requires real
+   calendar dates (month lengths, leap years; second 60 admitted per the
+   RFC 3339 leap-second grammar), checked by both rederivers — an
+   impossible instant such as `2026-99-99T99:99:99+99:99` or
+   `2026-02-30T12:00:00Z` fails.
 8. **Event-type major version.** §11.3 shows only `.v1`-style majors;
    whether `.v0` exists is unstated. Pinned: majors start at 1.
 9. **Cursor byte cap.** §11.3 makes cursors opaque and authenticated but

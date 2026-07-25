@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-bom-prefix",
+  "description": "a UTF-8 byte order mark before the JSON text: RFC 8259 §8.1 forbids adding a BOM, and strict acceptance fails closed rather than exercising the interoperability MAY-ignore; both rederivers must keep the BOM visible to the scanner instead of letting the UTF-8 decoder silently strip it (R0 KENV-04 parity case)",
+  "input": {
+    "raw": "﻿{\"version\":\"0.1\",\"op\":\"diagnose\",\"realm_id\":\"realm-0001\",\"args\":{}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "syntax"
+  }
+}

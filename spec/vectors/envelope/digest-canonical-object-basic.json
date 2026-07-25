@@ -1,18 +1,15 @@
 {
   "name": "envelope/digest-canonical-object-basic",
-  "description": "CanonicalObjectDigest per §11.8: SHA-256 over JCS of {$domain, protocol_major: 0, object_kind, schema_ref, projection} with the reserved $domain member injected per the family PROFILE type-tag rule; the kcp-limits fixture also backs hello-result-valid's limits_digest",
+  "description": "CanonicalObjectDigest per §11.8: SHA-256 over JCS of {$domain, protocol_major: 0, object_kind, schema_ref, projection} with the reserved $domain member injected per the family PROFILE type-tag rule. Construction mechanics only: kcp-decision-subject is the same example kind the key-order/unicode vectors use, its schema_ref names the existing #/$defs/args, and nothing binds this derivation to any real registry digest field — limits_digest and payload_digest remain shape-only recorded gaps (spec/schemas/README.md).",
   "input": {
     "derivations": [
       {
         "kind": "dev.kovee.canonical-object-digest.v1",
-        "object_kind": "kcp-limits",
-        "schema_ref": "https://kovee.example/kcp/v0/kcp-hello.schema.json#/$defs/limits",
+        "object_kind": "kcp-decision-subject",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args",
         "projection": {
-          "max_request_bytes": 262144,
-          "max_reply_bytes": 1048576,
-          "max_identifier_bytes": 128,
-          "max_list_items": 256,
-          "max_page_limit": 512
+          "branch": "main",
+          "sequence": 42
         }
       }
     ]
@@ -20,8 +17,8 @@
   "expected": {
     "results": [
       {
-        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-limits\",\"projection\":{\"max_identifier_bytes\":128,\"max_list_items\":256,\"max_page_limit\":512,\"max_reply_bytes\":1048576,\"max_request_bytes\":262144},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-hello.schema.json#/$defs/limits\"}",
-        "sha256_hex": "4af6b31071ff4cc2f66485dcf0b6a853007bd154604538e0aacb9e6e69d7c39b"
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-decision-subject\",\"projection\":{\"branch\":\"main\",\"sequence\":42},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args\"}",
+        "sha256_hex": "a2cbdcf048e5bdc0b1f988d99d70f4804cf16256c152876601f3db35d0410d9d"
       }
     ]
   }

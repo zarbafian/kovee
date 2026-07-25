@@ -1,0 +1,21 @@
+{
+  "name": "envelope/problem-invalid-cursor-expired-incomplete-recovery",
+  "description": "cursor-expired problem whose recovery branch omits the snapshot boundary is invalid: §11.4 returns both the oldest cursor and a snapshot boundary, and the closed dev.kovee.recovery.cursor-expired shape requires both members (R0 KENV-02)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:cursor-expired",
+      "title": "Cursor expired",
+      "status": 410,
+      "ext": {
+        "dev.kovee.recovery.cursor-expired": {
+          "oldest_cursor": "cur_9f3a1c"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "cursor-expired recovery requires both oldest_cursor and snapshot_boundary"
+  }
+}

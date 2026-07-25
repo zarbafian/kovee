@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kovee.example/kcp/v0/kcp-problem.schema.json",
   "title": "KCP problem details (DESIGN.md §11.7): RFC 9457 Problem Details with type urn:kovee:error:<kind>",
-  "description": "Errors use RFC 9457 Problem Details with `type: urn:kovee:error:<kind>` drawn from the closed §11.7 kind table; safety-relevant enums are closed (§11.8), so an unknown kind fails closed and new kinds are a spec revision. When `status` is present it must equal the §11.7 table value for the kind (enforced by the allOf implications). §11.7 says some kinds “include” recovery data (stale-revision: current visible revision; cursor-expired: snapshot recovery data; rate-limited: bounded retry guidance) without naming the members — a recorded K0 gap (spec/schemas/README.md); until a spec revision names them, this schema closes the object and reserves the §11.9 `ext` member for that data. Problems never leak paths, tokens, policy internals, or cross-tenant existence; vectors test shape, not wording.",
+  "description": "Errors use RFC 9457 Problem Details with `type: urn:kovee:error:<kind>` drawn from the closed §11.7 kind table; safety-relevant enums are closed (§11.8), so an unknown kind fails closed and new kinds are a spec revision. When `status` is present it must equal the §11.7 table value for the kind (enforced by the allOf implications). §11.7 requires some kinds to include recovery data (stale-revision: current visible revision; cursor-expired: snapshot recovery data; rate-limited: bounded retry guidance); those members are normatively defined under reverse-domain `ext` branches (dev.kovee.recovery.<kind> — spec/schemas/README.md) and conditionally REQUIRED for those kinds by the allOf implications below: a stale-revision, cursor-expired, or rate-limited problem without its recovery branch is invalid. Problems never leak paths, tokens, policy internals, or cross-tenant existence; vectors test shape, not wording.",
   "type": "object",
   "additionalProperties": false,
   "required": ["type"],
@@ -17,7 +17,7 @@
       "propertyNames": {
         "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
       },
-      "description": "Reverse-domain-keyed extension data (§11.9); carries the §11.7 per-kind recovery data until a spec revision names dedicated members. Never creates authority."
+      "description": "Reverse-domain-keyed extension data (§11.9). The normative dev.kovee.recovery.* branches (spec/schemas/README.md) carry the §11.7 per-kind recovery data and are conditionally required by kind; other namespaced extensions remain open. Never creates authority."
     }
   },
   "allOf": [
@@ -28,7 +28,7 @@
     { "if": { "properties": { "type": { "const": "urn:kovee:error:unsupported-version" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:unknown-op" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:forbidden-surface" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 403 } } } },
-    { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-revision" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-revision" } }, "required": ["type"] }, "then": { "required": ["ext"], "properties": { "status": { "const": 409 }, "ext": { "required": ["dev.kovee.recovery.stale-revision"], "properties": { "dev.kovee.recovery.stale-revision": { "$ref": "#/$defs/recoveryStaleRevision" } } } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-lease" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-mismatch" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-result-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
@@ -36,14 +36,59 @@
     { "if": { "properties": { "type": { "const": "urn:kovee:error:budget-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:deadline-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:cycle" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
-    { "if": { "properties": { "type": { "const": "urn:kovee:error:cursor-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:cursor-expired" } }, "required": ["type"] }, "then": { "required": ["ext"], "properties": { "status": { "const": 410 }, "ext": { "required": ["dev.kovee.recovery.cursor-expired"], "properties": { "dev.kovee.recovery.cursor-expired": { "$ref": "#/$defs/recoveryCursorExpired" } } } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:snapshot-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
-    { "if": { "properties": { "type": { "const": "urn:kovee:error:rate-limited" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 429 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:rate-limited" } }, "required": ["type"] }, "then": { "required": ["ext"], "properties": { "status": { "const": 429 }, "ext": { "required": ["dev.kovee.recovery.rate-limited"], "properties": { "dev.kovee.recovery.rate-limited": { "$ref": "#/$defs/recoveryRateLimited" } } } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:ambiguous" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:unavailable" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 503 } } } },
     { "if": { "properties": { "type": { "const": "urn:kovee:error:internal" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 500 } } } }
   ],
   "$defs": {
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "opaqueCursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Opaque, authenticated cursor encoding (§11.3); bounded by the 4096-char extraction ceiling recorded for event_cursor (spec/schemas/README.md)."
+    },
+    "recoveryStaleRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_revision"],
+      "properties": {
+        "current_revision": { "$ref": "#/$defs/safeNonNegativeInteger" }
+      },
+      "description": "§11.7: stale-revision \"includes current visible revision\". Carried under ext[\"dev.kovee.recovery.stale-revision\"], required for that kind."
+    },
+    "recoveryCursorExpired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oldest_cursor", "snapshot_boundary"],
+      "properties": {
+        "oldest_cursor": { "$ref": "#/$defs/opaqueCursor" },
+        "snapshot_boundary": { "$ref": "#/$defs/opaqueCursor" }
+      },
+      "description": "§11.4: cursor-expired returns \"the oldest cursor and a snapshot boundary\"; the client fetches an authorized snapshot and continues from that boundary. Carried under ext[\"dev.kovee.recovery.cursor-expired\"], required for that kind."
+    },
+    "recoveryRateLimited": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retry_after_seconds"],
+      "properties": {
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "Bounded retry guidance (§11.7); the 86400-second (24 h) ceiling is the recorded extraction bound (spec/schemas/README.md)."
+        }
+      },
+      "description": "§11.7: rate-limited \"includes bounded retry guidance\". Carried under ext[\"dev.kovee.recovery.rate-limited\"], required for that kind."
+    },
     "problemKind": {
       "enum": [
         "invalid",

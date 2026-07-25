@@ -1,0 +1,16 @@
+{
+  "name": "envelope/problem-invalid-stale-revision-missing-recovery",
+  "description": "stale-revision problem without the dev.kovee.recovery.stale-revision ext branch is invalid: §11.7 requires the current visible revision, conditionally required by the schema for this kind (R0 KENV-02)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:stale-revision",
+      "title": "Stale revision",
+      "status": 409
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "stale-revision requires ext[\"dev.kovee.recovery.stale-revision\"].current_revision"
+  }
+}

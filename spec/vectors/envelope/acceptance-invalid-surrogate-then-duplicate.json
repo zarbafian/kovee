@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-surrogate-then-duplicate",
+  "description": "an earlier unpaired surrogate and a later duplicate key: surrogates are order 4 and the order-3 duplicate anywhere in the text wins, so the duplicate names the error (family PROFILE section 1)",
+  "input": {
+    "raw": "{\"s\":\"\\uD800\",\"a\":1,\"a\":2}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "duplicate"
+  }
+}

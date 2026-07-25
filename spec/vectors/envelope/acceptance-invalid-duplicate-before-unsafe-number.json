@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-duplicate-before-unsafe-number",
+  "description": "an earlier duplicate key and a later unsafe number: the order-3 classes surface in token order during the single parse, so the duplicate names the error (family PROFILE section 1; the FV-05 mixed-error case)",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"op\":\"diagnose\",\"op\":\"hello\",\"realm_id\":\"realm-0001\",\"args\":{\"n\":1e20}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "duplicate"
+  }
+}

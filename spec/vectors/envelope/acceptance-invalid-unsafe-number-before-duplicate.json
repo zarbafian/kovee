@@ -1,0 +1,11 @@
+{
+  "name": "envelope/acceptance-invalid-unsafe-number-before-duplicate",
+  "description": "an earlier unsafe number and a later duplicate key: token order puts the unsafe number first, so it names the error (family PROFILE section 1)",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"args\":{\"n\":1e20},\"op\":\"diagnose\",\"op\":\"hello\",\"realm_id\":\"realm-0001\"}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "unsafe-number"
+  }
+}

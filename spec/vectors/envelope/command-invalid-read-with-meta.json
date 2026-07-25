@@ -1,0 +1,22 @@
+{
+  "name": "envelope/command-invalid-read-with-meta",
+  "description": "a read carrying meta with an idempotency_key fails the closed #/$defs/readCommand shape: reads do not carry an idempotency key (§11.2), and the closed read object has no meta member at all",
+  "input": {
+    "schema": "kcp-command",
+    "ref": "#/$defs/readCommand",
+    "value": {
+      "version": "0.1",
+      "op": "diagnose",
+      "meta": {
+        "request_id": "req-0009",
+        "idempotency_key": "idem-0009"
+      },
+      "realm_id": "realm-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "reads omit meta; the closed read shape rejects it"
+  }
+}

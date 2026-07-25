@@ -11,8 +11,12 @@ Checks, in order:
 2. every vector under spec/vectors/ (one `family/name.json` per case, an
    object whose `name` matches its path and which carries `description`,
    `input`, and `expected`) passes its family checker: schema vectors match
-   their expected verdict, raw/synthetic vectors match strict I-JSON +
-   §11.8 limit acceptance, digest vectors re-derive the family-PROFILE
+   their expected verdict (including semantic RFC 3339 date-time via
+   `format`), raw/synthetic vectors match the full family acceptance order
+   (PROFILE section 1: size cap, UTF-8, order-3 token classes in token
+   order, surrogates, depth 64, 65 536 nodes) plus the kovee §11.8
+   contextual caps (1 MiB response, 256 list items per request, 64 KiB
+   inline event payload), digest vectors re-derive the family-PROFILE
    canonical bytes (RFC 8785 JCS with the reserved $domain member injected
    at top level) and their SHA-256, plus the §11.8 framed typed-bytes
    digests.
@@ -35,8 +39,15 @@ import sys
 FAILURES: list[str] = []
 
 SAFE_MAX = 2**53 - 1
-MAX_REQUEST_BYTES = 262144  # DESIGN.md §11.8: request body at most 256 KiB
 DRAFT = "https://json-schema.org/draft/2020-12/schema"
+
+# DESIGN.md §11.8 + family PROFILE section 1 acceptance caps.
+MAX_REQUEST_BYTES = 262144  # request body: 256 KiB
+MAX_RESPONSE_BYTES = 1048576  # reply: 1 MiB (PROFILE: same rules, 1 MiB cap)
+DEPTH_CAP = 64  # container nesting depth (profile-pinned)
+NODE_CAP = 65536  # JSON values per document (profile-pinned)
+LIST_CAP = 256  # §11.8: a request contains at most 256 list items
+INLINE_CONTENT_CAP = 65536  # §11.8: inline event payload content, 64 KiB
 
 
 def fail(name: str, message: str) -> None:
@@ -44,67 +55,359 @@ def fail(name: str, message: str) -> None:
 
 
 # ---------------------------------------------------------------- I-JSON ----
+#
+# Token-level iterative scanner (no recursion, so nesting bounded only by
+# the byte cap can never overflow the stack). The family PROFILE section 1
+# order: the order-3 classes (syntax/trailing-data, duplicate,
+# unsafe-integer, non-finite, unsafe-number) surface in token order during
+# the single parse and abort it; surrogates (order 4) and the structural
+# caps (orders 5-6) are collected during the scan and judged afterwards, so
+# an order-3 error anywhere in the text always wins over them.
 
 
-def _reject_dup_pairs(pairs):
-    out = {}
-    for key, value in pairs:
-        if key in out:
-            raise ValueError(f"duplicate object key: {key!r}")
-        out[key] = value
-    return out
+class AcceptError(ValueError):
+    """A strict-acceptance rejection carrying its PROFILE error class."""
+
+    def __init__(self, cls: str):
+        super().__init__(cls)
+        self.cls = cls
 
 
-def _check_numbers(value):
-    if isinstance(value, bool):
-        return
-    if isinstance(value, int) and abs(value) > SAFE_MAX:
-        raise ValueError(f"unsafe integer: {value}")
-    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
-        raise ValueError("non-finite number")
-    if isinstance(value, list):
-        for item in value:
-            _check_numbers(item)
-    if isinstance(value, dict):
-        for item in value.values():
-            _check_numbers(item)
+class _Scan:
+    __slots__ = ("max_depth", "nodes", "max_list_items", "payload_bytes", "surrogate")
+
+    def __init__(self):
+        self.max_depth = 0
+        self.nodes = 0
+        self.max_list_items = 0
+        self.payload_bytes: int | None = None
+        self.surrogate = False
 
 
-def _check_surrogates(value):
-    """I-JSON forbids unpaired surrogates (family PROFILE; DESIGN.md §11.8).
-    json.loads happily decodes lone \\uD800-style escapes, so scan decoded
-    strings for stray surrogate code points."""
-    if isinstance(value, str):
-        for ch in value:
-            if 0xD800 <= ord(ch) <= 0xDFFF:
-                raise ValueError(f"unpaired surrogate U+{ord(ch):04X}")
-    elif isinstance(value, dict):
-        for k, v in value.items():
-            _check_surrogates(k)
-            _check_surrogates(v)
-    elif isinstance(value, list):
-        for item in value:
-            _check_surrogates(item)
+_WS = " \t\n\r"
+_HEX = "0123456789abcdefABCDEF"
+
+
+def _decode_string_token(text: str, i: int, n: int) -> tuple[str, int, bool]:
+    """Consume the string token whose opening quote is at `i`. Returns the
+    decoded value (escaped UTF-16 surrogate pairs combined, matching the
+    ECMAScript string model for duplicate-key comparison), the next index,
+    and whether the decoded value contains an unpaired surrogate."""
+    out: list[str] = []
+    i += 1
+    while True:
+        if i >= n:
+            raise AcceptError("syntax")
+        c = text[i]
+        if c == '"':
+            i += 1
+            break
+        if ord(c) < 0x20:
+            raise AcceptError("syntax")
+        if c == "\\":
+            e = text[i + 1] if i + 1 < n else ""
+            i += 2
+            if e in '"\\/':
+                out.append(e)
+            elif e == "b":
+                out.append("\b")
+            elif e == "f":
+                out.append("\f")
+            elif e == "n":
+                out.append("\n")
+            elif e == "r":
+                out.append("\r")
+            elif e == "t":
+                out.append("\t")
+            elif e == "u":
+                hexs = text[i : i + 4]
+                if len(hexs) != 4 or any(ch not in _HEX for ch in hexs):
+                    raise AcceptError("syntax")
+                out.append(chr(int(hexs, 16)))
+                i += 4
+            else:
+                raise AcceptError("syntax")
+        else:
+            out.append(c)
+            i += 1
+    s = "".join(out)
+    combined: list[str] = []
+    unpaired = False
+    k = 0
+    while k < len(s):
+        u = ord(s[k])
+        if 0xD800 <= u <= 0xDBFF:
+            if k + 1 < len(s) and 0xDC00 <= ord(s[k + 1]) <= 0xDFFF:
+                combined.append(chr(0x10000 + ((u - 0xD800) << 10) + (ord(s[k + 1]) - 0xDC00)))
+                k += 2
+                continue
+            unpaired = True
+        elif 0xDC00 <= u <= 0xDFFF:
+            unpaired = True
+        combined.append(s[k])
+        k += 1
+    return "".join(combined), i, unpaired
+
+
+def _read_number(text: str, i: int, n: int) -> int:
+    """Consume and classify the number token starting at `i` (family rules:
+    exact integer check on the token; floats finite; integer-valued floats
+    within the safe range)."""
+    start = i
+    if text[i] == "-":
+        i += 1
+        if text.startswith("Infinity", i):
+            raise AcceptError("non-finite")
+    if i < n and text[i] == "0":
+        i += 1
+    elif i < n and "0" <= text[i] <= "9":
+        while i < n and "0" <= text[i] <= "9":
+            i += 1
+    else:
+        raise AcceptError("syntax")
+    integral = True
+    if i < n and text[i] == ".":
+        integral = False
+        i += 1
+        if not (i < n and "0" <= text[i] <= "9"):
+            raise AcceptError("syntax")
+        while i < n and "0" <= text[i] <= "9":
+            i += 1
+    if i < n and text[i] in "eE":
+        integral = False
+        i += 1
+        if i < n and text[i] in "+-":
+            i += 1
+        if not (i < n and "0" <= text[i] <= "9"):
+            raise AcceptError("syntax")
+        while i < n and "0" <= text[i] <= "9":
+            i += 1
+    token = text[start:i]
+    if integral:
+        if abs(int(token)) > SAFE_MAX:  # exact, immune to double rounding
+            raise AcceptError("unsafe-integer")
+    else:
+        v = float(token)
+        if v != v or v in (float("inf"), float("-inf")):
+            raise AcceptError("unsafe-number")
+        if v.is_integer() and abs(v) > SAFE_MAX:
+            raise AcceptError("unsafe-number")
+    return i
+
+
+def scan_strict_text(text: str) -> _Scan:
+    """Validating iterative scan of exactly one strict I-JSON text. Raises
+    AcceptError with the first order-3 class in token order; returns the
+    collected surrogate flag, container depth, node count, largest list,
+    and the byte span of a root-level `payload` member (the one §11.3
+    envelope member carrying inline content) for the later-order checks."""
+    scan = _Scan()
+    i, n = 0, len(text)
+    stack: list = []  # set() per object, [item_count] per array
+    payload_pending = False
+    payload_active = False
+    payload_start = 0
+
+    (
+        WANT_VALUE,
+        WANT_VALUE_OR_ARRAY_END,
+        WANT_KEY_OR_OBJECT_END,
+        WANT_KEY,
+        WANT_COLON,
+        WANT_COMMA_OR_END,
+    ) = range(6)
+    state = WANT_VALUE
+    complete = False
+
+    def value_done(end: int) -> None:
+        nonlocal state, complete, payload_active
+        if stack and isinstance(stack[-1], list):
+            stack[-1][0] += 1
+            if stack[-1][0] > scan.max_list_items:
+                scan.max_list_items = stack[-1][0]
+        if payload_active and len(stack) == 1:
+            scan.payload_bytes = len(text[payload_start:end].encode("utf-8"))
+            payload_active = False
+        if not stack:
+            complete = True
+        else:
+            state = WANT_COMMA_OR_END
+
+    while not complete:
+        while i < n and text[i] in _WS:
+            i += 1
+        if i >= n:
+            raise AcceptError("syntax")
+        c = text[i]
+        if state in (WANT_VALUE, WANT_VALUE_OR_ARRAY_END):
+            if payload_pending and c != "]":
+                payload_start = i
+                payload_active = True
+                payload_pending = False
+            if state == WANT_VALUE_OR_ARRAY_END and c == "]":
+                i += 1
+                stack.pop()
+                value_done(i)
+            elif c == "{":
+                i += 1
+                stack.append(set())
+                scan.nodes += 1
+                if len(stack) > scan.max_depth:
+                    scan.max_depth = len(stack)
+                state = WANT_KEY_OR_OBJECT_END
+            elif c == "[":
+                i += 1
+                stack.append([0])
+                scan.nodes += 1
+                if len(stack) > scan.max_depth:
+                    scan.max_depth = len(stack)
+                state = WANT_VALUE_OR_ARRAY_END
+            elif c == '"':
+                _, i, unpaired = _decode_string_token(text, i, n)
+                if unpaired:
+                    scan.surrogate = True
+                scan.nodes += 1
+                value_done(i)
+            elif c == "-" or "0" <= c <= "9":
+                i = _read_number(text, i, n)
+                scan.nodes += 1
+                value_done(i)
+            elif text.startswith("true", i):
+                i += 4
+                scan.nodes += 1
+                value_done(i)
+            elif text.startswith("false", i):
+                i += 5
+                scan.nodes += 1
+                value_done(i)
+            elif text.startswith("null", i):
+                i += 4
+                scan.nodes += 1
+                value_done(i)
+            elif text.startswith("NaN", i) or text.startswith("Infinity", i):
+                raise AcceptError("non-finite")
+            else:
+                raise AcceptError("syntax")
+        elif state in (WANT_KEY_OR_OBJECT_END, WANT_KEY):
+            if state == WANT_KEY_OR_OBJECT_END and c == "}":
+                i += 1
+                stack.pop()
+                value_done(i)
+            elif c == '"':
+                key, i, unpaired = _decode_string_token(text, i, n)
+                if unpaired:
+                    scan.surrogate = True
+                keys = stack[-1]
+                if key in keys:
+                    raise AcceptError("duplicate")
+                keys.add(key)
+                if len(stack) == 1 and key == "payload":
+                    payload_pending = True
+                state = WANT_COLON
+            else:
+                raise AcceptError("syntax")
+        elif state == WANT_COLON:
+            if c != ":":
+                raise AcceptError("syntax")
+            i += 1
+            state = WANT_VALUE
+        else:  # WANT_COMMA_OR_END
+            in_object = isinstance(stack[-1], set)
+            if c == ",":
+                i += 1
+                state = WANT_KEY if in_object else WANT_VALUE
+            elif c == ("}" if in_object else "]"):
+                i += 1
+                stack.pop()
+                value_done(i)
+            else:
+                raise AcceptError("syntax")
+    while i < n and text[i] in _WS:
+        i += 1
+    if i < n:
+        raise AcceptError("trailing-data")
+    return scan
+
+
+def acceptance_class(raw: bytes, cap_context: str = "request") -> str | None:
+    """Full acceptance of one envelope's exact bytes; None when accepted,
+    else the first-failing error class in the pinned order (family PROFILE
+    section 1, then the kovee §11.8 contextual caps): oversize,
+    invalid-utf8, the order-3 token classes in token order,
+    unpaired-surrogate, over-depth, over-nodes, over-list-items (request
+    context only — pages may carry up to 512 events), over-inline-content
+    (a root-level `payload` member over 64 KiB)."""
+    cap = MAX_RESPONSE_BYTES if cap_context == "response" else MAX_REQUEST_BYTES
+    if len(raw) > cap:
+        return "oversize"
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return "invalid-utf8"
+    try:
+        scan = scan_strict_text(text)
+    except AcceptError as exc:
+        return exc.cls
+    if scan.surrogate:
+        return "unpaired-surrogate"
+    if scan.max_depth > DEPTH_CAP:
+        return "over-depth"
+    if scan.nodes > NODE_CAP:
+        return "over-nodes"
+    if cap_context == "request" and scan.max_list_items > LIST_CAP:
+        return "over-list-items"
+    if scan.payload_bytes is not None and scan.payload_bytes > INLINE_CONTENT_CAP:
+        return "over-inline-content"
+    return None
 
 
 def strict_parse(text: str):
-    """Strict I-JSON acceptance: duplicate keys, non-finite numbers, unsafe
-    integers, and unpaired surrogates fail closed (DESIGN.md §11.8)."""
+    """Strict I-JSON for spec files (schemas and vector files): the family
+    token rules and structural caps (no contextual request/response caps),
+    then materialize the value."""
+    scan = scan_strict_text(text)
+    if scan.surrogate:
+        raise AcceptError("unpaired-surrogate")
+    if scan.max_depth > DEPTH_CAP:
+        raise AcceptError("over-depth")
+    if scan.nodes > NODE_CAP:
+        raise AcceptError("over-nodes")
+    return json.loads(text)
 
-    def _const(name):
-        raise ValueError(f"non-finite number: {name}")
 
-    value = json.loads(text, object_pairs_hook=_reject_dup_pairs, parse_constant=_const)
-    _check_numbers(value)
-    _check_surrogates(value)
-    return value
+# ------------------------------------------------------------- RFC 3339 ----
+
+_RFC3339_RE = re.compile(
+    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})"
+    r"T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]+)?"
+    r"(Z|[+-]([0-9]{2}):([0-9]{2}))$"
+)
+
+_MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
 
-def accept_request_bytes(raw: bytes):
-    """Pre-schema acceptance of one request envelope's exact bytes."""
-    if len(raw) > MAX_REQUEST_BYTES:
-        raise ValueError(f"request over 256 KiB: {len(raw)} bytes")
-    return strict_parse(raw.decode("utf-8"))
+def is_rfc3339_datetime(value: str) -> bool:
+    """Semantic RFC 3339 date-time: real calendar dates (month lengths,
+    leap years) and real time/offset ranges; second 60 admitted per the
+    RFC 3339 leap-second grammar (R0 KENV-05)."""
+    m = _RFC3339_RE.match(value)
+    if m is None:
+        return False
+    year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    hour, minute, second = int(m.group(4)), int(m.group(5)), int(m.group(6))
+    if not 1 <= month <= 12:
+        return False
+    days = _MONTH_DAYS[month - 1]
+    if month == 2 and year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):
+        days = 29
+    if not 1 <= day <= days:
+        return False
+    if hour > 23 or minute > 59 or second > 60:
+        return False
+    if m.group(7) != "Z":
+        if int(m.group(8)) > 23 or int(m.group(9)) > 59:
+            return False
+    return True
 
 
 # ------------------------------------------------------------------- JCS ----
@@ -345,7 +648,7 @@ def mini_valid(root: dict, schema, instance) -> bool:
     boolean schemas, internal $ref, type, const, enum, pattern, min/max
     Length, minimum/maximum, required, properties, additionalProperties,
     propertyNames, items, minItems, maxItems, uniqueItems, oneOf, allOf,
-    if/then/else."""
+    if/then/else, and format: date-time (semantic, R0 KENV-05)."""
     if schema is True:
         return True
     if schema is False:
@@ -391,6 +694,8 @@ def mini_valid(root: dict, schema, instance) -> bool:
         if "minLength" in schema and len(instance) < schema["minLength"]:
             return False
         if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            return False
+        if schema.get("format") == "date-time" and not is_rfc3339_datetime(instance):
             return False
 
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
@@ -450,8 +755,16 @@ class Runner:
             import jsonschema  # noqa: F401
 
             self.jsonschema = jsonschema
+            # Only the formats this spec enforces; date-time is the strict
+            # semantic RFC 3339 check shared with the structural validator.
+            fc = jsonschema.FormatChecker(formats=())
+            fc.checks("date-time")(
+                lambda v: not isinstance(v, str) or is_rfc3339_datetime(v)
+            )
+            self.format_checker = fc
         except ImportError:
             self.jsonschema = None
+            self.format_checker = None
 
     # -- schemas --
 
@@ -483,7 +796,9 @@ class Runner:
         schema = self.schemas[schema_name]
         if self.jsonschema is not None:
             target = schema if ref is None else {"$ref": ref, "$defs": schema["$defs"]}
-            return self.jsonschema.Draft202012Validator(target).is_valid(value)
+            return self.jsonschema.Draft202012Validator(
+                target, format_checker=self.format_checker
+            ).is_valid(value)
         if ref is None:
             return mini_valid(schema, schema, value)
         return mini_valid(schema, _resolve_pointer(schema, ref), value)
@@ -514,12 +829,13 @@ class Runner:
         self.counts["schema-valid" if verdict else "schema-invalid"] += 1
 
     def _check_acceptance_vector(self, name, inp, expected):
+        cap_context = inp.get("cap", "request")
+        if cap_context not in ("request", "response"):
+            fail(name, f"unknown cap context {cap_context!r}")
+            return
         if "raw" in inp:
             raw = inp["raw"].encode("utf-8")
-        else:
-            if inp["synthetic"] != "oversized_request":
-                fail(name, f"unknown synthetic kind {inp['synthetic']!r}")
-                return
+        elif inp["synthetic"] == "oversized_request":
             prefix = '{"version":"0.1","op":"diagnose","realm_id":"realm-0001","args":{"pad":"'
             suffix = '"}}'
             pad = inp["target_bytes"] - len(prefix) - len(suffix)
@@ -530,13 +846,21 @@ class Runner:
             if len(raw) != inp["target_bytes"]:
                 fail(name, f"synthesized {len(raw)} bytes, wanted {inp['target_bytes']}")
                 return
-        try:
-            accept_request_bytes(raw)
-            verdict = True
-        except ValueError:
-            verdict = False
+        elif inp["synthetic"] == "json_synth":
+            # Family PROFILE section 8 synthesized repetition for cap cases.
+            raw = (
+                inp.get("prefix", "") + inp.get("repeat", "") * inp.get("count", 0) + inp.get("suffix", "")
+            ).encode("utf-8")
+        else:
+            fail(name, f"unknown synthetic kind {inp['synthetic']!r}")
+            return
+        cls = acceptance_class(raw, cap_context)
+        verdict = cls is None
         if verdict != expected.get("valid"):
-            fail(name, f"expected valid={expected.get('valid')}, got {verdict}")
+            fail(name, f"expected valid={expected.get('valid')}, got {verdict} (class {cls!r})")
+            return
+        if "error_class" in expected and cls != expected["error_class"]:
+            fail(name, f"expected error class {expected['error_class']!r}, got {cls!r}")
             return
         self.counts["acceptance"] += 1
 

@@ -1,0 +1,16 @@
+{
+  "name": "envelope/acceptance-invalid-response-over-cap",
+  "description": "well-formed result envelope of 1048577 bytes: one byte over the 1 MiB reply ceiling fails closed before parsing (§11.8)",
+  "input": {
+    "cap": "response",
+    "synthetic": "json_synth",
+    "prefix": "{\"outcome\":\"ok\",\"result\":{\"pad\":\"",
+    "repeat": "a",
+    "count": 1048541,
+    "suffix": "\"}}"
+  },
+  "expected": {
+    "valid": false,
+    "error_class": "oversize"
+  }
+}

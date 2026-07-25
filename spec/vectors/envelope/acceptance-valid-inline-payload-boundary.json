@@ -1,0 +1,15 @@
+{
+  "name": "envelope/acceptance-valid-inline-payload-boundary",
+  "description": "event envelope whose root-level inline payload member spans exactly 65536 bytes of raw text: the §11.8 64 KiB inline-content cap is inclusive at the boundary; payload is the one envelope member carrying inline content (spec/schemas/README.md)",
+  "input": {
+    "cap": "response",
+    "synthetic": "json_synth",
+    "prefix": "{\"event_id\":\"evt-boundary\",\"installation_id\":\"inst-0001\",\"realm_id\":\"realm-0001\",\"stream_id\":\"space-0001\",\"stream_sequence\":1,\"type\":\"dev.kovee.space.contribution-appended.v1\",\"schema_ref\":\"dev.kovee.space.contribution-appended.v1#payload\",\"resource_ref\":\"space-0001/contribution-1\",\"actor_ref\":\"principal-anna\",\"correlation_ref\":\"corr-0001\",\"occurred_at\":\"2026-07-25T12:00:00Z\",\"classification_ref\":\"class-internal\",\"payload_digest\":\"cd072ee57fbc2777120b65850fd438d54c66c865ade3fb2fb71a173fe16f427f\",\"payload\":\"",
+    "repeat": "a",
+    "count": 65534,
+    "suffix": "\"}"
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "envelope/problem-valid-cursor-expired",
+  "description": "cursor-expired problem with the §11.7 table status 410 and the required snapshot-recovery data under ext[\"dev.kovee.recovery.cursor-expired\"] (§11.4: the server returns the oldest cursor and a snapshot boundary)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:cursor-expired",
+      "title": "Cursor expired",
+      "status": 410,
+      "ext": {
+        "dev.kovee.recovery.cursor-expired": {
+          "oldest_cursor": "cur_9f3a1c",
+          "snapshot_boundary": "snap_00b2e4"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

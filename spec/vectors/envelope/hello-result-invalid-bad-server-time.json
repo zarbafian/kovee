@@ -1,0 +1,23 @@
+{
+  "name": "envelope/hello-result-invalid-bad-server-time",
+  "description": "server_time \"2026-99-99T99:99:99+99:99\" matches the digit-count shape but is not a real RFC 3339 instant; the range-constrained pattern and semantic date-time validation both reject it (R0 KENV-05)",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloResult",
+    "value": {
+      "selected_version": "0.1",
+      "implementation": "koveed",
+      "implementation_version": "0.0.1",
+      "features": [
+        "core_v1"
+      ],
+      "limits_digest": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+      "server_time": "2026-99-99T99:99:99+99:99",
+      "installation_id": "inst-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "impossible date/time fields"
+  }
+}
