@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/kcp-command-result.schema.json",
+  "title": "KCP command result (DESIGN.md §11.2): { outcome: \"ok\", result, revision?, event_cursor? } | { outcome: \"problem\", problem }",
+  "description": "CommandResult union (§11.2). `result` is the operation-specific payload; each operation's closed result schema validates it. `revision` is the new revision of the mutated aggregate where the operation yields one; replay of a retained idempotent result returns the original logical result and revision. `event_cursor` is the §11.3 public cursor: an opaque, authenticated encoding of source stream, sequence, snapshot epoch, and filter boundary — never a NATS sequence; no byte cap is pinned in DESIGN.md, the 4096 ceiling is a K0 extraction decision mirroring byom (spec/schemas/README.md). The problem arm embeds an exact copy of kcp-problem.schema.json for self-containment; that file is the authoritative problem definition. Replies are limited to 1 MiB (§11.8), enforced at admission.",
+  "oneOf": [
+    { "$ref": "#/$defs/okResult" },
+    { "$ref": "#/$defs/problemResult" }
+  ],
+  "$defs": {
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "okResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "result"],
+      "properties": {
+        "outcome": { "const": "ok" },
+        "result": true,
+        "revision": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "event_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Opaque authenticated cursor (§11.3); never interpreted by clients."
+        }
+      },
+      "description": "Success arm: { outcome: \"ok\", result, revision?, event_cursor? } (§11.2)."
+    },
+    "problemResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "problem"],
+      "properties": {
+        "outcome": { "const": "problem" },
+        "problem": { "$ref": "#/$defs/problem" }
+      },
+      "description": "Failure arm: { outcome: \"problem\", problem } (§11.2), problem per §11.7."
+    },
+    "problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/$defs/problemType" },
+        "title": { "type": "string", "maxLength": 4096 },
+        "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+        "detail": { "type": "string", "maxLength": 65536 },
+        "instance": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "ext": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:invalid" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 422 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:unauthenticated" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 401 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:forbidden" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 403 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:not-found" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 404 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:unsupported-version" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:unknown-op" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:forbidden-surface" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 403 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-revision" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-lease" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-mismatch" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-result-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:authorization-stale" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:budget-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:deadline-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:cycle" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:cursor-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:snapshot-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:rate-limited" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 429 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:ambiguous" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:unavailable" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 503 } } } },
+        { "if": { "properties": { "type": { "const": "urn:kovee:error:internal" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 500 } } } }
+      ],
+      "description": "Exact copy of kcp-problem.schema.json (self-containment; no remote $ref). Keep in lockstep."
+    },
+    "problemType": {
+      "enum": [
+        "urn:kovee:error:invalid",
+        "urn:kovee:error:unauthenticated",
+        "urn:kovee:error:forbidden",
+        "urn:kovee:error:not-found",
+        "urn:kovee:error:unsupported-version",
+        "urn:kovee:error:unknown-op",
+        "urn:kovee:error:forbidden-surface",
+        "urn:kovee:error:stale-revision",
+        "urn:kovee:error:stale-lease",
+        "urn:kovee:error:idempotency-mismatch",
+        "urn:kovee:error:idempotency-result-expired",
+        "urn:kovee:error:authorization-stale",
+        "urn:kovee:error:budget-exceeded",
+        "urn:kovee:error:deadline-exceeded",
+        "urn:kovee:error:cycle",
+        "urn:kovee:error:cursor-expired",
+        "urn:kovee:error:snapshot-expired",
+        "urn:kovee:error:rate-limited",
+        "urn:kovee:error:ambiguous",
+        "urn:kovee:error:unavailable",
+        "urn:kovee:error:internal"
+      ],
+      "description": "`urn:kovee:error:` + each closed §11.7 kind, exactly."
+    }
+  }
+}

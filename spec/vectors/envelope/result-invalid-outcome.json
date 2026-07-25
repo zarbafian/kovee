@@ -1,0 +1,15 @@
+{
+  "name": "envelope/result-invalid-outcome",
+  "description": "outcome tag is an exact const; the casing variant OK fails closed",
+  "input": {
+    "schema": "kcp-command-result",
+    "value": {
+      "outcome": "OK",
+      "result": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "outcome must be the exact string ok or problem"
+  }
+}

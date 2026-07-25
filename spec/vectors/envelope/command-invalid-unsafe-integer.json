@@ -1,0 +1,11 @@
+{
+  "name": "envelope/command-invalid-unsafe-integer",
+  "description": "expected_revision of 2^53 is outside the I-JSON safe range; strict acceptance rejects unsafe integers (§11.8)",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"op\":\"contribution_append\",\"meta\":{\"request_id\":\"req-0006\",\"idempotency_key\":\"idem-0006\",\"expected_revision\":9007199254740992},\"realm_id\":\"realm-0001\",\"args\":{}}"
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unsafe integer"
+  }
+}

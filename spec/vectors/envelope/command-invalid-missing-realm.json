@@ -1,0 +1,18 @@
+{
+  "name": "envelope/command-invalid-missing-realm",
+  "description": "realm_id is an unmarked (required) §11.2 envelope field",
+  "input": {
+    "schema": "kcp-command",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "args": {
+        "space_id": "space-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required realm_id"
+  }
+}

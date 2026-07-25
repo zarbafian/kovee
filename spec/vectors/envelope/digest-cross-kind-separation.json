@@ -1,0 +1,52 @@
+{
+  "name": "envelope/digest-cross-kind-separation",
+  "description": "cross-kind and cross-schema substitution (§11.8): the same projection under a different object_kind or schema_ref derives a different digest; digests of different kinds cannot satisfy one another even when byte-equal",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-command-idempotency",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json",
+        "projection": {
+          "op": "space_create",
+          "realm_id": "realm-0001"
+        }
+      },
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-decision-subject",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json",
+        "projection": {
+          "op": "space_create",
+          "realm_id": "realm-0001"
+        }
+      },
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-command-idempotency",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/mutationCommand",
+        "projection": {
+          "op": "space_create",
+          "realm_id": "realm-0001"
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-command-idempotency\",\"projection\":{\"op\":\"space_create\",\"realm_id\":\"realm-0001\"},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json\"}",
+        "sha256_hex": "6ccada3368ea9bc0e5840f40bc5a95190090d2e4cf2d1a84ca6aa0af8cd6fced"
+      },
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-decision-subject\",\"projection\":{\"op\":\"space_create\",\"realm_id\":\"realm-0001\"},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json\"}",
+        "sha256_hex": "416985e3b5ae9441c852bcf74e6f07867f7750023df7ee501f58cd592b0e7815"
+      },
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-command-idempotency\",\"projection\":{\"op\":\"space_create\",\"realm_id\":\"realm-0001\"},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/mutationCommand\"}",
+        "sha256_hex": "47ef53ec13b9f34ce28045f422a71f09fdf2ac3099d6d3e8b0d1d1a92c92e978"
+      }
+    ],
+    "relation": "distinct"
+  }
+}

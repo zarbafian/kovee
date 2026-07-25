@@ -1,0 +1,76 @@
+{
+  "name": "envelope/digest-command-idempotency-telemetry-excluded",
+  "description": "the §11.2 idempotency request digest covers {version, authority_surface, op, realm_id, project_id?, expected_revision?, args, ext} and excludes request_id, traceparent, transport headers, and causation telemetry: a transport retry with a fresh attempt id/trace derives the same digest",
+  "input": {
+    "derivations": [
+      {
+        "kind": "kcp-command-idempotency",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json",
+        "raw_command": {
+          "version": "0.1",
+          "authority_surface": "external_client",
+          "op": "space_create",
+          "realm_id": "realm-0001",
+          "project_id": "proj-0001",
+          "expected_revision": 4,
+          "args": {
+            "title": "Garden"
+          },
+          "ext": {},
+          "request_id": "req-0001",
+          "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        },
+        "projection_fields": [
+          "version",
+          "authority_surface",
+          "op",
+          "realm_id",
+          "project_id",
+          "expected_revision",
+          "args",
+          "ext"
+        ]
+      },
+      {
+        "kind": "kcp-command-idempotency",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json",
+        "raw_command": {
+          "version": "0.1",
+          "authority_surface": "external_client",
+          "op": "space_create",
+          "realm_id": "realm-0001",
+          "project_id": "proj-0001",
+          "expected_revision": 4,
+          "args": {
+            "title": "Garden"
+          },
+          "ext": {},
+          "request_id": "req-0002"
+        },
+        "projection_fields": [
+          "version",
+          "authority_surface",
+          "op",
+          "realm_id",
+          "project_id",
+          "expected_revision",
+          "args",
+          "ext"
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-command-idempotency\",\"projection\":{\"args\":{\"title\":\"Garden\"},\"authority_surface\":\"external_client\",\"expected_revision\":4,\"ext\":{},\"op\":\"space_create\",\"project_id\":\"proj-0001\",\"realm_id\":\"realm-0001\",\"version\":\"0.1\"},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json\"}",
+        "sha256_hex": "3b1a23153b69500e2114b36c581092877d5d9ec98db0735ee43e2b33ad39adc2"
+      },
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-command-idempotency\",\"projection\":{\"args\":{\"title\":\"Garden\"},\"authority_surface\":\"external_client\",\"expected_revision\":4,\"ext\":{},\"op\":\"space_create\",\"project_id\":\"proj-0001\",\"realm_id\":\"realm-0001\",\"version\":\"0.1\"},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json\"}",
+        "sha256_hex": "3b1a23153b69500e2114b36c581092877d5d9ec98db0735ee43e2b33ad39adc2"
+      }
+    ],
+    "relation": "equal"
+  }
+}

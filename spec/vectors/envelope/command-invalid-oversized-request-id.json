@@ -1,0 +1,23 @@
+{
+  "name": "envelope/command-invalid-oversized-request-id",
+  "description": "request_id of 129 bytes exceeds the 128-byte identifier ceiling (§11.8)",
+  "input": {
+    "schema": "kcp-command",
+    "value": {
+      "version": "0.1",
+      "op": "space_create",
+      "meta": {
+        "request_id": "req-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "idempotency_key": "idem-0004"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "title": "Garden"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "identifier longer than 128 bytes"
+  }
+}

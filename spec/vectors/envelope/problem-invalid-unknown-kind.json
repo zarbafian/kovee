@@ -1,0 +1,14 @@
+{
+  "name": "envelope/problem-invalid-unknown-kind",
+  "description": "problem kind outside the closed §11.7 enum fails closed; safety-relevant enums are closed (§11.8)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:novel-problem"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "type not in the closed problem-kind enum"
+  }
+}

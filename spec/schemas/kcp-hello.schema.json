@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/kcp-hello.schema.json",
+  "title": "KCP negotiation shapes (DESIGN.md §11.1): HelloRequest and HelloResult",
+  "description": "Negotiation per §11.1: every connection-oriented binding begins with hello; one-shot HTTP requests carry the selected major/minor version in the media type or version header instead. The server selects the highest mutually supported version or returns unsupported-version. Authentication occurs in the transport before hello or through a binding-defined credential, never an identity claim in HelloRequest — which is why the closed request shape carries no identity or credential member. §11.1 pins the field names but not their types; the array/string/digest encodings here are recorded extraction decisions (spec/schemas/README.md). The root validates either shape; vectors target #/$defs/helloRequest and #/$defs/helloResult.",
+  "oneOf": [
+    { "$ref": "#/$defs/helloRequest" },
+    { "$ref": "#/$defs/helloResult" }
+  ],
+  "$defs": {
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "featureId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "description": "Feature-bundle name from the §11.6 table (e.g. core_v1, shared_space_v1). Bundles are atomic: an implementation implements every operation/schema/conformance case in a listed bundle or does not advertise it. An installation advertises the transitive prerequisites with a feature (§11.6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "description": "RFC 3339 date-time (I-JSON recommendation; DESIGN.md does not pin the encoding — recorded extraction decision)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the type/domain is fixed by the schema field holding it."
+    },
+    "helloRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported_versions",
+        "implementation",
+        "implementation_version",
+        "requested_features"
+      ],
+      "properties": {
+        "supported_versions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolVersion" },
+          "description": "Client-supported protocol versions; at most 256 list items per request (§11.8)."
+        },
+        "implementation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Client implementation name; free text bounded by the §11.8 display-name cap of 256 Unicode scalar values (recorded extraction decision), length-bounded again at admission."
+        },
+        "implementation_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Client implementation version string, bounded by the §11.8 identifier cap (recorded extraction decision)."
+        },
+        "requested_features": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/featureId" },
+          "description": "Feature bundles the client wants; may be empty. A feature must be negotiated before use (§11.9); operations from an unadvertised feature return unknown-op (§11.6)."
+        }
+      },
+      "description": "HelloRequest { supported_versions[], implementation, implementation_version, requested_features[] } (§11.1). Carries no identity claim by construction."
+    },
+    "helloResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selected_version",
+        "implementation",
+        "implementation_version",
+        "features",
+        "limits_digest",
+        "server_time",
+        "installation_id"
+      ],
+      "properties": {
+        "selected_version": {
+          "$ref": "#/$defs/protocolVersion",
+          "description": "Highest mutually supported version (§11.1); no common version is the unsupported-version problem instead of a HelloResult."
+        },
+        "implementation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "implementation_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/featureId" },
+          "description": "Advertised feature bundles including transitive prerequisites (§11.6)."
+        },
+        "limits_digest": {
+          "$ref": "#/$defs/digestHex",
+          "description": "Typed digest of the installation's effective limits. DESIGN.md names the field without pinning the limits object or its §11.8 construction — a recorded K0 gap (spec/schemas/README.md)."
+        },
+        "server_time": { "$ref": "#/$defs/timestamp" },
+        "installation_id": { "$ref": "#/$defs/identifier" }
+      },
+      "description": "HelloResult { selected_version, implementation, implementation_version, features[], limits_digest, server_time, installation_id } (§11.1)."
+    }
+  }
+}

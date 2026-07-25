@@ -1,0 +1,18 @@
+{
+  "name": "envelope/command-valid-read-minimal",
+  "description": "read envelope without meta: reads do not carry an idempotency key, and meta's closed shape requires one, so reads omit meta entirely (§11.2)",
+  "input": {
+    "schema": "kcp-command",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "space_id": "space-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

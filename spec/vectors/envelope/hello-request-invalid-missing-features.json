@@ -1,0 +1,19 @@
+{
+  "name": "envelope/hello-request-invalid-missing-features",
+  "description": "requested_features[] is an unmarked (required) §11.1 HelloRequest field; a feature must be negotiated before use (§11.9)",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloRequest",
+    "value": {
+      "supported_versions": [
+        "0.1"
+      ],
+      "implementation": "kovee-cli",
+      "implementation_version": "0.0.1"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required requested_features"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "envelope/command-valid-mutation-minimal",
+  "description": "minimal state-changing envelope against #/$defs/mutationCommand: meta with the two required members (§11.2)",
+  "input": {
+    "schema": "kcp-command",
+    "ref": "#/$defs/mutationCommand",
+    "value": {
+      "version": "0.1",
+      "op": "space_create",
+      "meta": {
+        "request_id": "req-0002",
+        "idempotency_key": "idem-0002"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "title": "Garden"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

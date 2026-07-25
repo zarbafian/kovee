@@ -1,0 +1,21 @@
+{
+  "name": "envelope/digest-typed-bytes-artifact",
+  "description": "TypedByteDigest per §11.8: SHA-256 over uint64_be length-framed (domain-const, domain, protocol major 0, media_or_schema_ref, bytes); authorization binds this artifact-bytes digest — plaintext raw_sha256 is not retained as a family digest class (amendment A5)",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.typed-bytes-digest.v1",
+        "domain": "artifact-bytes",
+        "media_or_schema_ref": "text/markdown",
+        "bytes_utf8": "# Garden notes\n"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "digest_hex": "c656bfcc0fd06d003c0a3c3fb7eb6e6a823a1caffc268f89db62337a86359aa6"
+      }
+    ]
+  }
+}

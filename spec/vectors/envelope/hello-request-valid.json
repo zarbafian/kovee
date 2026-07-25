@@ -1,0 +1,23 @@
+{
+  "name": "envelope/hello-request-valid",
+  "description": "HelloRequest per §11.1: supported_versions[], implementation, implementation_version, requested_features[]; no identity claim by construction",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloRequest",
+    "value": {
+      "supported_versions": [
+        "0.1",
+        "0.2"
+      ],
+      "implementation": "kovee-cli",
+      "implementation_version": "0.0.1",
+      "requested_features": [
+        "core_v1",
+        "shared_space_v1"
+      ]
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

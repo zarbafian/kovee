@@ -1,0 +1,18 @@
+{
+  "name": "envelope/hello-request-invalid-empty-versions",
+  "description": "a hello that supports no version cannot negotiate; supported_versions requires at least one entry",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloRequest",
+    "value": {
+      "supported_versions": [],
+      "implementation": "kovee-cli",
+      "implementation_version": "0.0.1",
+      "requested_features": []
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "supported_versions must not be empty"
+  }
+}

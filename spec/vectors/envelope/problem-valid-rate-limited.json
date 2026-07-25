@@ -1,0 +1,15 @@
+{
+  "name": "envelope/problem-valid-rate-limited",
+  "description": "rate-limited problem with the §11.7 table status 429",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:rate-limited",
+      "title": "Rate limited",
+      "status": 429
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

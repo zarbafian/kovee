@@ -1,0 +1,15 @@
+{
+  "name": "envelope/problem-invalid-status-mismatch",
+  "description": "when status is present it must equal the §11.7 table value for the kind; forbidden is 403, never 404",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:forbidden",
+      "status": 404
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "status does not match the §11.7 table value for the kind"
+  }
+}

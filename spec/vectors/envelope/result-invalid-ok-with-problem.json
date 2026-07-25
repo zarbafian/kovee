@@ -1,0 +1,18 @@
+{
+  "name": "envelope/result-invalid-ok-with-problem",
+  "description": "the §11.2 union arms are closed and disjoint; an ok result carrying a problem member matches neither arm",
+  "input": {
+    "schema": "kcp-command-result",
+    "value": {
+      "outcome": "ok",
+      "result": {},
+      "problem": {
+        "type": "urn:kovee:error:internal"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "mixed union arms"
+  }
+}

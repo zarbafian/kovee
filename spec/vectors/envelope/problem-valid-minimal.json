@@ -1,0 +1,13 @@
+{
+  "name": "envelope/problem-valid-minimal",
+  "description": "minimal §11.7 problem: the kind travels inside the urn:kovee:error:<kind> type",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:not-found"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

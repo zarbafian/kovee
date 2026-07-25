@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/kcp-command.schema.json",
+  "title": "KCP command envelope (DESIGN.md §11.2): version, op, meta, realm_id, project_id?, args, ext?",
+  "description": "Generic KCP 0.1 command envelope. Every concrete operation in the K0 registry has its own closed schema that restates these envelope fields plus that operation's exact argument fields; operation arguments never validate against this generic schema's open `args`. §11.2 renders `meta` unmarked in the Command struct but scopes the requirement to state-changing operations (“Every state-changing operation requires meta”); reads “do not carry an idempotency key”, and meta's closed shape requires idempotency_key, so reads omit meta entirely and mutations validate against #/$defs/mutationCommand. Instances must pass strict I-JSON acceptance and the §11.8 byte limits before schema validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "op", "realm_id", "args"],
+  "properties": {
+    "version": { "$ref": "#/$defs/protocolVersion" },
+    "op": { "$ref": "#/$defs/operationId" },
+    "meta": { "$ref": "#/$defs/commandMeta" },
+    "realm_id": { "$ref": "#/$defs/identifier" },
+    "project_id": { "$ref": "#/$defs/identifier" },
+    "args": { "$ref": "#/$defs/args" },
+    "ext": { "$ref": "#/$defs/ext" }
+  },
+  "$defs": {
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "operationId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "description": "Operation name from the K0-frozen registry (spec/registry.json). The registry, not this pattern, decides membership; an operation missing an entry is not callable (§11.6.1)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8). §11.8 pins only the byte length; the visible-ASCII alphabet is a K0 extraction decision mirroring the byom family convention so byte length and schema length coincide (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; the field name imports that format. Excluded from the idempotency request digest (§11.2)."
+    },
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "idempotency_key"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/identifier" },
+        "idempotency_key": { "$ref": "#/$defs/identifier" },
+        "expected_revision": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "causation_event_ref": { "$ref": "#/$defs/identifier" },
+        "traceparent": { "$ref": "#/$defs/traceparent" }
+      },
+      "description": "Command.meta (§11.2). Idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision). request_id, traceparent, and causation telemetry are excluded from the §11.2 idempotency request digest."
+    },
+    "args": {
+      "type": "object",
+      "description": "Operation-specific arguments. Each operation's own closed schema restates and closes this object; the generic envelope pins only that args is a JSON object. A request contains at most 256 list items and 256 KiB total (§11.8), enforced at admission."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9). Unknown extensions are round-tripped where the operation promises preservation and are never interpreted as identity, authorization, budget, or policy."
+    },
+    "mutationCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "op", "meta", "realm_id", "args"],
+      "properties": {
+        "version": { "$ref": "#/$defs/protocolVersion" },
+        "op": { "$ref": "#/$defs/operationId" },
+        "meta": { "$ref": "#/$defs/commandMeta" },
+        "realm_id": { "$ref": "#/$defs/identifier" },
+        "project_id": { "$ref": "#/$defs/identifier" },
+        "args": { "$ref": "#/$defs/args" },
+        "ext": { "$ref": "#/$defs/ext" }
+      },
+      "description": "Envelope shape for a state-changing operation: meta is required (§11.2 — every state-changing operation requires meta; reads MUST NOT mutate authoritative or user-visible state)."
+    }
+  }
+}

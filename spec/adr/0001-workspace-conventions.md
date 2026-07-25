@@ -51,10 +51,13 @@ Kovee is a Cargo workspace (`resolver = "2"`) of fourteen crates under
 
 Deliberate deltas from akson, all scaffold-temporary:
 
-1. `xcheck/run.py` validates only the vector envelope shape and exits 0 on
-   an empty `spec/vectors` tree; akson's fails when zero vectors are found.
-   The success-on-empty branch is removed with the first landed vector
-   family (K0 spec half), restoring fail-closed behavior.
+1. *(paid down — K0 KCP envelope slice)* `xcheck/run.py` originally
+   validated only the vector envelope shape and exited 0 on an empty
+   `spec/vectors` tree; akson's fails when zero vectors are found. With
+   the first landed vector family (`spec/vectors/envelope/`: KCP schema,
+   acceptance, and digest vectors) the runner validates every vector
+   against `spec/schemas/`, re-derives the digest vectors, and fails on
+   an empty tree — akson's fail-closed behavior restored.
 2. The `tscheck` job is a guarded placeholder (green with a note until
    `tscheck/package.json` exists).
 3. `[workspace.dependencies]` carries only the internal path entries — the
@@ -74,6 +77,7 @@ Deliberate deltas from akson, all scaffold-temporary:
 - Bounded contexts depend on `kovee-core` protocol types, never on each
   other's SQL tables (§24); the workspace-dependency table makes internal
   edges explicit and reviewable.
-- The three scaffold-temporary deltas above must be paid down by the K0
-  spec half (deltas 1–2) and the first external dependency (delta 3);
-  leaving them past those points is a policy violation, not a default.
+- The scaffold-temporary deltas above must be paid down by the K0 spec
+  half (deltas 1–2; delta 1 was paid by the K0 KCP envelope slice) and the
+  first external dependency (delta 3); leaving them past those points is a
+  policy violation, not a default.

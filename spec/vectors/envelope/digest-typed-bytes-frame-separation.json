@@ -1,0 +1,31 @@
+{
+  "name": "envelope/digest-typed-bytes-frame-separation",
+  "description": "concatenation-substitution (§11.8 conformance list): moving a byte across the media_or_schema_ref/bytes boundary keeps the unframed concatenation identical but the uint64_be length framing separates the digests",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.typed-bytes-digest.v1",
+        "domain": "artifact-bytes",
+        "media_or_schema_ref": "text/plain;x",
+        "bytes_utf8": "abc"
+      },
+      {
+        "kind": "dev.kovee.typed-bytes-digest.v1",
+        "domain": "artifact-bytes",
+        "media_or_schema_ref": "text/plain;",
+        "bytes_utf8": "xabc"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "digest_hex": "777741509e9a11b82ca25a6737505418e2a8ea0e097e634586e42ef1a680ab82"
+      },
+      {
+        "digest_hex": "62ea1f49866f230d8cce5355af25850b8ec2ef26b2b372c2dfd02e258141b9f0"
+      }
+    ],
+    "relation": "distinct"
+  }
+}

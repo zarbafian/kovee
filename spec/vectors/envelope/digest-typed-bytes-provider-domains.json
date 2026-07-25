@@ -1,0 +1,31 @@
+{
+  "name": "envelope/digest-typed-bytes-provider-domains",
+  "description": "provider request/response bytes use distinct provider-request-bytes and provider-response-bytes domains (§11.8): identical bytes and media ref still derive distinct digests",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.typed-bytes-digest.v1",
+        "domain": "provider-request-bytes",
+        "media_or_schema_ref": "application/json",
+        "bytes_utf8": "{\"model\":\"m-1\",\"prompt\":\"hi\"}"
+      },
+      {
+        "kind": "dev.kovee.typed-bytes-digest.v1",
+        "domain": "provider-response-bytes",
+        "media_or_schema_ref": "application/json",
+        "bytes_utf8": "{\"model\":\"m-1\",\"prompt\":\"hi\"}"
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "digest_hex": "bc9e19dc798cfaa9a4a344f10cbc52a5e785dbb2168ba03e9c04b83adbc1e1bc"
+      },
+      {
+        "digest_hex": "b4de20b15cf035b12e9217574bb0be5750ab132711cdee7c020b61270b078c21"
+      }
+    ],
+    "relation": "distinct"
+  }
+}

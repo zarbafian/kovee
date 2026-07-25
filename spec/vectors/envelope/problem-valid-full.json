@@ -1,0 +1,22 @@
+{
+  "name": "envelope/problem-valid-full",
+  "description": "stale-revision problem with the §11.7 table status 409 and the current visible revision carried under ext (recorded gap: §11.7 names the inclusion but not the member)",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:stale-revision",
+      "title": "Stale revision",
+      "status": 409,
+      "detail": "Expected revision 4; the current visible revision differs.",
+      "instance": "urn:kovee:request:req-0001",
+      "ext": {
+        "dev.kovee.stale-revision": {
+          "current_revision": 7
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

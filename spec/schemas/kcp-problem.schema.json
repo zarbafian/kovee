@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/kcp-problem.schema.json",
+  "title": "KCP problem details (DESIGN.md §11.7): RFC 9457 Problem Details with type urn:kovee:error:<kind>",
+  "description": "Errors use RFC 9457 Problem Details with `type: urn:kovee:error:<kind>` drawn from the closed §11.7 kind table; safety-relevant enums are closed (§11.8), so an unknown kind fails closed and new kinds are a spec revision. When `status` is present it must equal the §11.7 table value for the kind (enforced by the allOf implications). §11.7 says some kinds “include” recovery data (stale-revision: current visible revision; cursor-expired: snapshot recovery data; rate-limited: bounded retry guidance) without naming the members — a recorded K0 gap (spec/schemas/README.md); until a spec revision names them, this schema closes the object and reserves the §11.9 `ext` member for that data. Problems never leak paths, tokens, policy internals, or cross-tenant existence; vectors test shape, not wording.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type"],
+  "properties": {
+    "type": { "$ref": "#/$defs/problemType" },
+    "title": { "type": "string", "maxLength": 4096 },
+    "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+    "detail": { "type": "string", "maxLength": 65536 },
+    "instance": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Reverse-domain-keyed extension data (§11.9); carries the §11.7 per-kind recovery data until a spec revision names dedicated members. Never creates authority."
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:invalid" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 422 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:unauthenticated" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 401 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:forbidden" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 403 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:not-found" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 404 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:unsupported-version" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:unknown-op" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 400 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:forbidden-surface" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 403 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-revision" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:stale-lease" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-mismatch" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:idempotency-result-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:authorization-stale" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:budget-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:deadline-exceeded" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:cycle" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:cursor-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:snapshot-expired" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 410 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:rate-limited" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 429 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:ambiguous" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 409 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:unavailable" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 503 } } } },
+    { "if": { "properties": { "type": { "const": "urn:kovee:error:internal" } }, "required": ["type"] }, "then": { "properties": { "status": { "const": 500 } } } }
+  ],
+  "$defs": {
+    "problemKind": {
+      "enum": [
+        "invalid",
+        "unauthenticated",
+        "forbidden",
+        "not-found",
+        "unsupported-version",
+        "unknown-op",
+        "forbidden-surface",
+        "stale-revision",
+        "stale-lease",
+        "idempotency-mismatch",
+        "idempotency-result-expired",
+        "authorization-stale",
+        "budget-exceeded",
+        "deadline-exceeded",
+        "cycle",
+        "cursor-expired",
+        "snapshot-expired",
+        "rate-limited",
+        "ambiguous",
+        "unavailable",
+        "internal"
+      ],
+      "description": "The closed §11.7 initial problem kinds, verbatim and in table order. Not itself a wire field: the kind travels inside the `type` URN (§11.7 defines no separate kind member)."
+    },
+    "problemType": {
+      "enum": [
+        "urn:kovee:error:invalid",
+        "urn:kovee:error:unauthenticated",
+        "urn:kovee:error:forbidden",
+        "urn:kovee:error:not-found",
+        "urn:kovee:error:unsupported-version",
+        "urn:kovee:error:unknown-op",
+        "urn:kovee:error:forbidden-surface",
+        "urn:kovee:error:stale-revision",
+        "urn:kovee:error:stale-lease",
+        "urn:kovee:error:idempotency-mismatch",
+        "urn:kovee:error:idempotency-result-expired",
+        "urn:kovee:error:authorization-stale",
+        "urn:kovee:error:budget-exceeded",
+        "urn:kovee:error:deadline-exceeded",
+        "urn:kovee:error:cycle",
+        "urn:kovee:error:cursor-expired",
+        "urn:kovee:error:snapshot-expired",
+        "urn:kovee:error:rate-limited",
+        "urn:kovee:error:ambiguous",
+        "urn:kovee:error:unavailable",
+        "urn:kovee:error:internal"
+      ],
+      "description": "`urn:kovee:error:` + each closed §11.7 kind, exactly."
+    }
+  }
+}

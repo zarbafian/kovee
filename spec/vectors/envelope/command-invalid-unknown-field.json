@@ -1,0 +1,20 @@
+{
+  "name": "envelope/command-invalid-unknown-field",
+  "description": "authority_surface is server-side idempotency-digest material (§11.2), never a wire field; the closed envelope rejects it like any unknown member",
+  "input": {
+    "schema": "kcp-command",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "space_id": "space-0001"
+      },
+      "authority_surface": "external_client"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown envelope member"
+  }
+}

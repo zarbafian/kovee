@@ -1,0 +1,30 @@
+{
+  "name": "envelope/event-invalid-missing-payload",
+  "description": "an event must carry payload or payload_ref (§11.3); neither fails the oneOf",
+  "input": {
+    "schema": "kcp-event",
+    "value": {
+      "event_id": "evt-0007",
+      "installation_id": "inst-0001",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "stream_id": "space-0001",
+      "stream_sequence": 12,
+      "project_sequence": 40,
+      "type": "dev.kovee.space.contribution-appended.v1",
+      "schema_ref": "dev.kovee.space.contribution-appended.v1#payload",
+      "resource_ref": "space-0001/contribution-0007",
+      "resource_revision": 7,
+      "actor_ref": "principal-anna",
+      "causation_ref": "cmd-0001",
+      "correlation_ref": "corr-0001",
+      "occurred_at": "2026-07-25T12:00:00Z",
+      "classification_ref": "class-internal",
+      "payload_digest": "cd072ee57fbc2777120b65850fd438d54c66c865ade3fb2fb71a173fe16f427f"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "one of payload or payload_ref is required"
+  }
+}

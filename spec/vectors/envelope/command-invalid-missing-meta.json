@@ -1,0 +1,20 @@
+{
+  "name": "envelope/command-invalid-missing-meta",
+  "description": "state-changing envelope without meta fails #/$defs/mutationCommand: every state-changing operation requires meta (§11.2)",
+  "input": {
+    "schema": "kcp-command",
+    "ref": "#/$defs/mutationCommand",
+    "value": {
+      "version": "0.1",
+      "op": "space_create",
+      "realm_id": "realm-0001",
+      "args": {
+        "title": "Garden"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta is required on mutations"
+  }
+}

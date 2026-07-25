@@ -1,0 +1,34 @@
+{
+  "name": "envelope/event-invalid-type-no-version",
+  "description": "event type names are reverse-domain names ending in a major version (§11.3); a type without the .v<major> suffix fails closed",
+  "input": {
+    "schema": "kcp-event",
+    "value": {
+      "event_id": "evt-0007",
+      "installation_id": "inst-0001",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "stream_id": "space-0001",
+      "stream_sequence": 12,
+      "project_sequence": 40,
+      "type": "dev.kovee.space.contribution-appended",
+      "schema_ref": "dev.kovee.space.contribution-appended.v1#payload",
+      "resource_ref": "space-0001/contribution-0007",
+      "resource_revision": 7,
+      "actor_ref": "principal-anna",
+      "causation_ref": "cmd-0001",
+      "correlation_ref": "corr-0001",
+      "occurred_at": "2026-07-25T12:00:00Z",
+      "classification_ref": "class-internal",
+      "payload_digest": "cd072ee57fbc2777120b65850fd438d54c66c865ade3fb2fb71a173fe16f427f",
+      "payload": {
+        "contribution_id": "contribution-0007",
+        "branch_entry": 12
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "event type missing the major-version suffix"
+  }
+}

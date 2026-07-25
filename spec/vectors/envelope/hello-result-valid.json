@@ -1,0 +1,24 @@
+{
+  "name": "envelope/hello-result-valid",
+  "description": "HelloResult per §11.1; limits_digest is the dev.kovee.canonical-object-digest.v1 value derived by envelope/digest-canonical-object-basic",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloResult",
+    "value": {
+      "selected_version": "0.1",
+      "implementation": "koveed",
+      "implementation_version": "0.0.1",
+      "features": [
+        "core_v1",
+        "shared_space_v1",
+        "developer_assistant_v1"
+      ],
+      "limits_digest": "4af6b31071ff4cc2f66485dcf0b6a853007bd154604538e0aacb9e6e69d7c39b",
+      "server_time": "2026-07-25T12:00:00Z",
+      "installation_id": "inst-0001"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

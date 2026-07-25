@@ -1,0 +1,15 @@
+{
+  "name": "envelope/problem-invalid-unknown-member",
+  "description": "the problem object is closed; per-kind recovery data lives under ext until a spec revision names dedicated members",
+  "input": {
+    "schema": "kcp-problem",
+    "value": {
+      "type": "urn:kovee:error:internal",
+      "trace": "stack..."
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown problem member"
+  }
+}

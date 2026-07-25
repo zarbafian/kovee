@@ -1,0 +1,16 @@
+{
+  "name": "envelope/result-valid-ok-minimal",
+  "description": "minimal §11.2 success arm: outcome ok plus the operation result",
+  "input": {
+    "schema": "kcp-command-result",
+    "value": {
+      "outcome": "ok",
+      "result": {
+        "realm_id": "realm-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

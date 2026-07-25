@@ -1,0 +1,29 @@
+{
+  "name": "envelope/digest-canonical-object-key-order",
+  "description": "JCS sorts object keys by UTF-16 code units regardless of input order, and $domain (0x24) sorts before every letter, so the domain tag always leads the canonical bytes (family PROFILE section 2)",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-decision-subject",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args",
+        "projection": {
+          "zeta": 1,
+          "alpha": 2,
+          "mid": {
+            "b": 2,
+            "a": 1
+          }
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-decision-subject\",\"projection\":{\"alpha\":2,\"mid\":{\"a\":1,\"b\":2},\"zeta\":1},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args\"}",
+        "sha256_hex": "c1ae5b5e8dcb7957353f5f6cec679db0c440b1cfb188ffc0736a465e1967bab6"
+      }
+    ]
+  }
+}

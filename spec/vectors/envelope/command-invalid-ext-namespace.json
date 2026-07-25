@@ -1,0 +1,24 @@
+{
+  "name": "envelope/command-invalid-ext-namespace",
+  "description": "ext keys are reverse-domain namespaces (§11.9); a single-segment key fails closed",
+  "input": {
+    "schema": "kcp-command",
+    "value": {
+      "version": "0.1",
+      "op": "space_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "space_id": "space-0001"
+      },
+      "ext": {
+        "widget": {
+          "hint": true
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "ext key is not a reverse-domain namespace"
+  }
+}

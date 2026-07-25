@@ -1,0 +1,28 @@
+{
+  "name": "envelope/digest-canonical-object-basic",
+  "description": "CanonicalObjectDigest per §11.8: SHA-256 over JCS of {$domain, protocol_major: 0, object_kind, schema_ref, projection} with the reserved $domain member injected per the family PROFILE type-tag rule; the kcp-limits fixture also backs hello-result-valid's limits_digest",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-limits",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-hello.schema.json#/$defs/limits",
+        "projection": {
+          "max_request_bytes": 262144,
+          "max_reply_bytes": 1048576,
+          "max_identifier_bytes": 128,
+          "max_list_items": 256,
+          "max_page_limit": 512
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-limits\",\"projection\":{\"max_identifier_bytes\":128,\"max_list_items\":256,\"max_page_limit\":512,\"max_reply_bytes\":1048576,\"max_request_bytes\":262144},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-hello.schema.json#/$defs/limits\"}",
+        "sha256_hex": "4af6b31071ff4cc2f66485dcf0b6a853007bd154604538e0aacb9e6e69d7c39b"
+      }
+    ]
+  }
+}

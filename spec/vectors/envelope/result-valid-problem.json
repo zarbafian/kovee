@@ -1,0 +1,18 @@
+{
+  "name": "envelope/result-valid-problem",
+  "description": "problem arm wrapping a §11.7 problem with the table status for not-found",
+  "input": {
+    "schema": "kcp-command-result",
+    "value": {
+      "outcome": "problem",
+      "problem": {
+        "type": "urn:kovee:error:not-found",
+        "title": "Not found",
+        "status": 404
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

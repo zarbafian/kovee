@@ -1,0 +1,27 @@
+{
+  "name": "envelope/digest-canonical-object-unicode-order",
+  "description": "Unicode and numeric JCS cases (§11.8 conformance list): an astral key (U+10000) sorts as its UTF-16 surrogate pair D800 DC00 — after z, before U+FF61 — and the float 10.0 canonicalizes to 10",
+  "input": {
+    "derivations": [
+      {
+        "kind": "dev.kovee.canonical-object-digest.v1",
+        "object_kind": "kcp-decision-subject",
+        "schema_ref": "https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args",
+        "projection": {
+          "｡": 2,
+          "𐀀": 1,
+          "z": 0,
+          "scale": 10.0
+        }
+      }
+    ]
+  },
+  "expected": {
+    "results": [
+      {
+        "canonical": "{\"$domain\":\"dev.kovee.canonical-object-digest.v1\",\"object_kind\":\"kcp-decision-subject\",\"projection\":{\"scale\":10,\"z\":0,\"𐀀\":1,\"｡\":2},\"protocol_major\":0,\"schema_ref\":\"https://kovee.example/kcp/v0/kcp-command.schema.json#/$defs/args\"}",
+        "sha256_hex": "22e901f173364d587d688fbc40c6082347ceceb6e454985adda31c3b07ae10d0"
+      }
+    ]
+  }
+}

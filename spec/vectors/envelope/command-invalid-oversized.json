@@ -1,0 +1,12 @@
+{
+  "name": "envelope/command-invalid-oversized",
+  "description": "well-formed command envelope of 262145 bytes; one byte over the 256 KiB request ceiling fails closed before parsing (§11.8); the runner synthesizes the padded bytes",
+  "input": {
+    "synthetic": "oversized_request",
+    "target_bytes": 262145
+  },
+  "expected": {
+    "valid": false,
+    "reason": "request over 256 KiB"
+  }
+}

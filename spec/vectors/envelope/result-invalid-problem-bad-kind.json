@@ -1,0 +1,17 @@
+{
+  "name": "envelope/result-invalid-problem-bad-kind",
+  "description": "problem type outside the closed §11.7 urn:kovee:error:<kind> enum fails closed; new kinds are a spec revision",
+  "input": {
+    "schema": "kcp-command-result",
+    "value": {
+      "outcome": "problem",
+      "problem": {
+        "type": "urn:kovee:error:novel-problem"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "type not in the closed problem-kind enum"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "envelope/hello-result-invalid-bad-limits-digest",
+  "description": "limits_digest is a bare lowercase-hex SHA-256 value typed by its schema field (§11.8)",
+  "input": {
+    "schema": "kcp-hello",
+    "ref": "#/$defs/helloResult",
+    "value": {
+      "selected_version": "0.1",
+      "implementation": "koveed",
+      "implementation_version": "0.0.1",
+      "features": [
+        "core_v1"
+      ],
+      "limits_digest": "XYZ",
+      "server_time": "2026-07-25T12:00:00Z",
+      "installation_id": "inst-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "limits_digest is not 64 lowercase hex characters"
+  }
+}

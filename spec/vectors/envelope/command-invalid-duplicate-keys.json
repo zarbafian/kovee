@@ -1,0 +1,11 @@
+{
+  "name": "envelope/command-invalid-duplicate-keys",
+  "description": "duplicate op key in the raw bytes; strict I-JSON acceptance rejects before any schema sees the value (§11.8)",
+  "input": {
+    "raw": "{\"version\":\"0.1\",\"op\":\"space_create\",\"op\":\"space_freeze\",\"realm_id\":\"realm-0001\",\"args\":{}}"
+  },
+  "expected": {
+    "valid": false,
+    "reason": "duplicate object key"
+  }
+}
