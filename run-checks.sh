@@ -13,6 +13,9 @@ RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets --locked
 echo "== cargo test"
 cargo test --workspace --locked
 
+echo "== mcp check (C3a tool bundle)"
+python3 mcp/check.py
+
 echo "== xcheck (Python independent rederiver)"
 python3 xcheck/run.py spec/vectors
 

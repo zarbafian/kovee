@@ -15,6 +15,7 @@ members = [
     "crates/kovee-akson",
     "crates/koveed",
     "crates/kovee-cli",
+    "crates/kovee-mcp",
 ]
 
 [workspace.package]

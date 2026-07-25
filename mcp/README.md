@@ -98,10 +98,19 @@ so it stays `gated`.
   self-test).
 - `vectors/` — 1 valid + 3 negative tool-call shapes.
 
-## Deferred: runner wiring
+## Server
 
-`check.py` is intentionally **not** wired into `xcheck/run.py`,
-`tscheck/check.mjs`, or `run-checks.sh` — those runners are being
-touched by the K1 implementation in flight. Wiring the c3a check into
-them (and the lock-manifest row for this bundle) is deferred C3a work;
-until then, run `python3 mcp/check.py` directly.
+`crates/kovee-mcp` serves this bundle: an MCP stdio server over the
+koveed client socket. The document is embedded at build time
+(`include_str!`) and is the server's entire tool table — names, input
+schemas, and gating flags are parsed from it, tools absent from it do
+not exist, and every input is validated against its closed schema
+before dispatch.
+
+## Runner wiring
+
+`run-checks.sh` runs `python3 mcp/check.py` as its own step (the wiring
+deferred while K1 was in flight, now landed). `xcheck/run.py` and
+`tscheck/check.mjs` stay untouched — they rederive `spec/vectors`, not
+this bundle. The lock-manifest row for this bundle remains deferred
+C3a work.

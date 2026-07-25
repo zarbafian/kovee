@@ -187,6 +187,16 @@ name = "kovee-effects"
 version = "0.0.1"
 
 [[package]]
+name = "kovee-mcp"
+version = "0.0.1"
+dependencies = [
+ "kovee-core",
+ "kovee-store",
+ "koveed",
+ "serde_json",
+]
+
+[[package]]
 name = "kovee-runtime"
 version = "0.0.1"
 
