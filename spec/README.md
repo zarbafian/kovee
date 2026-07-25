@@ -7,7 +7,8 @@ design text wherever they conflict.
 
 What lives here (per the K0 milestone sheet, `plan/sheets/K0.md`):
 
-- **The operation registry** — the pinned §11.6 `core_v1`, `shared_space_v1`,
+- **The operation registry** (`registry.json`, extraction notes in
+  [`registry-README.md`](registry-README.md)) — the pinned §11.6 `core_v1`, `shared_space_v1`,
   and `developer_assistant_v1` command/query sets and the minimal worker
   protocol, resolved together with amendment A5's wire-name table into one
   registry (operation × surface × actor × AuthorizationDependencySet). No
