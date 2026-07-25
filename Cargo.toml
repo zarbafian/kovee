@@ -43,7 +43,14 @@ koveed = { path = "crates/koveed" }
 # External (pinned minor versions; exact pins live in Cargo.lock, committed).
 # Additions follow akson's convention: pinned here, policy enforced by
 # cargo-deny.
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# `bundled` compiles the vendored SQLite: pure-Rust-workspace build posture
+# (no system library probing, no network at build time) — akson's choice.
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+thiserror = "2.0"
+libc = "0.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
