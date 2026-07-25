@@ -1,0 +1,11 @@
+{
+  "name": "envelope/command-invalid-unpaired-surrogate",
+  "description": "A command whose args string decodes to a lone high surrogate via a \\uD800 escape. I-JSON (family PROFILE; DESIGN.md §11.8) forbids unpaired surrogates; acceptance must fail closed even though a permissive JSON parser decodes the escape without complaint.",
+  "input": {
+    "raw": "{\"version\": \"0.1\", \"op\": \"space_show\", \"realm_id\": \"rlm_01hzx9vae\", \"args\": {\"note\": \"broken \\uD800 text\"}}"
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unpaired surrogate"
+  }
+}

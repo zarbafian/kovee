@@ -70,15 +70,33 @@ def _check_numbers(value):
             _check_numbers(item)
 
 
+def _check_surrogates(value):
+    """I-JSON forbids unpaired surrogates (family PROFILE; DESIGN.md §11.8).
+    json.loads happily decodes lone \\uD800-style escapes, so scan decoded
+    strings for stray surrogate code points."""
+    if isinstance(value, str):
+        for ch in value:
+            if 0xD800 <= ord(ch) <= 0xDFFF:
+                raise ValueError(f"unpaired surrogate U+{ord(ch):04X}")
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            _check_surrogates(k)
+            _check_surrogates(v)
+    elif isinstance(value, list):
+        for item in value:
+            _check_surrogates(item)
+
+
 def strict_parse(text: str):
-    """Strict I-JSON acceptance: duplicate keys, non-finite numbers, and
-    unsafe integers fail closed (DESIGN.md §11.8)."""
+    """Strict I-JSON acceptance: duplicate keys, non-finite numbers, unsafe
+    integers, and unpaired surrogates fail closed (DESIGN.md §11.8)."""
 
     def _const(name):
         raise ValueError(f"non-finite number: {name}")
 
     value = json.loads(text, object_pairs_hook=_reject_dup_pairs, parse_constant=_const)
     _check_numbers(value)
+    _check_surrogates(value)
     return value
 
 
