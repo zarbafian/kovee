@@ -62,7 +62,7 @@ Kovee may start/configure/bind `byomd` and supply inert context only.
 
 ## A4 — Ontology re-scoping under byom's architectural inversion
 
-Per the family contract's ratified deltas (Δ1–Δ6):
+Per the family contract's proposed deltas (Δ1–Δ6; binding once C0 ratifies):
 
 - **No member-enrolling bootstrap (Δ1).** `MissionBootstrap` with `members[]`
   and `approval_rule` is superseded: Societies and Participants pre-exist
