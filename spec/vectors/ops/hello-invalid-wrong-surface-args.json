@@ -1,0 +1,27 @@
+{
+  "name": "ops/hello-invalid-wrong-surface-args",
+  "description": "wrong-surface args: authentication is never an identity claim in HelloRequest (§11.1); an identity member fails the closed pre-auth shape",
+  "input": {
+    "schema": "hello-request",
+    "value": {
+      "version": "0.1",
+      "op": "hello",
+      "args": {
+        "supported_versions": [
+          "0.1"
+        ],
+        "implementation": "kovee-cli",
+        "implementation_version": "0.0.1",
+        "requested_features": [
+          "core_v1",
+          "developer_assistant_v1"
+        ],
+        "principal_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member principal_ref"
+  }
+}

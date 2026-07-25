@@ -1,0 +1,18 @@
+{
+  "name": "ops/assistant-list-valid-request",
+  "description": "read with the §11.5 pagination args (limit only)",
+  "input": {
+    "schema": "assistant-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "limit": 50
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

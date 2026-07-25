@@ -1,0 +1,20 @@
+{
+  "name": "ops/deployment-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: status is not a derived filter of this slice (gap note KG9)",
+  "input": {
+    "schema": "deployment-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "limit": 50,
+        "status": "active"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member status"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "ops/assistant-create-valid-request",
+  "description": "full assistant_create mutation: meta plus the caller-suppliable §10.5 definition fields",
+  "input": {
+    "schema": "assistant-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_create",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "name": "Summarizer",
+        "description": "Summarizes a space frontier into a synthesis contribution."
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "ops/deployment-activate-invalid-replay-unkeyed",
+  "description": "replay/dependency invalidation: a mutation whose meta lacks idempotency_key cannot be replay-deduplicated or safely retried (§11.2)",
+  "input": {
+    "schema": "deployment-activate-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_activate",
+      "meta": {
+        "request_id": "req-0001",
+        "expected_revision": 3
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "assistant_deployment_id": "dep-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta.idempotency_key required on every mutation"
+  }
+}

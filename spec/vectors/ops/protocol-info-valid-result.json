@@ -1,0 +1,25 @@
+{
+  "name": "ops/protocol-info-valid-result",
+  "description": "bounded public installation metadata: the derived protocol_info result payload (gap note KG2)",
+  "input": {
+    "schema": "protocol-info-result",
+    "value": {
+      "supported_versions": [
+        "0.1"
+      ],
+      "implementation": "kovee",
+      "implementation_version": "0.0.1",
+      "features": [
+        "core_v1",
+        "shared_space_v1",
+        "developer_assistant_v1"
+      ],
+      "limits_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "server_time": "2026-07-25T12:00:00Z",
+      "installation_id": "inst-0001"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -16,6 +16,11 @@ Contribution inline content (also 64 KiB, §11.8) binds through
 `contribution_append`'s own operation schema, which is remaining K0 work
 (plan/sheets/K0.md); admission re-bounding of free text stays code-side.
 
+The per-operation request/result suite lives under `ops/` with its own
+README carrying the KG-numbered gap notes; slice 1 (`core_v1`,
+`developer_assistant_v1`) is delivered, and the `shared_space_v1` slice
+completes it.
+
 | Schema | Pins | Source |
 |---|---|---|
 | `kcp-command.schema.json` | Command envelope + meta; `#/$defs/mutationCommand` requires meta | §11.2 |

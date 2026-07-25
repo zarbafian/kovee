@@ -1,0 +1,25 @@
+{
+  "name": "ops/deployment-activate-invalid-wrong-surface-args",
+  "description": "wrong-surface args: activated_at is server-derived (gap note KG5); activation time is never caller-supplied",
+  "input": {
+    "schema": "deployment-activate-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_activate",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 3
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "assistant_deployment_id": "dep-0001",
+        "activated_at": "2026-07-25T12:00:00Z"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member activated_at"
+  }
+}

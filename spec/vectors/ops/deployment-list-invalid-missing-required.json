@@ -1,0 +1,17 @@
+{
+  "name": "ops/deployment-list-invalid-missing-required",
+  "description": "missing required args member limit",
+  "input": {
+    "schema": "deployment-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_list",
+      "realm_id": "realm-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required limit"
+  }
+}

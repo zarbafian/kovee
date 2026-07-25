@@ -1,0 +1,76 @@
+{
+  "name": "ops/assistant-revision-register-invalid-wrong-surface-args",
+  "description": "wrong-surface args: created_by is channel-derived (gap note KG5); a request cannot override the recording actor",
+  "input": {
+    "schema": "assistant-revision-register-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_revision_register",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "definition_id": "asstdef-0001",
+        "version": "1.0.0",
+        "manifest": {
+          "schema_version": "1",
+          "definition_id": "asstdef-0001",
+          "version": "1.0.0",
+          "entrypoint": "assistants/summarizer.py:Summarizer",
+          "package_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runtime": {
+            "kind": "python",
+            "version": "3.12",
+            "locked_dependencies_ref": "lock-0001"
+          },
+          "supported_worker_protocols": [
+            "kovee-worker-0.1"
+          ],
+          "input_schema_ref": "schema:summarize-input-v1",
+          "output_schema_ref": "schema:summarize-output-v1",
+          "skills": [
+            "summarize"
+          ],
+          "attention_proposals": [],
+          "requested_capabilities": [],
+          "model_profiles": [
+            "default"
+          ],
+          "tool_profiles": [],
+          "network_policy": {
+            "default": "deny"
+          },
+          "resource_limits": {
+            "cpu": 2,
+            "memory": 1073741824,
+            "disk": 1073741824,
+            "output_bytes": 10485760
+          },
+          "default_timeout": 300,
+          "max_concurrency": 4,
+          "causal_concurrency_policy": "serial-branch",
+          "checkpoint_support": true,
+          "cancellation_support": true,
+          "security_profiles": [
+            "confined",
+            "secure"
+          ]
+        },
+        "package_artifact_ref": "art-0001",
+        "package_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_schema_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sdk_protocol_range": "kovee-worker-0.1",
+        "signature_refs": [
+          "sig-0001"
+        ],
+        "created_by": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member created_by"
+  }
+}

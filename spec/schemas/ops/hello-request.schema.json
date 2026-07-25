@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/hello-request.schema.json",
+  "title": "KCP hello request (DESIGN.md §11.1, §11.6.1 pre-auth family)",
+  "description": "Read: never mutates authoritative or user-visible state and never carries meta (closed shape — a read carrying meta, hence an idempotency key, fails; §11.2, R0 KENV-01). Pre-auth negotiation operation: the closed shape carries no realm_id, project_id, identity, or credential member (§11.1; gap note KG1). Begins every connection-oriented binding; the server selects the highest mutually supported version or returns unsupported-version (§11.1). kcp-hello.schema.json pins the same §11.1 shapes standalone; this schema is their command framing (gap note KG1). Registry (core_v1): surface external_client / pre-auth channel (assurance: none). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "hello"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supported_versions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/protocolVersion"
+          },
+          "description": "Client-supported protocol versions; at most 256 list items per request (§11.8)."
+        },
+        "implementation": {
+          "$ref": "#/$defs/displayName"
+        },
+        "implementation_version": {
+          "$ref": "#/$defs/identifier"
+        },
+        "requested_features": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/featureId"
+          },
+          "description": "Feature bundles the client wants; may be empty. A feature must be negotiated before use (§11.9)."
+        }
+      },
+      "description": "The §11.1 HelloRequest field list verbatim, carried as command args (gap note KG1). Authentication occurs in the transport, never as an identity claim here (§11.1).",
+      "required": [
+        "supported_versions",
+        "implementation",
+        "implementation_version",
+        "requested_features"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "featureId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "description": "Feature-bundle name from the §11.6 table (e.g. core_v1). Bundles are atomic: implement every operation/schema/conformance case in a listed bundle or do not advertise it."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/diagnose-result.schema.json",
+  "title": "KCP diagnose result (derived — gap note KG3)",
+  "description": "CommandResult.result payload for diagnose (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). Derived result (gap note KG3): DESIGN.md spells no diagnose report shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "checks",
+    "generated_at"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "pass",
+        "warn",
+        "fail"
+      ],
+      "description": "Aggregate verdict (derived — gap note KG3)."
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "check",
+          "status"
+        ],
+        "properties": {
+          "check": {
+            "$ref": "#/$defs/identifier"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "warn",
+              "fail"
+            ]
+          },
+          "detail": {
+            "$ref": "#/$defs/freeText"
+          }
+        }
+      },
+      "description": "Per-diagnostic outcomes. Bounded diagnostics carry ids/digests, never raw secrets (§17 logging posture)."
+    },
+    "generated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "freeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "Bounded free text. §11.8 bounds free text again at admission; the 4096-scalar schema ceiling is the recorded extraction bound (ops README gap note KG8)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "ops/deployment-create-invalid-wrong-surface-args",
+  "description": "wrong-surface args: status is a server-owned lifecycle field (gap note KG5); a caller cannot deploy directly into a chosen status",
+  "input": {
+    "schema": "deployment-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_create",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "assistant_revision_id": "asstrev-0001",
+        "config_ref": "cfg-0001",
+        "config_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "secret_binding_set_ref": "sbs-0001",
+        "secret_binding_set_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "policy_ref": "pol-0001",
+        "pool_ref": "pool-default",
+        "security_profile": "confined",
+        "concurrency_policy": "serial-branch",
+        "rollout_policy": {
+          "kind": "all-at-once"
+        },
+        "status": "active"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member status"
+  }
+}

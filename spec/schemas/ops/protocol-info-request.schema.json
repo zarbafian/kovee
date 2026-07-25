@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/protocol-info-request.schema.json",
+  "title": "KCP protocol_info request (DESIGN.md §11.1, §11.6.1 pre-auth family; derived — gap note KG2)",
+  "description": "Read: never mutates authoritative or user-visible state and never carries meta (closed shape — a read carrying meta, hence an idempotency key, fails; §11.2, R0 KENV-01). Pre-auth negotiation operation: the closed shape carries no realm_id, project_id, identity, or credential member (§11.1; gap note KG1). Public protocol/installation metadata read for one-shot bindings that never handshake (§11.1). Registry (core_v1): surface external_client / pre-auth channel (assurance: none). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "protocol_info"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "description": "No arguments: §11.6.1 grants this pre-auth operation bounded public installation metadata only; the closed empty object is the recorded derivation (gap note KG2)."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    }
+  }
+}

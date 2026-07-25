@@ -1,0 +1,23 @@
+{
+  "name": "ops/deployment-activate-valid-request",
+  "description": "activation pinning the exact deployment revision via meta.expected_revision (gap note KG11)",
+  "input": {
+    "schema": "deployment-activate-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_activate",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 3
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "assistant_deployment_id": "dep-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

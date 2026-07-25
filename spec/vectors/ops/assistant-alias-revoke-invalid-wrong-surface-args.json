@@ -1,0 +1,26 @@
+{
+  "name": "ops/assistant-alias-revoke-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the revoking actor is channel-derived (gap note KG5); a request cannot name it",
+  "input": {
+    "schema": "assistant-alias-revoke-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_revoke",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 3
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "alias_binding_id": "alias-0001",
+        "revoked_by": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member revoked_by"
+  }
+}

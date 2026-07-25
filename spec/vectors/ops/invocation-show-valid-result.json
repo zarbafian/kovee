@@ -1,0 +1,41 @@
+{
+  "name": "ops/invocation-show-valid-result",
+  "description": "full §10.6 Invocation projection with every required member and the ?-marked members present where meaningful",
+  "input": {
+    "schema": "invocation-show-result",
+    "value": {
+      "invocation_id": "inv-0001",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "space_id": "space-0001",
+      "assistant_deployment_id": "dep-0001",
+      "assistant_deployment_revision": 3,
+      "assistant_revision_id": "asstrev-0001",
+      "effective_config_ref": "cfg-0001",
+      "effective_config_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "secret_binding_set_ref": "sbs-0001",
+      "secret_binding_set_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "effective_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "effective_security_profile": "confined",
+      "rollout_decision_ref": "roll-0001",
+      "trigger_ref": "trig-0001",
+      "trigger_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "context_assembly_ref": "ctxasm-0001",
+      "context_assembly_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input_manifest_ref": "man-0001",
+      "input_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "correlation_ref": "corr-0001",
+      "state": "running",
+      "revision": 5,
+      "priority": 10,
+      "not_before": "2026-07-25T12:00:00Z",
+      "deadline": "2026-07-25T13:00:00Z",
+      "max_attempts": 3,
+      "budget_reservation_set_ref": "budres-0001",
+      "created_at": "2026-07-25T12:00:00Z"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

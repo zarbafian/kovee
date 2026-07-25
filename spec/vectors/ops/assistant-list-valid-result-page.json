@@ -1,0 +1,37 @@
+{
+  "name": "ops/assistant-list-valid-result-page",
+  "description": "§11.5 page shape verbatim: items, next, snapshot, boundary_event_cursor (gap note KG9)",
+  "input": {
+    "schema": "assistant-list-result",
+    "value": {
+      "items": [
+        {
+          "definition_id": "asstdef-0001",
+          "realm_id": "realm-0001",
+          "owner_ref": "prin-0001",
+          "revision": 1,
+          "name": "Summarizer",
+          "description": "Summarizes a space frontier into a synthesis contribution.",
+          "status": "active",
+          "created_at": "2026-07-25T12:00:00Z"
+        },
+        {
+          "definition_id": "asstdef-0002",
+          "realm_id": "realm-0001",
+          "owner_ref": "prin-0001",
+          "revision": 1,
+          "name": "Researcher",
+          "description": "Summarizes a space frontier into a synthesis contribution.",
+          "status": "active",
+          "created_at": "2026-07-25T12:00:00Z"
+        }
+      ],
+      "next": "cur-0002",
+      "snapshot": "snap-0001",
+      "boundary_event_cursor": "cur-0001"
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

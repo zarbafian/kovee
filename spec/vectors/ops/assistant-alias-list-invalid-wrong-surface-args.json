@@ -1,0 +1,21 @@
+{
+  "name": "ops/assistant-alias-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: alias lookup in this slice is by binding id; normalized_alias is not a derived filter (gap notes KG9/KG12)",
+  "input": {
+    "schema": "assistant-alias-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_list",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "limit": 50,
+        "normalized_alias": "diagnostician"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member normalized_alias"
+  }
+}

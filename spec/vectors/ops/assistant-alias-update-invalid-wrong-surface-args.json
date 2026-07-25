@@ -1,0 +1,28 @@
+{
+  "name": "ops/assistant-alias-update-invalid-wrong-surface-args",
+  "description": "wrong-surface args: created_by is channel-derived (gap note KG5)",
+  "input": {
+    "schema": "assistant-alias-update-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_update",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001",
+        "expected_revision": 2
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "alias_binding_id": "alias-0001",
+        "assistant_deployment_id": "dep-0002",
+        "deployment_revision": 1,
+        "created_by": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member created_by"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "ops/assistant-revision-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: created_by is channel-derived and is not a derived filter of this slice (gap notes KG5/KG9)",
+  "input": {
+    "schema": "assistant-revision-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_revision_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "limit": 50,
+        "definition_id": "asstdef-0001",
+        "created_by": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member created_by"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "ops/assistant-alias-show-invalid-missing-required",
+  "description": "missing required args member alias_binding_id",
+  "input": {
+    "schema": "assistant-alias-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required alias_binding_id"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "ops/application-event-emit-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the worker surface admits invocation attempts only (§11.6.1); a principal identity member fails the closed shape",
+  "input": {
+    "schema": "application-event-emit-request",
+    "value": {
+      "version": "0.1",
+      "op": "application_event_emit",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "attempt_id": "att-0001",
+        "fence_epoch": 4,
+        "type": "com.example.document.summarized.v1",
+        "payload": {
+          "space_id": "space-0001",
+          "delivery_ref": "ct-0009"
+        },
+        "principal_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member principal_ref"
+  }
+}

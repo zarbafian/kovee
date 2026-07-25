@@ -3,12 +3,19 @@
 
 Checks, in order:
 
-1. every file in spec/schemas/ parses as strict I-JSON, follows the spec
-   conventions (draft 2020-12, $id present, closed objects, no remote $ref,
-   resolvable internal $refs, compilable patterns), and compiles — with
-   `jsonschema` when installed, otherwise against this file's structural
-   validator;
-2. every vector under spec/vectors/ (one `family/name.json` per case, an
+1. every file under spec/schemas/ (recursively, so the per-operation suite
+   in spec/schemas/ops/ is included) parses as strict I-JSON, follows the
+   spec conventions (draft 2020-12, $id present, closed objects, no remote
+   $ref, resolvable internal $refs, compilable patterns), and compiles —
+   with `jsonschema` when installed, otherwise against this file's
+   structural validator;
+2. the K0 registry bundles delivered so far (spec/registry.json,
+   COVERED_BUNDLES) are fully covered: every covered entry's operation has
+   a closed `<op>-request` / `<op>-result` schema pair under
+   spec/schemas/ops/, the request pins the exact op const, reads carry no
+   meta member at all, and mutations require meta (§11.2 read/mutation
+   rule, R0 KENV-01);
+3. every vector under spec/vectors/ (one `family/name.json` per case, an
    object whose `name` matches its path and which carries `description`,
    `input`, and `expected`) passes its family checker: schema vectors match
    their expected verdict (including semantic RFC 3339 date-time via
@@ -19,7 +26,8 @@ Checks, in order:
    inline event payload), digest vectors re-derive the family-PROFILE
    canonical bytes (RFC 8785 JCS with the reserved $domain member injected
    at top level) and their SHA-256, plus the §11.8 framed typed-bytes
-   digests.
+   digests, and `ops` vectors are pure schema vectors against the
+   per-operation request/result schemas.
 
 An empty vector tree is a failure (akson behavior), as is a vector in a
 family with no registered checker. This runner shares no code with the Rust
@@ -48,6 +56,35 @@ DEPTH_CAP = 64  # container nesting depth (profile-pinned)
 NODE_CAP = 65536  # JSON values per document (profile-pinned)
 LIST_CAP = 256  # §11.8: a request contains at most 256 list items
 INLINE_CONTENT_CAP = 65536  # §11.8: inline event payload content, 64 KiB
+
+# K0 per-operation schema suite: registry bundles delivered so far
+# (plan/sheets/K0.md; slice 1 = core_v1 + developer_assistant_v1; the
+# shared_space_v1 slice extends this tuple when it lands).
+COVERED_BUNDLES = ("core_v1", "developer_assistant_v1")
+
+# §11.2 read/mutation split over the covered operations: reads never mutate
+# authoritative or user-visible state and never carry meta (R0 KENV-01);
+# everything else requires meta. Reads here are the pre-auth negotiation
+# pair (hello, public protocol_info — §11.6.1 pre-auth row), diagnose
+# (diagnostics read; §11.2 lets reads append security/audit access records
+# — spec/schemas/ops/README.md gap note KG3), and the generated
+# *_show/*_list read family (§11.6.1). Frozen independently of the schema
+# files so a mis-shaped schema cannot reclassify its own operation.
+COVERED_READS = frozenset({
+    "hello",
+    "protocol_info",
+    "diagnose",
+    "assistant_show",
+    "assistant_list",
+    "assistant_revision_show",
+    "assistant_revision_list",
+    "deployment_show",
+    "deployment_list",
+    "assistant_alias_show",
+    "assistant_alias_list",
+    "invocation_show",
+    "invocation_list",
+})
 
 
 def fail(name: str, message: str) -> None:
@@ -769,12 +806,16 @@ class Runner:
     # -- schemas --
 
     def load_schemas(self) -> int:
-        paths = sorted(self.schemas_dir.glob("*.schema.json"))
+        paths = sorted(self.schemas_dir.rglob("*.schema.json"))
         if not paths:
             fail(str(self.schemas_dir), "no schemas found")
             return 0
         for path in paths:
             name = path.name.removesuffix(".schema.json")
+            if name in self.schemas:
+                fail(path.name, "duplicate schema basename (schema names are "
+                     "referenced by basename across the whole tree)")
+                continue
             try:
                 schema = strict_parse(path.read_text(encoding="utf-8"))
             except (ValueError, UnicodeDecodeError) as exc:
@@ -802,6 +843,73 @@ class Runner:
         if ref is None:
             return mini_valid(schema, schema, value)
         return mini_valid(schema, _resolve_pointer(schema, ref), value)
+
+    # -- bundle coverage (registry vs per-operation schemas) --
+
+    def check_bundle_coverage(self) -> tuple[int, int]:
+        """The K0-frozen registry, not prose, decides schema membership
+        (byom conformance/run.py bundle rule): every covered registry
+        entry's operation must have a closed `<op>-request` / `<op>-result`
+        schema pair under spec/schemas/ops/; the request pins the exact op
+        const; reads carry no meta member at all; mutations require meta
+        (§11.2, R0 KENV-01). Dual-surface operations share one pair keyed
+        by operation (registry key is (operation, surface); schema names
+        key by operation — ops README gap note KG14)."""
+        registry_path = self.schemas_dir.parent / "registry.json"
+        try:
+            registry = strict_parse(registry_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            fail(str(registry_path), f"cannot load registry: {exc}")
+            return 0, 0
+        ops = sorted({
+            e["operation"]
+            for e in registry.get("entries", [])
+            if e.get("bundle") in COVERED_BUNDLES
+        })
+        if not ops:
+            fail(str(registry_path), f"no registry entries for bundles {COVERED_BUNDLES}")
+            return 0, 0
+        for op in sorted(COVERED_READS - set(ops)):
+            fail("bundle", f"read list names {op}, which is not a covered registry operation")
+        covered = 0
+        for op in ops:
+            base = op.replace("_", "-")
+            request = self.schemas.get(f"{base}-request")
+            result = self.schemas.get(f"{base}-result")
+            ok = True
+            if request is None:
+                fail("bundle", f"op {op} has no {base}-request schema")
+                ok = False
+            if result is None:
+                fail("bundle", f"op {op} has no {base}-result schema")
+                ok = False
+            if request is not None:
+                op_const = request.get("properties", {}).get("op", {}).get("const")
+                if op_const != op:
+                    fail("bundle", f"{base}-request op const is {op_const!r}, expected {op!r}")
+                    ok = False
+                has_meta = "meta" in request.get("properties", {})
+                if op in COVERED_READS:
+                    if has_meta:
+                        fail("bundle", f"read {op} declares meta (reads never "
+                             "carry an idempotency key, §11.2 / R0 KENV-01)")
+                        ok = False
+                elif not has_meta or "meta" not in request.get("required", []):
+                    fail("bundle", f"mutation {op} does not require meta "
+                         "(§11.2: every state-changing operation requires meta)")
+                    ok = False
+            if ok:
+                covered += 1
+        return covered, len(ops)
+
+    # -- ops family (per-operation schema vectors) --
+
+    def check_ops(self, name: str, case: dict) -> None:
+        inp = case.get("input", {})
+        if "schema" not in inp:
+            fail(name, "ops vectors are schema vectors and require input.schema")
+            return
+        self._check_schema_vector(name, inp, case.get("expected", {}))
 
     # -- envelope family --
 
@@ -921,7 +1029,7 @@ class Runner:
         return case
 
     def run(self) -> int:
-        checkers = {"envelope": self.check_envelope}
+        checkers = {"envelope": self.check_envelope, "ops": self.check_ops}
         if self.jsonschema is not None:
             from importlib.metadata import version
 
@@ -929,6 +1037,7 @@ class Runner:
         else:
             backend = "structural validator (jsonschema not installed)"
         n_schemas = self.load_schemas()
+        covered, n_ops = self.check_bundle_coverage()
         count = 0
         for path in sorted(self.vectors_root.rglob("*.json")):
             if path.parent == self.vectors_root:
@@ -946,6 +1055,11 @@ class Runner:
             count += 1
 
         print(f"xcheck: schemas {len(self.schemas)}/{n_schemas} compiled ({backend})")
+        print(
+            f"xcheck: bundle coverage {covered}/{n_ops} ops "
+            f"({', '.join(COVERED_BUNDLES)}) — request+result pair, op const, "
+            "read/mutation meta rule"
+        )
         if FAILURES:
             print(f"xcheck: {len(FAILURES)} failure(s) across {count} vector(s)")
             for f in FAILURES:

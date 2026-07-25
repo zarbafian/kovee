@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/application-event-emit-result.schema.json",
+  "title": "KCP application_event_emit result (DESIGN.md §11.3; derived — gap note KG15)",
+  "description": "CommandResult.result payload for application_event_emit (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). Derived identity projection of the committed §11.3 event envelope (gap note KG15); the full event travels on the event surface, not in this result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "stream_id",
+    "stream_sequence",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "stream_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "stream_sequence": {
+      "$ref": "#/$defs/safeNonNegativeInteger"
+    },
+    "project_sequence": {
+      "$ref": "#/$defs/safeNonNegativeInteger"
+    },
+    "occurred_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

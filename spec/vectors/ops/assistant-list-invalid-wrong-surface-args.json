@@ -1,0 +1,20 @@
+{
+  "name": "ops/assistant-list-invalid-wrong-surface-args",
+  "description": "wrong-surface args: actor identity is channel-derived, never a request argument (gap note KG5)",
+  "input": {
+    "schema": "assistant-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "limit": 50,
+        "actor_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member actor_ref"
+  }
+}

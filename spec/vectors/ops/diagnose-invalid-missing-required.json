@@ -1,0 +1,21 @@
+{
+  "name": "ops/diagnose-invalid-missing-required",
+  "description": "missing required envelope member realm_id",
+  "input": {
+    "schema": "diagnose-request",
+    "value": {
+      "version": "0.1",
+      "op": "diagnose",
+      "args": {
+        "checks": [
+          "storage",
+          "broker"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required realm_id"
+  }
+}

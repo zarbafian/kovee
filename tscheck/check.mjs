@@ -7,10 +7,18 @@
  *
  * Checks, in order:
  *
- * 1. every file in spec/schemas/ parses as strict I-JSON, follows the spec
- *    conventions (draft 2020-12, $id present, closed objects, no remote
- *    $ref, resolvable internal $refs, compilable patterns);
- * 2. every vector under spec/vectors/ (one `family/name.json` per case, an
+ * 1. every file under spec/schemas/ (recursively, so the per-operation
+ *    suite in spec/schemas/ops/ is included) parses as strict I-JSON and
+ *    follows the spec conventions (draft 2020-12, $id present, closed
+ *    objects, no remote $ref, resolvable internal $refs, compilable
+ *    patterns);
+ * 2. the K0 registry bundles delivered so far (spec/registry.json,
+ *    COVERED_BUNDLES) are fully covered: every covered entry's operation
+ *    has a closed `<op>-request` / `<op>-result` schema pair under
+ *    spec/schemas/ops/, the request pins the exact op const, reads carry
+ *    no meta member at all, and mutations require meta (§11.2
+ *    read/mutation rule, R0 KENV-01);
+ * 3. every vector under spec/vectors/ (one `family/name.json` per case, an
  *    object whose `name` matches its path and which carries `description`,
  *    `input`, and `expected`) passes its family checker: schema vectors
  *    match their expected verdict against this file's minimal draft
@@ -22,7 +30,8 @@
  *    64 KiB inline event payload), digest vectors re-derive the
  *    family-PROFILE canonical bytes (RFC 8785 JCS with the reserved
  *    $domain member injected at top level) and their SHA-256, plus the
- *    §11.8 framed typed-bytes digests.
+ *    §11.8 framed typed-bytes digests; `ops` vectors are pure schema
+ *    vectors against the per-operation request/result schemas.
  *
  * The derivations are implemented from spec/schemas/README.md, DESIGN.md
  * §11.8, and the family profile (byom/family-vectors/PROFILE.md) — not
@@ -48,6 +57,35 @@ const DEPTH_CAP = 64; // container nesting depth (profile-pinned)
 const NODE_CAP = 65536; // JSON values per document (profile-pinned)
 const LIST_CAP = 256; // §11.8: a request contains at most 256 list items
 const INLINE_CONTENT_CAP = 65536; // §11.8: inline event payload content, 64 KiB
+
+// K0 per-operation schema suite: registry bundles delivered so far
+// (plan/sheets/K0.md; slice 1 = core_v1 + developer_assistant_v1; the
+// shared_space_v1 slice extends this list when it lands).
+const COVERED_BUNDLES = ["core_v1", "developer_assistant_v1"];
+
+// §11.2 read/mutation split over the covered operations: reads never mutate
+// authoritative or user-visible state and never carry meta (R0 KENV-01);
+// everything else requires meta. Reads here are the pre-auth negotiation
+// pair (hello, public protocol_info — §11.6.1 pre-auth row), diagnose
+// (diagnostics read; §11.2 lets reads append security/audit access records
+// — spec/schemas/ops/README.md gap note KG3), and the generated
+// *_show/*_list read family (§11.6.1). Frozen independently of the schema
+// files so a mis-shaped schema cannot reclassify its own operation.
+const COVERED_READS = new Set([
+  "hello",
+  "protocol_info",
+  "diagnose",
+  "assistant_show",
+  "assistant_list",
+  "assistant_revision_show",
+  "assistant_revision_list",
+  "deployment_show",
+  "deployment_list",
+  "assistant_alias_show",
+  "assistant_alias_list",
+  "invocation_show",
+  "invocation_list",
+]);
 
 /** @type {string[]} */
 const FAILURES = [];
@@ -978,30 +1016,65 @@ function checkEnvelope(name, kase) {
   else fail(name, `unknown vector kind (input keys ${JSON.stringify(Object.keys(inp).sort())})`);
 }
 
+/**
+ * The `ops` family holds pure schema vectors against the per-operation
+ * request/result schemas under spec/schemas/ops/.
+ * @param {string} name
+ * @param {{ input: Record<string, any>, expected: Record<string, any> }} kase
+ */
+function checkOps(name, kase) {
+  if (!Object.hasOwn(kase.input, "schema")) {
+    fail(name, "ops vectors are schema vectors and require input.schema");
+    return;
+  }
+  checkSchemaVector(name, kase.input, kase.expected);
+}
+
 /** @type {Record<string, (name: string, kase: any) => void>} */
-const CHECKERS = { envelope: checkEnvelope };
+const CHECKERS = { envelope: checkEnvelope, ops: checkOps };
 
 // ---------------------------------------------------------------------------
 // Runner
 // ---------------------------------------------------------------------------
 
 /**
+ * All *.schema.json files under root, recursively, in sorted path order.
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function schemaFilesUnder(dir) {
+  /** @type {string[]} */
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  )) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...schemaFilesUnder(path));
+    else if (entry.isFile() && entry.name.endsWith(".schema.json")) out.push(path);
+  }
+  return out;
+}
+
+/**
  * @param {string} schemasDir
  * @returns {number} number of schema files seen
  */
 function loadSchemas(schemasDir) {
-  const files = readdirSync(schemasDir)
-    .filter((f) => f.endsWith(".schema.json"))
-    .sort();
+  const files = schemaFilesUnder(schemasDir);
   if (files.length === 0) {
     fail(schemasDir, "no schemas found");
     return 0;
   }
-  for (const fname of files) {
+  for (const path of files) {
+    const fname = basename(path);
     const name = fname.slice(0, -".schema.json".length);
+    if (SCHEMAS.has(name)) {
+      fail(fname, "duplicate schema basename (schema names are referenced by basename across the whole tree)");
+      continue;
+    }
     let schema;
     try {
-      schema = strictParse(readFileSync(join(schemasDir, fname), "utf8"));
+      schema = strictParse(readFileSync(path, "utf8"));
     } catch (e) {
       fail(fname, `not strict I-JSON: ${/** @type {Error} */ (e).message}`);
       continue;
@@ -1014,6 +1087,77 @@ function loadSchemas(schemasDir) {
     SCHEMAS.set(name, /** @type {Record<string, any>} */ (schema));
   }
   return files.length;
+}
+
+/**
+ * Bundle coverage: the K0-frozen registry, not prose, decides schema
+ * membership (byom conformance/run.py bundle rule). Every covered registry
+ * entry's operation must have a closed `<op>-request` / `<op>-result`
+ * schema pair under spec/schemas/ops/; the request pins the exact op
+ * const; reads carry no meta member at all; mutations require meta (§11.2,
+ * R0 KENV-01). Dual-surface operations share one pair keyed by operation
+ * (registry key is (operation, surface); schema names key by operation —
+ * ops README gap note KG14).
+ * @param {string} registryPath
+ * @returns {{ covered: number, total: number }}
+ */
+function checkBundleCoverage(registryPath) {
+  /** @type {any} */
+  let registry;
+  try {
+    registry = strictParse(readFileSync(registryPath, "utf8"));
+  } catch (e) {
+    fail(registryPath, `cannot load registry: ${/** @type {Error} */ (e).message}`);
+    return { covered: 0, total: 0 };
+  }
+  const ops = [
+    ...new Set(
+      (registry.entries ?? [])
+        .filter((/** @type {any} */ e) => COVERED_BUNDLES.includes(e.bundle))
+        .map((/** @type {any} */ e) => e.operation),
+    ),
+  ].sort();
+  if (ops.length === 0) {
+    fail(registryPath, `no registry entries for bundles ${COVERED_BUNDLES.join(", ")}`);
+    return { covered: 0, total: 0 };
+  }
+  for (const op of [...COVERED_READS].filter((r) => !ops.includes(r)).sort()) {
+    fail("bundle", `read list names ${op}, which is not a covered registry operation`);
+  }
+  let covered = 0;
+  for (const op of ops) {
+    const base = op.replaceAll("_", "-");
+    const request = SCHEMAS.get(`${base}-request`);
+    const result = SCHEMAS.get(`${base}-result`);
+    let ok = true;
+    if (request === undefined) {
+      fail("bundle", `op ${op} has no ${base}-request schema`);
+      ok = false;
+    }
+    if (result === undefined) {
+      fail("bundle", `op ${op} has no ${base}-result schema`);
+      ok = false;
+    }
+    if (request !== undefined) {
+      const opConst = request.properties?.op?.const;
+      if (opConst !== op) {
+        fail("bundle", `${base}-request op const is ${JSON.stringify(opConst)}, expected ${JSON.stringify(op)}`);
+        ok = false;
+      }
+      const hasMeta = Object.hasOwn(request.properties ?? {}, "meta");
+      if (COVERED_READS.has(op)) {
+        if (hasMeta) {
+          fail("bundle", `read ${op} declares meta (reads never carry an idempotency key, §11.2 / R0 KENV-01)`);
+          ok = false;
+        }
+      } else if (!hasMeta || !(request.required ?? []).includes("meta")) {
+        fail("bundle", `mutation ${op} does not require meta (§11.2: every state-changing operation requires meta)`);
+        ok = false;
+      }
+    }
+    if (ok) covered += 1;
+  }
+  return { covered, total: ops.length };
 }
 
 /**
@@ -1072,6 +1216,7 @@ function main() {
   const here = dirname(fileURLToPath(import.meta.url));
   const vectorsRoot = process.argv[2] !== undefined ? resolve(process.argv[2]) : join(dirname(here), "spec", "vectors");
   const nSchemas = loadSchemas(join(dirname(vectorsRoot), "schemas"));
+  const coverage = checkBundleCoverage(join(dirname(vectorsRoot), "registry.json"));
 
   let count = 0;
   for (const path of jsonFilesUnder(vectorsRoot)) {
@@ -1098,6 +1243,10 @@ function main() {
   }
 
   console.log(`tscheck: schemas ${SCHEMAS.size}/${nSchemas} loaded (minimal draft 2020-12 validator)`);
+  console.log(
+    `tscheck: bundle coverage ${coverage.covered}/${coverage.total} ops ` +
+      `(${COVERED_BUNDLES.join(", ")}) — request+result pair, op const, read/mutation meta rule`,
+  );
   if (FAILURES.length > 0) {
     console.log(`tscheck: ${FAILURES.length} failure(s) across ${count} vector(s)`);
     for (const f of FAILURES) console.log(`  FAIL ${f}`);

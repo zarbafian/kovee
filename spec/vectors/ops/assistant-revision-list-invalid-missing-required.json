@@ -1,0 +1,19 @@
+{
+  "name": "ops/assistant-revision-list-invalid-missing-required",
+  "description": "missing required args member limit",
+  "input": {
+    "schema": "assistant-revision-list-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_revision_list",
+      "realm_id": "realm-0001",
+      "args": {
+        "definition_id": "asstdef-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required limit"
+  }
+}

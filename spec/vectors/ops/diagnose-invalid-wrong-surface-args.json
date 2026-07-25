@@ -1,0 +1,23 @@
+{
+  "name": "ops/diagnose-invalid-wrong-surface-args",
+  "description": "wrong-surface args: worker attempt binding on the operator diagnostics surface; diagnose is operator/principal only (§11.6.1)",
+  "input": {
+    "schema": "diagnose-request",
+    "value": {
+      "version": "0.1",
+      "op": "diagnose",
+      "realm_id": "realm-0001",
+      "args": {
+        "checks": [
+          "storage",
+          "broker"
+        ],
+        "attempt_id": "att-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member attempt_id"
+  }
+}

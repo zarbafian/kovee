@@ -7,6 +7,15 @@ case, each an object with `name` (equal to `family/name`), `description`,
 expected value with implementations that share no code with the Rust
 workspace.
 
+Schema vectors name their target schema by file basename
+(`<name>.schema.json`), found recursively under `spec/schemas/`. The
+`ops/` family holds pure schema vectors against the per-operation
+request/result suite in `spec/schemas/ops/`: per operation at least a
+wrong-surface-args negative (a server/other-surface field the closed args
+reject), a missing-required negative, and a replay/dependency-invalidation
+shape (a mutation whose meta lacks `idempotency_key`; a read carrying
+replay meta), plus valid request/result instances per operation family.
+
 Acceptance vectors take their input as `raw` (UTF-8 text) or `synthetic`
 (`oversized_request` with `target_bytes`, or the family PROFILE section 8
 `json_synth` repetition: `prefix` + `repeat`×`count` + `suffix`), with an

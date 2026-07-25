@@ -1,0 +1,25 @@
+{
+  "name": "ops/hello-valid-request",
+  "description": "minimal pre-auth negotiation command: the §11.1 HelloRequest field list as args, no realm and no meta (gap note KG1)",
+  "input": {
+    "schema": "hello-request",
+    "value": {
+      "version": "0.1",
+      "op": "hello",
+      "args": {
+        "supported_versions": [
+          "0.1"
+        ],
+        "implementation": "kovee-cli",
+        "implementation_version": "0.0.1",
+        "requested_features": [
+          "core_v1",
+          "developer_assistant_v1"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

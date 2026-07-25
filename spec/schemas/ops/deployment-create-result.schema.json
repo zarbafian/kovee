@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/deployment-create-result.schema.json",
+  "title": "KCP deployment_create result (DESIGN.md §10.5, §11.6.1 assistant author/deploy family)",
+  "description": "CommandResult.result payload for deployment_create (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The created AssistantDeployment (gap note KG4).",
+  "$ref": "#/$defs/assistantDeployment",
+  "type": "object",
+  "$defs": {
+    "assistantDeployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assistant_deployment_id",
+        "assistant_revision_id",
+        "realm_id",
+        "revision",
+        "config_ref",
+        "config_digest",
+        "secret_binding_set_ref",
+        "secret_binding_set_digest",
+        "policy_ref",
+        "pool_ref",
+        "security_profile",
+        "concurrency_policy",
+        "rollout_policy",
+        "status"
+      ],
+      "properties": {
+        "assistant_deployment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "assistant_revision_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "config_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "config_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "secret_binding_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "secret_binding_set_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "pool_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "security_profile": {
+          "$ref": "#/$defs/securityProfile"
+        },
+        "concurrency_policy": {
+          "$ref": "#/$defs/concurrencyPolicy"
+        },
+        "rollout_policy": {
+          "type": "object",
+          "description": "Deterministic rollout rule; open object pending durable_runtime_v1's deployment_update/rollout (K2) — gap note KG10."
+        },
+        "status": {
+          "$ref": "#/$defs/statusToken"
+        },
+        "activated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "AssistantDeployment projection, field names verbatim from the §10.5 record shape (project_id and activated_at optional there). Secret values never appear; the secret-binding set carries only broker profile names and secret versions (§10.5)."
+    },
+    "concurrencyPolicy": {
+      "enum": [
+        "serial-branch",
+        "parallel-independent",
+        "causal-keyed"
+      ],
+      "description": "Closed §15.3 causal concurrency policies."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "securityProfile": {
+      "enum": [
+        "developer",
+        "confined",
+        "secure"
+      ],
+      "description": "Closed §14.4 security-profile names."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Lifecycle status token. DESIGN.md §10.5 names these status fields without pinning a value space; the bounded lowercase token pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "ops/assistant-create-invalid-wrong-surface-args",
+  "description": "wrong-surface args: owner_ref is channel-derived (gap note KG5); a request cannot override the authenticated owner",
+  "input": {
+    "schema": "assistant-create-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_create",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "name": "Summarizer",
+        "description": "Summarizes a space frontier into a synthesis contribution.",
+        "owner_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member owner_ref"
+  }
+}

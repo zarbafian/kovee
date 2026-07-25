@@ -1,0 +1,21 @@
+{
+  "name": "ops/assistant-alias-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: actor identity is channel-derived, never a request argument (gap note KG5)",
+  "input": {
+    "schema": "assistant-alias-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_show",
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "alias_binding_id": "alias-0001",
+        "actor_ref": "prin-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member actor_ref"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "ops/diagnose-valid-request",
+  "description": "operator diagnostics read with a narrowing checks[] selection and no meta (gap note KG3)",
+  "input": {
+    "schema": "diagnose-request",
+    "value": {
+      "version": "0.1",
+      "op": "diagnose",
+      "realm_id": "realm-0001",
+      "args": {
+        "checks": [
+          "storage",
+          "broker"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

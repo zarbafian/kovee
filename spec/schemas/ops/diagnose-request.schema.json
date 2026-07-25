@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/diagnose-request.schema.json",
+  "title": "KCP diagnose request (DESIGN.md §11.6.1; derived — gap note KG3)",
+  "description": "Read: never mutates authoritative or user-visible state and never carries meta (closed shape — a read carrying meta, hence an idempotency key, fails; §11.2, R0 KENV-01). Installation diagnostics (§11.6.1 diagnose/audit_export family; audit_export and its step-up bind installation_admin_v1, K3). Classified as a read: it changes no authoritative domain or user-visible state, and §11.2 lets reads append security/audit access records (gap note KG3). Registry (core_v1): surface operator / principal (assurance: current login). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "diagnose"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Narrowing-only selection of registered diagnostics; absent or empty selects all (derived — gap note KG3). At most 256 list items per request (§11.8)."
+        }
+      },
+      "description": "Derived args (gap note KG3): DESIGN.md spells no diagnose payload. Realm scoping travels in the envelope realm_id; realm and role dependencies bind only where the diagnostic is realm-scoped (registry constraint)."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    }
+  }
+}

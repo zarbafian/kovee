@@ -1,0 +1,17 @@
+{
+  "name": "ops/deployment-show-invalid-missing-required",
+  "description": "missing required args member assistant_deployment_id",
+  "input": {
+    "schema": "deployment-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "deployment_show",
+      "realm_id": "realm-0001",
+      "args": {}
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required assistant_deployment_id"
+  }
+}

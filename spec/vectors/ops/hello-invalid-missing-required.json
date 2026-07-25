@@ -1,0 +1,23 @@
+{
+  "name": "ops/hello-invalid-missing-required",
+  "description": "missing required args member supported_versions",
+  "input": {
+    "schema": "hello-request",
+    "value": {
+      "version": "0.1",
+      "op": "hello",
+      "args": {
+        "implementation": "kovee-cli",
+        "implementation_version": "0.0.1",
+        "requested_features": [
+          "core_v1",
+          "developer_assistant_v1"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required supported_versions"
+  }
+}

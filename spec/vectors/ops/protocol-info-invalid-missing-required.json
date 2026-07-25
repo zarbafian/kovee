@@ -1,0 +1,15 @@
+{
+  "name": "ops/protocol-info-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "protocol-info-request",
+    "value": {
+      "version": "0.1",
+      "op": "protocol_info"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}

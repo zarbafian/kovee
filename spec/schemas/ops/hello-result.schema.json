@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/hello-result.schema.json",
+  "title": "KCP hello result (DESIGN.md §11.1)",
+  "description": "CommandResult.result payload for hello (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). The §11.1 HelloResult field list verbatim (gap note KG1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "selected_version",
+    "implementation",
+    "implementation_version",
+    "features",
+    "limits_digest",
+    "server_time",
+    "installation_id"
+  ],
+  "properties": {
+    "selected_version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "implementation": {
+      "$ref": "#/$defs/displayName"
+    },
+    "implementation_version": {
+      "$ref": "#/$defs/identifier"
+    },
+    "features": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/featureId"
+      },
+      "description": "Advertised feature bundles including transitive prerequisites (§11.6)."
+    },
+    "limits_digest": {
+      "$ref": "#/$defs/digestHex",
+      "description": "Typed digest of the installation's effective limits; the limits object and §11.8 construction remain a recorded K0 gap (spec/schemas/README.md item 4)."
+    },
+    "server_time": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "installation_id": {
+      "$ref": "#/$defs/identifier"
+    }
+  },
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "featureId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,127}$",
+      "description": "Feature-bundle name from the §11.6 table (e.g. core_v1). Bundles are atomic: implement every operation/schema/conformance case in a listed bundle or do not advertise it."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

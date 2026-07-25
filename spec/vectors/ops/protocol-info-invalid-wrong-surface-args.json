@@ -1,0 +1,17 @@
+{
+  "name": "ops/protocol-info-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the pre-auth negotiation surface has no realm member (gap note KG1); realm-scoping a pre-auth request fails the closed shape",
+  "input": {
+    "schema": "protocol-info-request",
+    "value": {
+      "version": "0.1",
+      "op": "protocol_info",
+      "args": {},
+      "realm_id": "realm-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "realm_id is not a member of the pre-auth shape"
+  }
+}

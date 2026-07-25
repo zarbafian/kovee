@@ -1,0 +1,31 @@
+{
+  "name": "ops/assistant-revision-register-invalid-missing-required",
+  "description": "missing required args member manifest",
+  "input": {
+    "schema": "assistant-revision-register-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_revision_register",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "definition_id": "asstdef-0001",
+        "version": "1.0.0",
+        "package_artifact_ref": "art-0001",
+        "package_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_schema_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sdk_protocol_range": "kovee-worker-0.1",
+        "signature_refs": [
+          "sig-0001"
+        ]
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required manifest"
+  }
+}

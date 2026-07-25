@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/assistant-revision-register-request.schema.json",
+  "title": "KCP assistant_revision_register request (DESIGN.md §10.5, §11.6.1 assistant author/deploy family, §14.2 manifest)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Registers an immutable AssistantRevision (§10.5); updating code, dependencies, manifest, or non-secret configuration creates a new revision, never mutates one. Registry (developer_assistant_v1): surface operator / principal (assurance: current login). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "assistant_revision_register"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "definition_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/identifier"
+        },
+        "manifest": {
+          "$ref": "#/$defs/manifest"
+        },
+        "package_artifact_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "package_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "config_schema_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "sdk_protocol_range": {
+          "$ref": "#/$defs/identifier"
+        },
+        "signature_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Optional package signatures (§10.5 signature_refs[]). At most 256 list items per request (§11.8)."
+        }
+      },
+      "description": "Caller-suppliable AssistantRevision fields (§10.5 record shape); assistant_revision_id, created_by, and created_at are server/channel-derived (gap note KG5).",
+      "required": [
+        "definition_id",
+        "version",
+        "manifest",
+        "package_artifact_ref",
+        "package_digest",
+        "config_schema_digest",
+        "sdk_protocol_range"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "concurrencyPolicy": {
+      "enum": [
+        "serial-branch",
+        "parallel-independent",
+        "causal-keyed"
+      ],
+      "description": "Closed §15.3 causal concurrency policies."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "definition_id",
+        "version",
+        "entrypoint",
+        "package_digest",
+        "runtime",
+        "supported_worker_protocols",
+        "input_schema_ref",
+        "output_schema_ref",
+        "skills",
+        "attention_proposals",
+        "requested_capabilities",
+        "model_profiles",
+        "tool_profiles",
+        "network_policy",
+        "resource_limits",
+        "default_timeout",
+        "max_concurrency",
+        "causal_concurrency_policy",
+        "checkpoint_support",
+        "cancellation_support",
+        "security_profiles"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/identifier"
+        },
+        "definition_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/identifier"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/identifier"
+        },
+        "package_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "runtime": {
+          "type": "object",
+          "description": "\"runtime + locked dependency metadata\" (§14.2 prose line): open object pending a packaging-format freeze (gap note KG7). Carries no authority."
+        },
+        "supported_worker_protocols": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Worker protocol versions the package supports (§14.2). At most 256 list items per request (§11.8)."
+        },
+        "input_schema_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "output_schema_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Skills advertise routing suitability; they never grant permission (§14.2). At most 256 list items per request (§11.8)."
+        },
+        "attention_proposals": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "description": "Inert attention declaration (§14.2): deployment may activate one only after deterministic validation and an exact acceptance or standing-policy use. Typed shape lands with attention_coordination_v1 (K2) — gap note KG7."
+          },
+          "description": "Inert proposals; packages never select raw subjects or install their own wake authority (§14.2)."
+        },
+        "requested_capabilities": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Requested capability names (§14.2); requesting never grants. At most 256 list items per request (§11.8)."
+        },
+        "model_profiles": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Named model broker profiles the package requests (§14.2). At most 256 list items per request (§11.8)."
+        },
+        "tool_profiles": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "description": "Named tool profiles the package requests (§14.2). At most 256 list items per request (§11.8)."
+        },
+        "network_policy": {
+          "type": "object",
+          "description": "Declared network policy (§14.2): open object pending secure_effects_v1 (K4) — gap note KG7. Enforcement evidence comes from the supervisor boundary, never this declaration (§14.4)."
+        },
+        "resource_limits": {
+          "$ref": "#/$defs/resourceLimits"
+        },
+        "default_timeout": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "Default timeout; DESIGN.md pins no unit (gap note KG7)."
+        },
+        "max_concurrency": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causal_concurrency_policy": {
+          "$ref": "#/$defs/concurrencyPolicy"
+        },
+        "checkpoint_support": {
+          "type": "boolean"
+        },
+        "cancellation_support": {
+          "type": "boolean"
+        },
+        "security_profiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/securityProfile"
+          },
+          "description": "Profiles the package is compatible with — an eligibility hint only; enforcement evidence comes from the trusted supervisor (§14.4)."
+        }
+      },
+      "description": "Validated assistant-revision manifest: the §14.2 field list verbatim, typed per gap note KG7 (\"runtime + locked dependency metadata\" → runtime; causal_concurrency_policy from the §15.3 closed policy set; security_profiles from §14.4)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu",
+        "memory",
+        "disk",
+        "output_bytes"
+      ],
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "memory": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "disk": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "output_bytes": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "resource_limits {cpu, memory, disk, output_bytes} verbatim from the §14.2 manifest list; DESIGN.md pins no units — safe non-negative integers, units recorded as unpinned (gap note KG7)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "securityProfile": {
+      "enum": [
+        "developer",
+        "confined",
+        "secure"
+      ],
+      "description": "Closed §14.4 security-profile names."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

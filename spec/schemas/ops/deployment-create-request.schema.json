@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/deployment-create-request.schema.json",
+  "title": "KCP deployment_create request (DESIGN.md §10.5, §11.6.1 assistant author/deploy family)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Creates an AssistantDeployment (§10.5). Registry (developer_assistant_v1): surface operator / principal (assurance: current login). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "deployment_create"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assistant_revision_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "config_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Resolves to immutable, schema-validated non-secret configuration (§10.5)."
+        },
+        "config_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "secret_binding_set_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Broker profile names and secret versions only — never backing credentials (§10.5)."
+        },
+        "secret_binding_set_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "pool_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "security_profile": {
+          "$ref": "#/$defs/securityProfile"
+        },
+        "concurrency_policy": {
+          "$ref": "#/$defs/concurrencyPolicy"
+        },
+        "rollout_policy": {
+          "type": "object",
+          "description": "Deterministic rollout rule; open object pending durable_runtime_v1 (K2) — gap note KG10."
+        }
+      },
+      "description": "Caller-suppliable AssistantDeployment fields (§10.5 record shape); assistant_deployment_id, revision, status, and activated_at are server-derived (gap notes KG5/KG10).",
+      "required": [
+        "assistant_revision_id",
+        "config_ref",
+        "config_digest",
+        "secret_binding_set_ref",
+        "secret_binding_set_digest",
+        "policy_ref",
+        "pool_ref",
+        "security_profile",
+        "concurrency_policy",
+        "rollout_policy"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "concurrencyPolicy": {
+      "enum": [
+        "serial-branch",
+        "parallel-independent",
+        "causal-keyed"
+      ],
+      "description": "Closed §15.3 causal concurrency policies."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "securityProfile": {
+      "enum": [
+        "developer",
+        "confined",
+        "secure"
+      ],
+      "description": "Closed §14.4 security-profile names."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

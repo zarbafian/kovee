@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/assistant-alias-show-result.schema.json",
+  "title": "KCP assistant_alias_show result (DESIGN.md §10.5, §11.6.1 assistant author/deploy family)",
+  "description": "CommandResult.result payload for assistant_alias_show (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). One AssistantAliasBinding projection (gap note KG4).",
+  "$ref": "#/$defs/aliasBinding",
+  "type": "object",
+  "$defs": {
+    "aliasBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alias_binding_id",
+        "realm_id",
+        "project_id",
+        "revision",
+        "normalized_alias",
+        "display_alias",
+        "assistant_deployment_id",
+        "deployment_revision",
+        "status",
+        "created_by",
+        "created_at"
+      ],
+      "properties": {
+        "alias_binding_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "normalized_alias": {
+          "$ref": "#/$defs/displayName"
+        },
+        "display_alias": {
+          "$ref": "#/$defs/displayName"
+        },
+        "assistant_deployment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "deployment_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "status": {
+          "$ref": "#/$defs/statusToken"
+        },
+        "created_by": {
+          "$ref": "#/$defs/identifier"
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "AssistantAliasBinding projection, field names verbatim from the §10.5 record shape. In v0.1 an alias is unique among active bindings at (project_id, normalized_alias); normalization is deterministic and server-side (§10.5)."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Lifecycle status token. DESIGN.md §10.5 names these status fields without pinning a value space; the bounded lowercase token pins the shape without inventing an enum (gap note KG6)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

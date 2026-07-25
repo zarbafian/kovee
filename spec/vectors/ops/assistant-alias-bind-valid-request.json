@@ -1,0 +1,25 @@
+{
+  "name": "ops/assistant-alias-bind-valid-request",
+  "description": "alias bind with required envelope project_id (v0.1 uniqueness at (project_id, normalized_alias), §10.5)",
+  "input": {
+    "schema": "assistant-alias-bind-request",
+    "value": {
+      "version": "0.1",
+      "op": "assistant_alias_bind",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "display_alias": "diagnostician",
+        "assistant_deployment_id": "dep-0001",
+        "deployment_revision": 3
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

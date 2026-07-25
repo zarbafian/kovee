@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/invocation-create-request.schema.json",
+  "title": "KCP invocation_create request (DESIGN.md §10.6, §11.6.1 direct invocation, §15.1)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Creates an Invocation by authenticated direct command or explicit deployment test (§15.1); the server builds and digests the InvocationInputManifest before scheduling (gap note KG5). Registry (developer_assistant_v1): surface external_client / authenticated principal; authenticated operator (assurance: current login; production test may require step-up). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14 for dual-surface ops).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "invocation_create"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "assistant_deployment_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "assistant_deployment_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "context_assembly_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Immutable ContextAssembly for the input manifest (§15.1); pairing with context_assembly_digest is a registry rule."
+        },
+        "context_assembly_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "budget_reservation_set_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "disclosure_rules_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "priority": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "not_before": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "max_attempts": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "deadline": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "The §11.6.1 direct-invocation row's caller inputs mapped onto §10.6 field names (gap note KG13): full target deployment/revision, ContextAssembly, budget, disclosure; deadline and max_attempts are committed before the first attempt (§15.4). No requester or commitment member exists: a direct invocation cannot name a worker as requester or create a Commitment (§11.6.1).",
+      "required": [
+        "assistant_deployment_id",
+        "assistant_deployment_revision",
+        "deadline"
+      ]
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}
