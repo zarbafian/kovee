@@ -1,0 +1,1382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kovee. — sovereign collaboration for people and agents</title>
+<meta name="description" content="Kovee is a proposed collaboration architecture for people and agents that do not share an operator, credentials, context, or authority — one product over three sovereign systems: Kovee, Byom, and Akson.">
+<link rel="canonical" href="https://kovee.cc/">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8c3R5bGU+CiAgICBwYXRoIHsgc3Ryb2tlOiAjMUEyMTI0OyB9CiAgICAuayB7IHN0cm9rZTogIzE3N0U2RTsgfQogICAgQG1lZGlhIChwcmVmZXJzLWNvbG9yLXNjaGVtZTogZGFyaykgewogICAgICBwYXRoIHsgc3Ryb2tlOiAjRThFQ0VDOyB9CiAgICAgIC5rIHsgc3Ryb2tlOiAjNENDNUIyOyB9CiAgICB9CiAgPC9zdHlsZT4KICA8ZyBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj4KICAgIDxwYXRoIGNsYXNzPSJrIiBkPSJNMiAyLjVjMy41IDAgMy41IDMuMjUgNiAzLjI1czIuNS0zLjI1IDYtMy4yNSIvPgogICAgPHBhdGggZD0iTTIgOGgxMiIvPgogICAgPHBhdGggZD0iTTIgMTMuNWMzLjUgMCAzLjUtMy4yNSA2LTMuMjVzMi41IDMuMjUgNiAzLjI1Ii8+CiAgPC9nPgo8L3N2Zz4K">
+<meta property="og:title" content="kovee. — sovereign collaboration for people and agents">
+<meta property="og:description" content="Together, without becoming one. Sovereign collaboration for people and agents.">
+<meta property="og:url" content="https://kovee.cc/">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#F6F7F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1214" media="(prefers-color-scheme: dark)">
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+img, svg { max-width: 100%; }
+</style>
+</head>
+<body>
+<style>
+  /* ---------------- tokens ---------------- */
+  :root {
+    --bg: #F6F7F7;
+    --bg-raise: #FFFFFF;
+    --bg-dim: #EEF1F1;
+    --ink: #1A2124;
+    --ink-2: #47545A;
+    --ink-3: #627076;
+    --line: #D9DFE0;
+    --line-soft: #E7EBEB;
+    --kovee: #177E6E;
+    --kovee-ink: #116052;
+    --byom: #8A5D1A;
+    --akson: #3D53B6;
+    --kovee-bg: rgba(23, 126, 110, 0.08);
+    --byom-bg: rgba(138, 93, 26, 0.08);
+    --akson-bg: rgba(61, 83, 182, 0.08);
+    --nav-bg: rgba(246, 247, 247, 0.85);
+    --serif: "Charter", "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0C1214;
+      --bg-raise: #131B1E;
+      --bg-dim: #10181A;
+      --ink: #E8ECEC;
+      --ink-2: #A7B2B5;
+      --ink-3: #778589;
+      --line: #263135;
+      --line-soft: #1C2629;
+      --kovee: #4CC5B2;
+      --kovee-ink: #6ED4C3;
+      --byom: #D9A24C;
+      --akson: #8CA0F0;
+      --kovee-bg: rgba(76, 197, 178, 0.09);
+      --byom-bg: rgba(217, 162, 76, 0.09);
+      --akson-bg: rgba(140, 160, 240, 0.09);
+      --nav-bg: rgba(12, 18, 20, 0.82);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F6F7F7; --bg-raise: #FFFFFF; --bg-dim: #EEF1F1;
+    --ink: #1A2124; --ink-2: #47545A; --ink-3: #627076;
+    --line: #D9DFE0; --line-soft: #E7EBEB;
+    --kovee: #177E6E; --kovee-ink: #116052; --byom: #8A5D1A; --akson: #3D53B6;
+    --kovee-bg: rgba(23, 126, 110, 0.08); --byom-bg: rgba(138, 93, 26, 0.08); --akson-bg: rgba(61, 83, 182, 0.08);
+    --nav-bg: rgba(246, 247, 247, 0.85);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0C1214; --bg-raise: #131B1E; --bg-dim: #10181A;
+    --ink: #E8ECEC; --ink-2: #A7B2B5; --ink-3: #778589;
+    --line: #263135; --line-soft: #1C2629;
+    --kovee: #4CC5B2; --kovee-ink: #6ED4C3; --byom: #D9A24C; --akson: #8CA0F0;
+    --kovee-bg: rgba(76, 197, 178, 0.09); --byom-bg: rgba(217, 162, 76, 0.09); --akson-bg: rgba(140, 160, 240, 0.09);
+    --nav-bg: rgba(12, 18, 20, 0.82);
+  }
+
+  /* ---------------- base ---------------- */
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg); color: var(--ink);
+    font-family: var(--serif); font-size: 17.5px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--kovee); color: var(--bg); }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 3px; }
+  a:hover { color: var(--kovee-ink); text-decoration-color: var(--kovee); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--kovee); outline-offset: 3px; border-radius: 2px; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 700; line-height: 1.15; text-wrap: balance; margin: 0; letter-spacing: -0.012em; }
+  p { margin: 0; }
+  .eyebrow { font-family: var(--mono); font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); }
+  .eyebrow.e-kovee { color: var(--kovee); }
+  .eyebrow.e-byom { color: var(--byom); }
+  .eyebrow.e-akson { color: var(--akson); }
+
+  section { scroll-margin-top: 4.5rem; padding: clamp(3.75rem, 8vh, 6.5rem) 1.5rem; border-top: 1px solid var(--line-soft); }
+  section:first-of-type { border-top: none; }
+  .wrap { max-width: 62rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+  .prose { max-width: 40rem; display: flex; flex-direction: column; gap: 0.85rem; }
+  .prose p { color: var(--ink-2); }
+  .prose p strong { color: var(--ink); }
+  .lede { font-size: 1.18rem; color: var(--ink); }
+  h2 { font-size: clamp(1.7rem, 3.6vw, 2.5rem); }
+  .kicker { display: flex; flex-direction: column; gap: 0.65rem; }
+
+  /* ---------------- top nav ---------------- */
+  header.top {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    background: var(--nav-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  header.top .bar {
+    max-width: 62rem; margin: 0 auto; padding: 0.75rem 1.5rem;
+    display: flex; align-items: baseline; gap: 1.5rem;
+  }
+  .wordmark { display: inline-flex; align-items: center; gap: 0.4em; flex: none; font-family: var(--serif); font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; text-decoration: none; }
+  .wordmark:hover { color: var(--kovee-ink); }
+  .wordmark .dot { color: var(--kovee); }
+  .wordmark svg { flex: none; display: block; }
+  header.top nav { margin-left: auto; display: flex; gap: 1.1rem; min-width: 0; flex-wrap: nowrap; overflow-x: auto; }
+  header.top nav a {
+    flex: none;
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-3); text-decoration: none; padding: 0.2rem 0;
+  }
+  header.top nav a:hover { color: var(--kovee-ink); }
+  .skip {
+    position: fixed; top: -4rem; left: 1rem; z-index: 100;
+    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 6px;
+    padding: 0.5rem 0.9rem; font-family: var(--mono); font-size: 0.75rem;
+    transition: top 0.2s;
+  }
+  .skip:focus { top: 0.6rem; }
+
+  /* ---------------- hero ---------------- */
+  .hero { min-height: 100svh; display: flex; align-items: center; border-top: none; padding-top: 6rem; }
+  .hero .wrap { gap: 2.4rem; }
+  .hero h1 { font-size: clamp(2.4rem, 6.5vw, 4.2rem); max-width: 16ch; }
+  .hero .promise { max-width: 42rem; font-size: 1.2rem; color: var(--ink-2); }
+  .hero .beats { font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.04em; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 0.4rem 1.15rem; }
+  .hero .beats span::after { content: "·"; margin-left: 1.15rem; color: var(--ink-3); }
+  .hero .beats span:last-child::after { content: ""; }
+  .strands { width: 100%; max-width: 46rem; height: auto; display: block; }
+  .strands path { fill: none; stroke-width: 2.25; stroke-linecap: round; }
+  .strands .s-k { stroke: var(--kovee); }
+  .strands .s-b { stroke: var(--byom); }
+  .strands .s-a { stroke: var(--akson); }
+  .hero .note { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.03em; color: var(--ink-3); }
+  .hero .note strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------------- question cards ---------------- */
+  .qgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr)); gap: 1rem; }
+  .qcard { background: var(--bg-raise); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.5rem 1.35rem; display: flex; flex-direction: column; gap: 0.7rem; }
+  .qcard .q { font-size: 1.22rem; font-weight: 700; line-height: 1.3; text-wrap: balance; letter-spacing: -0.012em; }
+  .qcard .a { font-size: 0.95rem; color: var(--ink-2); }
+  .qcard .owner { margin-top: auto; padding-top: 0.9rem; font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  .qcard.q-kovee { border-top: 3px solid var(--kovee); } .qcard.q-kovee .owner { color: var(--kovee); }
+  .qcard.q-byom { border-top: 3px solid var(--byom); } .qcard.q-byom .owner { color: var(--byom); }
+  .qcard.q-akson { border-top: 3px solid var(--akson); } .qcard.q-akson .owner { color: var(--akson); }
+
+  /* ---------------- journey loop ---------------- */
+  .journey { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(15rem, 1fr); gap: 2.5rem; align-items: center; }
+  @media (max-width: 860px) { .journey { grid-template-columns: 1fr; } }
+  .loopfig { width: 100%; height: auto; display: block; }
+  @media (max-width: 480px) { .loopfig { display: none; } }
+  .loopfig .ring { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .loopfig .node { stroke-width: 1.5; }
+  .loopfig .n-k { fill: var(--kovee-bg); stroke: var(--kovee); }
+  .loopfig .n-b { fill: var(--byom-bg); stroke: var(--byom); }
+  .loopfig .n-a { fill: var(--akson-bg); stroke: var(--akson); }
+  .loopfig text { font-family: var(--mono); font-size: 13px; fill: var(--ink-2); }
+  .loopfig text.owner { font-size: 11px; letter-spacing: 0.1em; }
+  .loopfig .o-k { fill: var(--kovee); } .loopfig .o-b { fill: var(--byom); } .loopfig .o-a { fill: var(--akson); }
+  .loopfig .pulse { fill: var(--ink); }
+  .steps { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
+  .step { display: flex; gap: 0.9rem; padding: 0.72rem 0.9rem; border-left: 2px solid var(--line); transition: background 0.35s, border-color 0.35s; border-radius: 0 6px 6px 0; }
+  .step .sn { font-family: var(--mono); font-size: 0.7rem; padding-top: 0.22rem; color: var(--ink-3); flex: none; }
+  .step .st { font-size: 0.98rem; letter-spacing: 0; }
+  .step .sd { font-size: 0.88rem; color: var(--ink-2); line-height: 1.5; }
+  .step .so { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  .step.w-k .so { color: var(--kovee); } .step.w-b .so { color: var(--byom); } .step.w-a .so { color: var(--akson); }
+  .step.active.w-k { background: var(--kovee-bg); border-left-color: var(--kovee); }
+  .step.active.w-b { background: var(--byom-bg); border-left-color: var(--byom); }
+  .step.active.w-a { background: var(--akson-bg); border-left-color: var(--akson); }
+
+  /* ---------------- not/neq rows ---------------- */
+  .neq { display: flex; flex-direction: column; gap: 1.1rem; max-width: 44rem; }
+  .neq-row { display: flex; align-items: baseline; gap: 0.9rem; font-size: clamp(1.15rem, 3vw, 1.7rem); font-weight: 700; flex-wrap: wrap; }
+  .neq-row .lhs, .neq-row .rhs { transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.9s; }
+  .neq-row .op { font-family: var(--mono); font-weight: 500; color: var(--kovee); font-size: 0.8em; transition: opacity 0.9s 0.35s; }
+  .neq-row .rhs { color: var(--ink-3); }
+  .has-js .neq:not(.in) .neq-row .lhs { transform: translateX(2.2em); }
+  .has-js .neq:not(.in) .neq-row .rhs { transform: translateX(-2.2em); opacity: 0.15; }
+  .has-js .neq:not(.in) .neq-row .op { opacity: 0; }
+  .neq-cap { font-size: 0.95rem; color: var(--ink-2); max-width: 40rem; }
+
+  /* word strip */
+  .words { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .word { background: var(--bg-raise); padding: 1.1rem 1.15rem 1.05rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .word .w { font-family: var(--mono); font-size: 1.05rem; font-weight: 600; }
+  .word .rec { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; }
+  .word p { font-size: 0.83rem; color: var(--ink-2); line-height: 1.5; }
+  .word.wb .w, .word.wb .rec { color: var(--byom); }
+  .word.wk .w, .word.wk .rec { color: var(--kovee); }
+
+  /* ---------------- product / inbox mockup ---------------- */
+  .mock { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 12px 32px -18px rgba(0,0,0,0.18); }
+  .mock .mnav { display: flex; gap: 0.2rem; align-items: center; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; color: var(--ink-3); overflow-x: auto; }
+  .mock .mnav span { padding: 0.28rem 0.7rem; border-radius: 5px; white-space: nowrap; }
+  .mock .mnav .on { background: var(--kovee-bg); color: var(--kovee-ink); font-weight: 600; }
+  .mock .mnav .mtag { margin-left: auto; padding: 0.28rem 0; font-style: italic; letter-spacing: 0.08em; }
+  .mock .items { display: flex; flex-direction: column; }
+  .mitem { display: flex; gap: 1rem; align-items: flex-start; padding: 1rem 1.1rem; border-top: 1px solid var(--line-soft); transition: opacity 0.6s, transform 0.6s cubic-bezier(0.2, 0.7, 0.3, 1); }
+  .mitem:first-child { border-top: none; }
+  .mitem .chip { flex: none; font-family: var(--mono); font-size: 0.66rem; font-weight: 600; letter-spacing: 0.1em; padding: 0.24rem 0.5rem; border-radius: 4px; margin-top: 0.15rem; }
+  .chip.c-byom { color: var(--byom); background: var(--byom-bg); border: 1px solid var(--byom); }
+  .chip.c-akson { color: var(--akson); background: var(--akson-bg); border: 1px solid var(--akson); }
+  .mitem .mtxt { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+  .mitem .mt { font-size: 0.95rem; font-weight: 700; }
+  .mitem .md { font-size: 0.85rem; color: var(--ink-2); }
+  .mitem .mh { font-family: var(--mono); font-size: 0.7rem; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mitem .act {
+    margin-left: auto; flex: none; align-self: center; appearance: none;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.05em;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    border-radius: 6px; padding: 0.45rem 0.8rem; cursor: default;
+  }
+  .mitem .act:disabled { color: var(--ink); opacity: 1; }
+  @media (max-width: 640px) { .mitem { flex-wrap: wrap; } .mitem .act { margin-left: 0; } }
+  .has-js .mock.reveal-items:not(.in) .mitem { opacity: 0; transform: translateY(10px); }
+  .mock.reveal-items.in .mitem:nth-child(2) { transition-delay: 0.12s; }
+  .mock.reveal-items.in .mitem:nth-child(3) { transition-delay: 0.24s; }
+
+  /* owns / never-becomes */
+  .ownrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr)); gap: 1.4rem 2.2rem; }
+  .ownrow > div { border-top: 1px solid var(--line); padding-top: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .ownrow h3 { font-family: var(--mono); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+  .ownrow p { font-size: 0.92rem; color: var(--ink-2); line-height: 1.6; }
+  .ownrow p b { color: var(--ink); font-weight: 600; }
+
+  /* chain (akson) */
+  .chainline { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 0; align-items: center; font-family: var(--mono); font-size: 0.85rem; }
+  .chainline li { display: flex; align-items: center; }
+  .chainline li + li::before { content: "→"; color: var(--ink-3); padding: 0 0.55rem; }
+  .chainline .c-step { padding: 0.42rem 0.8rem; border: 1px solid var(--akson); color: var(--akson); background: var(--akson-bg); border-radius: 999px; white-space: nowrap; }
+
+  /* ---------------- code / api ---------------- */
+  .codebox { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-dim); overflow: hidden; }
+  .codebox .cbar { display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .codebox pre { margin: 0; padding: 1rem 1.15rem; overflow-x: auto; }
+  .codebox code { font-family: var(--mono); font-size: 0.78rem; line-height: 1.7; color: var(--ink); }
+  .codebox .cm { color: var(--ink-3); }
+  .codebox .ck { color: var(--kovee); }
+  .codebox .cb { color: var(--byom); }
+  .codebox .ca { color: var(--akson); }
+  .apigrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr)); gap: 1rem; align-items: start; }
+  .prims { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .prim { background: var(--bg-raise); padding: 1.05rem 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .prim .pn { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; color: var(--kovee); }
+  .prim p { font-size: 0.83rem; color: var(--ink-2); line-height: 1.5; }
+
+  /* ---------------- status ---------------- */
+  .tracks { display: flex; flex-direction: column; max-width: 46rem; }
+  .track { display: grid; grid-template-columns: 5.5rem 1fr; gap: 1rem; align-items: baseline; border-top: 1px solid var(--line-soft); padding: 0.9rem 0; }
+  .track:first-child { border-top: none; padding-top: 0; }
+  .track .tn { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; }
+  a.tn { text-decoration: none; }
+  a.tn:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .track .tn.tk { color: var(--kovee); } .track .tn.tb { color: var(--byom); } .track .tn.ta { color: var(--akson); }
+  .track .tinfo { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: baseline; }
+  .badge { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid; border-radius: 999px; padding: 0.22rem 0.6rem; white-space: nowrap; }
+  .badge.bg-k { color: var(--kovee); background: var(--kovee-bg); border-color: var(--kovee); }
+  .badge.bg-b { color: var(--byom); background: var(--byom-bg); border-color: var(--byom); }
+  .badge.bg-a { color: var(--akson); background: var(--akson-bg); border-color: var(--akson); }
+  .track .tl { font-family: var(--mono); font-size: 0.7rem; color: var(--ink-3); letter-spacing: 0.05em; }
+
+  /* domain map */
+  .domains { font-family: var(--mono); font-size: 0.82rem; line-height: 2.1; color: var(--ink-2); border: 1px solid var(--line); border-radius: 8px; background: var(--bg-raise); padding: 1.1rem 1.3rem; overflow-x: auto; }
+  .domains b { color: var(--ink); font-weight: 600; }
+  .domains .arr { color: var(--ink-3); }
+  .domains .k { color: var(--kovee); } .domains .b { color: var(--byom); } .domains .a { color: var(--akson); }
+
+  /* pull quote + close */
+  .pull { margin: 0; border-left: 2px solid var(--kovee); padding-left: 1.4rem; max-width: 42rem; font-size: 1.3rem; line-height: 1.5; font-weight: 700; text-wrap: balance; }
+  .close-beats { font-family: var(--serif); font-size: clamp(1.5rem, 4vw, 2.3rem); font-weight: 700; line-height: 1.35; letter-spacing: -0.01em; }
+  .close-beats span { display: block; }
+
+  footer { border-top: 1px solid var(--line-soft); padding: 2.5rem 1.5rem 3.5rem; }
+  footer .wrap { gap: 0.5rem; }
+  footer p { font-size: 0.78rem; color: var(--ink-3); font-family: var(--mono); line-height: 1.8; }
+
+  /* ---------------- line-drawn figures ---------------- */
+  figure { margin: 0; }
+  figcaption { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); margin-top: 0.6rem; letter-spacing: 0.04em; }
+  .fig { width: 100%; height: auto; display: block; }
+  .fig .wire { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fig .lblm { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.05em; fill: var(--ink-2); }
+  .fig .lbldim { fill: var(--ink-3); }
+  .fig .lk { fill: var(--kovee); }
+  .fig .lb { fill: var(--byom); }
+  .fig .la { fill: var(--akson); }
+  .fig .nodefill { fill: var(--bg-raise); stroke: var(--ink); stroke-width: 1.8; }
+  @media (max-width: 700px) {
+    figure.scrollable { overflow-x: auto; }
+    figure.scrollable .fig { min-width: 36rem; }
+  }
+
+  /* lens switcher (Spaces) */
+  .spacescols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 2.5rem; align-items: center; }
+  @media (max-width: 860px) { .spacescols { grid-template-columns: 1fr; } }
+  .lenses { display: none; gap: 0.6rem; flex-wrap: wrap; }
+  .has-js .lenses { display: flex; }
+  .lens-btn { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.05em; border: 1px solid var(--line); border-radius: 999px; padding: 0.42rem 0.95rem; color: var(--ink-2); background: none; cursor: pointer; }
+  .lens-btn:hover { border-color: var(--ink-3); }
+  .lens-btn[aria-pressed="true"] { border-color: var(--kovee); color: var(--kovee); box-shadow: inset 0 0 0 1px var(--kovee); }
+  .lensgroup { display: none; }
+  .lensgroup.on { display: block; }
+  .anchorline { border-left: 2px solid var(--kovee); padding-left: 1.1rem; font-weight: 700; font-size: 1.05rem; }
+  .anchorline em { font-style: normal; color: var(--kovee); }
+  .s-byom-anchor { border-left-color: var(--byom); } .s-byom-anchor em { color: var(--byom); }
+
+  /* the running example */
+  .story {
+    border: 1px solid var(--line); border-left: 3px solid var(--kovee);
+    border-radius: 0 8px 8px 0; background: var(--bg-raise);
+    padding: 1.05rem 1.25rem; max-width: 44rem;
+    display: flex; flex-direction: column; gap: 0.4rem;
+  }
+  .story .slabel { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--kovee); }
+  .story p { font-size: 0.95rem; color: var(--ink-2); line-height: 1.65; }
+  .story p b { color: var(--ink); font-weight: 600; }
+  .story .m { font-family: var(--mono); font-size: 0.85em; }
+  .codaline { font-style: italic; color: var(--ink-2); max-width: 40rem; font-size: 1.05rem; }
+
+  /* act two: the scenario under stress */
+  .moments { display: flex; flex-direction: column; gap: 1.5rem; max-width: 46rem; }
+  .moment { border-left: 2px solid var(--line); padding-left: 1.15rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .moment.m-k { border-left-color: var(--kovee); }
+  .moment.m-b { border-left-color: var(--byom); }
+  .moment.m-a { border-left-color: var(--akson); }
+  .moment .mo { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+  .moment.m-k .mo { color: var(--kovee); }
+  .moment.m-b .mo { color: var(--byom); }
+  .moment.m-a .mo { color: var(--akson); }
+  .moment h3 { font-size: 1.05rem; }
+  .moment p { font-size: 0.93rem; color: var(--ink-2); line-height: 1.6; }
+  .mchips { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.3rem; }
+  .mchip { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.06em; border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.6rem; color: var(--ink-2); background: var(--bg-raise); }
+
+  /* neq glyphs */
+  .neq-row svg { width: 150px; height: auto; flex: none; align-self: center; margin-left: auto; }
+  @media (max-width: 620px) { .neq-row svg { display: none; } }
+
+  /* wide figure with a compact fallback on small screens */
+  .bigfig { display: block; }
+  .smallchain { display: none; }
+  @media (max-width: 800px) {
+    .bigfig { display: none; }
+    .smallchain { display: flex; }
+  }
+
+  /* draw-in animation for figure strokes (needs pathLength="1" on the path) */
+  .has-js .reveal .drawable { stroke-dasharray: 1; stroke-dashoffset: 1; }
+  .has-js .reveal.in .drawable { animation: drawpath 1.2s ease forwards; }
+  .has-js .reveal.in .drawable.d2 { animation-delay: 0.5s; }
+  .has-js .reveal.in .drawable.d3 { animation-delay: 1s; }
+  .has-js .reveal.in .drawable.dlate { animation-delay: 1.3s; }
+  @keyframes drawpath { to { stroke-dashoffset: 0; } }
+  .has-js .reveal .fadein { opacity: 0; }
+  .has-js .reveal.in .fadein { animation: fadeinp 0.5s ease forwards; animation-delay: 1.1s; }
+  .has-js .reveal.in .fadein.ph2 { animation-delay: 1.6s; }
+  .has-js .reveal.in .fadein.ph3 { animation-delay: 1.9s; }
+  .has-js .reveal.in .fadein.ph4 { animation-delay: 2.3s; }
+  .has-js .reveal.in .fadein.ph5 { animation-delay: 2.7s; }
+  @keyframes fadeinp { to { opacity: 1; } }
+
+  /* ---------------- motion ---------------- */
+  .reveal { transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.7, 0.3, 1); }
+  .has-js .reveal:not(.in) { opacity: 0; transform: translateY(16px); }
+  .has-js .strands path { stroke-dasharray: 1400; }
+  .has-js .strands:not(.in) path { stroke-dashoffset: 1400; }
+  .has-js .strands.in path { stroke-dashoffset: 0; transition: stroke-dashoffset 2.4s cubic-bezier(0.3, 0, 0.2, 1); }
+  .has-js .strands.in path.s-b { transition-delay: 0.25s; }
+  .has-js .strands.in path.s-a { transition-delay: 0.5s; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .reveal, .mitem, .neq-row .lhs, .neq-row .rhs, .neq-row .op, .step { transition: none; }
+    .has-js .reveal:not(.in) { opacity: 1; transform: none; }
+    .has-js .neq:not(.in) .neq-row .lhs, .has-js .neq:not(.in) .neq-row .rhs { transform: none; opacity: 1; }
+    .has-js .neq:not(.in) .neq-row .op { opacity: 1; }
+    .has-js .mock.reveal-items:not(.in) .mitem { opacity: 1; transform: none; }
+    .has-js .strands path { stroke-dasharray: none; stroke-dashoffset: 0; transition: none; }
+    .has-js .reveal .drawable, .has-js .reveal.in .drawable { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+    .has-js .reveal .fadein, .has-js .reveal.in .fadein { opacity: 1; animation: none; }
+    .loopfig .pulse { display: none; }
+  }
+  @media print {
+    header.top { position: static; }
+    .has-js .reveal:not(.in) { opacity: 1; transform: none; }
+    .has-js .neq:not(.in) .neq-row .lhs, .has-js .neq:not(.in) .neq-row .rhs,
+    .has-js .neq:not(.in) .neq-row .op { opacity: 1; transform: none; }
+    .has-js .mock.reveal-items:not(.in) .mitem { opacity: 1; transform: none; }
+    .has-js .strands path { stroke-dasharray: none; stroke-dashoffset: 0; }
+    .has-js .reveal .drawable, .has-js .reveal.in .drawable { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+    .has-js .reveal .fadein, .has-js .reveal.in .fadein { opacity: 1; animation: none; }
+    .loopfig .pulse { display: none; }
+  }
+</style>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="bar">
+    <a class="wordmark" href="#top">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
+        <path d="M3 4C8 4 8 9 12 9s4-5 9-5" stroke="var(--kovee)"/>
+        <path d="M3 12h18"/>
+        <path d="M3 20c5 0 5-5 9-5s4 5 9 5"/>
+      </svg>
+      <span>kovee<span class="dot">.</span></span>
+    </a>
+    <nav aria-label="Primary">
+      <a href="#questions">Overview</a>
+      <a href="#spaces">Spaces</a>
+      <a href="#journey">How it works</a>
+      <a href="#byom">Byom</a>
+      <a href="#akson">Akson</a>
+      <a href="#api">API</a>
+      <a href="#status">Status</a>
+      <a href="https://github.com/zarbafian/kovee">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-kovee">Kovee — sovereign collaboration for people and agents</p>
+      <h1>Together, without becoming one.</h1>
+    </div>
+    <p class="promise reveal">
+      Kovee is a proposed collaboration architecture for people and agents that do
+      not share an operator, credentials, context, or authority — designed to turn
+      a shared situation into accountable work, with goals, permissions, actions,
+      and results explicit and traceable.
+    </p>
+    <p class="beats reveal"><span>Explore together</span><span>Commit explicitly</span><span>Act within bounds</span><span>Exchange with receipts</span></p>
+    <svg class="strands" viewBox="0 0 760 150" aria-hidden="true">
+      <path class="s-k" d="M 10 30  C 200 30, 260 68, 380 68 C 500 68, 560 30, 750 30" />
+      <path class="s-b" d="M 10 75  C 200 75, 260 75, 380 75 C 500 75, 560 75, 750 75" />
+      <path class="s-a" d="M 10 120 C 200 120, 260 82, 380 82 C 500 82, 560 120, 750 120" />
+    </svg>
+    <p class="note reveal"><strong>Design target, not a shipped unified product.</strong> Akson: developer preview · Kovee &amp; Byom: implementation underway · <a href="#status">full status</a></p>
+  </div>
+</section>
+
+<!-- ================= THREE QUESTIONS ================= -->
+<section id="questions">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow">One product, three questions</p>
+      <h2>Every shared effort asks three different questions.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Blur them into one chat window and accountability dissolves. Kovee keeps
+        them separate — and answers each with a part of the system built to own
+        exactly that question, and nothing more.
+      </p>
+    </div>
+    <div class="qgrid reveal">
+      <div class="qcard q-kovee">
+        <h3 class="q">What are we working on, and what matters right now?</h3>
+        <p class="a">A durable shared Space where people and agents make goals, questions, claims, evidence, alternatives, and results visible — and where an assistant is invoked explicitly, with an exact record of the context supplied to it.</p>
+        <p class="owner">Kovee · shared work &amp; execution</p>
+      </div>
+      <div class="qcard q-byom">
+        <h3 class="q">Who committed to what — and what may they actually do?</h3>
+        <p class="a">Voluntary, attributable commitments and bounded authority. Saying "I can" is never the same as "I may," "I will," or "it's accepted" — each stays a separate, inspectable record.</p>
+        <p class="owner">Byom · authority &amp; accountability</p>
+      </div>
+      <div class="qcard q-akson">
+        <h3 class="q">What may cross to someone we don't control?</h3>
+        <p class="a">Exact, signed contracts and results that move between independently run installations — without shared credentials, and with results the recipient can validate against the signed contract.</p>
+        <p class="owner">Akson · sovereign exchange</p>
+      </div>
+    </div>
+    <div class="prose reveal">
+      <p>
+        Kovee is the proposed product doorway and shared-work layer: it composes
+        Byom and Akson into one experience — one inbox, one SDK, one provenance
+        view — while each system remains authoritative for its own records. That
+        separation is not an implementation detail; it is what makes the answers
+        trustworthy.
+      </p>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 1 of 8</p>
+      <p>
+        <b>An illustrative scenario for the proposed design — not a product
+        demonstration.</b> Release 4.2 is blocked by intermittent payments-test
+        failures. Across this page, one small cast takes that bug from open
+        question to accepted fix: <b>Mara</b>, a release engineer; <b>@scout</b>,
+        her team's hosted assistant; <b>Jun</b>, a teammate with doubts about the
+        fix; and <b>atelier</b>, an independent review firm her company doesn't
+        operate. Watch for the same identifiers as you scroll: pledge
+        <span class="m">pl-142</span>, exchange <span class="m">ex-9</span> — and
+        Jun's dissent, which will matter.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SPACES ================= -->
+<section id="spaces">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-kovee">The product · Spaces</p>
+      <h2>A shared situation, not another chat.</h2>
+    </div>
+    <div class="spacescols reveal">
+      <div class="prose" style="max-width: none">
+        <p class="lede">
+          Questions, claims, evidence, alternatives, results — a durable Space
+          holds typed contributions and their relations. The records stay fixed;
+          only the lens changes.
+        </p>
+        <p>
+          The familiar chat stream is one lens among several. Switch to branches
+          and the kept alternatives appear; switch to provenance and every record
+          traces to its origin. A lens changes presentation — never visibility,
+          never authority.
+        </p>
+        <div class="lenses" role="group" aria-label="Choose a lens">
+          <button class="lens-btn" data-lens="conv" aria-pressed="true" aria-controls="lens-conv" type="button">conversation</button>
+          <button class="lens-btn" data-lens="branch" aria-pressed="false" aria-controls="lens-branch" type="button">branches</button>
+          <button class="lens-btn" data-lens="prov" aria-pressed="false" aria-controls="lens-prov" type="button">provenance</button>
+        </div>
+        <p class="anchorline">Fork the reasoning. <em>Preserve the provenance.</em></p>
+      </div>
+      <figure class="scrollable">
+        <svg class="fig" viewBox="0 0 620 300" role="img" aria-label="A fixed contribution graph — question, claim, evidence, two alternatives, result — viewed through three switchable lenses.">
+          <defs>
+            <marker id="karr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-2)"/>
+            </marker>
+            <marker id="karr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="var(--kovee)"/>
+            </marker>
+          </defs>
+          <!-- branches lens -->
+          <g class="lensgroup" id="lens-branch" data-lens="branch" aria-hidden="true">
+            <rect x="340" y="48" width="220" height="86" rx="16" fill="var(--kovee)" opacity="0.10"/>
+            <rect x="340" y="48" width="220" height="86" rx="16" fill="none" stroke="var(--kovee)" opacity="0.5"/>
+            <rect x="340" y="168" width="100" height="86" rx="16" fill="var(--kovee)" opacity="0.16"/>
+            <rect x="340" y="168" width="100" height="86" rx="16" fill="none" stroke="var(--kovee)" opacity="0.6"/>
+            <text class="lblm lk" x="310" y="284" text-anchor="middle">alternative kept — both branches stay visible</text>
+          </g>
+          <!-- fixed records -->
+          <g>
+            <path class="wire" stroke="var(--ink-2)" stroke-width="1.4" d="M100 150 H198" marker-end="url(#karr)"/>
+            <path class="wire" stroke="var(--ink-2)" stroke-width="1.4" d="M220 72 V128" marker-end="url(#karr)"/>
+            <path class="wire" stroke="var(--ink-2)" stroke-width="1.4" d="M239 143 L359 98" marker-end="url(#karr)"/>
+            <path class="wire" stroke="var(--ink-2)" stroke-width="1.4" d="M239 157 L359 202" marker-end="url(#karr)"/>
+            <path class="wire" stroke="var(--ink-2)" stroke-width="1.4" d="M400 90 H498" marker-end="url(#karr)"/>
+            <circle class="nodefill" cx="80" cy="150" r="20"/>
+            <circle class="nodefill" cx="220" cy="150" r="20"/>
+            <circle class="nodefill" cx="220" cy="50" r="20"/>
+            <circle class="nodefill" cx="380" cy="90" r="20"/>
+            <circle class="nodefill" cx="380" cy="210" r="20"/>
+            <circle class="nodefill" cx="520" cy="90" r="20"/>
+            <g font-weight="700" font-size="13" fill="var(--ink)" text-anchor="middle" font-family="var(--mono)">
+              <text x="80" y="155">Q</text><text x="220" y="155">C</text><text x="220" y="55">E</text>
+              <text x="380" y="95">A₁</text><text x="380" y="215">A₂</text><text x="520" y="95">R</text>
+            </g>
+            <g class="lblm lbldim" text-anchor="middle">
+              <text x="80" y="186">question</text><text x="220" y="186">claim</text><text x="220" y="20">evidence</text>
+              <text x="380" y="126">alternative</text><text x="380" y="246">alternative</text><text x="520" y="126">result</text>
+            </g>
+          </g>
+          <!-- conversation lens -->
+          <g class="lensgroup on" id="lens-conv" data-lens="conv" aria-hidden="false">
+            <path d="M80 150 C 140 210, 180 90, 220 50 C 260 90, 200 190, 220 150 C 300 120, 330 100, 380 90 C 400 150, 390 180, 380 210 C 440 170, 470 110, 520 90"
+                  fill="none" stroke="var(--kovee)" stroke-width="8" opacity="0.13" stroke-linecap="round"/>
+            <g font-size="10.5" font-weight="700" text-anchor="middle" font-family="var(--mono)">
+              <g fill="var(--kovee)">
+                <circle cx="96" cy="132" r="9"/><circle cx="204" cy="32" r="9"/>
+                <circle cx="236" cy="132" r="9"/><circle cx="396" cy="72" r="9"/>
+                <circle cx="396" cy="192" r="9"/><circle cx="536" cy="72" r="9"/>
+              </g>
+              <g fill="var(--bg-raise)">
+                <text x="96" y="136">1</text><text x="204" y="36">2</text><text x="236" y="136">3</text>
+                <text x="396" y="76">4</text><text x="396" y="196">5</text><text x="536" y="76">6</text>
+              </g>
+            </g>
+            <text class="lblm lk" x="80" y="284">a reading order — not the canonical world model</text>
+          </g>
+          <!-- provenance lens -->
+          <g class="lensgroup" id="lens-prov" data-lens="prov" aria-hidden="true">
+            <path d="M498 90 H402" fill="none" stroke="var(--kovee)" stroke-width="2.6" marker-end="url(#karr2)"/>
+            <path d="M359 98 L241 142" fill="none" stroke="var(--kovee)" stroke-width="2.6" marker-end="url(#karr2)"/>
+            <path d="M198 150 H102" fill="none" stroke="var(--kovee)" stroke-width="2.6" marker-end="url(#karr2)"/>
+            <path d="M220 128 V74" fill="none" stroke="var(--kovee)" stroke-width="2.6" marker-end="url(#karr2)"/>
+            <circle cx="80" cy="150" r="27" fill="none" stroke="var(--kovee)" stroke-width="1.4" stroke-dasharray="4 4"/>
+            <text class="lblm lk" x="330" y="284">every record traces to its origin</text>
+          </g>
+        </svg>
+        <figcaption>the records stay fixed; the lens changes</figcaption>
+      </figure>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 2 of 8</p>
+      <p>
+        The graph above is Mara's Space. <b>Q</b> is "why do the payments tests
+        fail?" — @scout, invoked explicitly under an attention contract with an
+        exact record of what it was shown, contributes claim <b>C</b>, "the retry
+        logic races the ledger commit," pinned to CI-log evidence <b>E</b>. The
+        candidate fixes are branches <b>A₁</b> and <b>A₂</b>. A₂ is Jun's — with
+        a recorded concern about what a retry does on timeout. A₁ becomes
+        <span class="m">patch.v1</span> — result <b>R</b> — and A₂ stays in the
+        record, attributed and intact.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PRODUCT ================= -->
+<section id="product">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-kovee">The product · Inbox</p>
+      <h2>One inbox to read. No generic approve.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Ordinary navigation is deliberately small — <strong>Spaces, Work, Inbox,
+        Connections, Activity</strong>. The Inbox is designed to gather every
+        decision waiting on you into one view.
+      </p>
+      <p>
+        But there is no <em>Approve all</em> button, by design. Each item carries its
+        actual owner, and each button submits that owner's exact, typed action over
+        the precise revision you are looking at. A unified surface — never a
+        unified authority.
+      </p>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 3 of 8</p>
+      <p>
+        For the first delivery, Mara's inbox presents these decisions <b>in
+        sequence</b>: a position on pledge <span class="m">pl-142</span>, local
+        consent to dispatch exchange <span class="m">ex-9</span>, and — only after
+        atelier's findings return — the review. The mockup groups that
+        first-delivery sequence into one static composite; the items are not
+        simultaneous, and none advances without her exact, typed answer.
+      </p>
+    </div>
+    <div class="mock reveal reveal-items">
+      <div class="mnav"><span>Spaces</span><span>Work</span><span class="on">Inbox</span><span>Connections</span><span>Activity</span><span class="mtag">static composite</span></div>
+      <div class="items">
+        <div class="mitem">
+          <span class="chip c-byom">BYOM</span>
+          <div class="mtxt">
+            <p class="mt">Position requested — pledge pl-142</p>
+            <p class="md">patch.v1 for the payments retry race · frontier sf-7 · budget and deadline shown exactly</p>
+            <p class="mh">subject sha256:9f2c…e1 · rev 3 · expires in 2 d</p>
+          </div>
+          <button class="act" type="button" disabled>Take position</button>
+        </div>
+        <div class="mitem">
+          <span class="chip c-akson">AKSON</span>
+          <div class="mtxt">
+            <p class="mt">Local consent — exchange ex-9</p>
+            <p class="md">Send the patch diff to atelier for independent review · 8 KB · no credentials leave this machine</p>
+            <p class="mh">contract sha256:41ab…77 · peer pinned 2026-05-02</p>
+          </div>
+          <button class="act" type="button" disabled>Review &amp; consent</button>
+        </div>
+        <div class="mitem">
+          <span class="chip c-byom">BYOM</span>
+          <div class="mtxt">
+            <p class="mt">Review — atelier's findings for pl-142</p>
+            <p class="md">Evidence verified · decide whether the delivery satisfies the pledged terms</p>
+            <p class="mh">delivery sha256:c8d0…3f · verification green</p>
+          </div>
+          <button class="act" type="button" disabled>Record review</button>
+        </div>
+      </div>
+    </div>
+    <div class="prose reveal">
+      <p>
+        The same discipline is designed into recovery: every view resumes from a
+        durable cursor, so nothing depends on a socket staying alive. Close the
+        tab, switch devices, lose the network — the live connection is an
+        optimization; the record is the truth.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= JOURNEY ================= -->
+<section id="journey">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow">How it works</p>
+      <h2>One journey, every boundary intact.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Work in Kovee moves in a cycle, not a pipeline. Each step is stamped with
+        the system that owns it — and no step can impersonate the next.
+      </p>
+    </div>
+    <div class="journey reveal">
+      <svg class="loopfig" id="loopfig" viewBox="0 0 640 430" aria-hidden="true">
+        <ellipse class="ring" cx="320" cy="215" rx="240" ry="160" />
+        <g id="loopnodes"></g>
+        <circle class="pulse" id="looppulse" r="5" cx="320" cy="55" />
+      </svg>
+      <ol class="steps" id="loopsteps">
+        <li class="step w-k" data-i="0">
+          <span class="sn" aria-hidden="true">1</span>
+          <div><p class="so">Kovee</p><h3 class="st">Explore together</h3><p class="sd">A question becomes visible in a shared Space; people and agents contribute context.</p></div>
+        </li>
+        <li class="step w-b" data-i="1">
+          <span class="sn" aria-hidden="true">2</span>
+          <div><p class="so">Byom</p><h3 class="st">Commit &amp; authorize</h3><p class="sd">A participant pledges to an outcome; a bounded mandate says what it may do.</p></div>
+        </li>
+        <li class="step w-k" data-i="2">
+          <span class="sn" aria-hidden="true">3</span>
+          <div><p class="so">Kovee</p><h3 class="st">Execute locally</h3><p class="sd">A confined run receives only explicitly recorded context, not ambient access.</p></div>
+        </li>
+        <li class="step w-a" data-i="3">
+          <span class="sn" aria-hidden="true">4</span>
+          <div><p class="so">Akson</p><h3 class="st">Cross a sovereign edge</h3><p class="sd">If work involves an independent installation, a signed contract crosses; consent stays local on each side.</p></div>
+        </li>
+        <li class="step w-k" data-i="4">
+          <span class="sn" aria-hidden="true">5</span>
+          <div><p class="so">Kovee</p><h3 class="st">Admit evidence</h3><p class="sd">Results return with receipts; every byte is checked against what was signed before it is admitted.</p></div>
+        </li>
+        <li class="step w-b" data-i="5">
+          <span class="sn" aria-hidden="true">6</span>
+          <div><p class="so">Byom</p><h3 class="st">Review fulfillment</h3><p class="sd">A delivery is not acceptance: a reviewer decides whether the delivery satisfies the pledged terms and records that judgment.</p></div>
+        </li>
+      </ol>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 4 of 8</p>
+      <p>
+        One lap of the loop, in the scenario: Mara's question surfaces <b>(1)</b>.
+        @scout pledges <span class="m">patch.v1</span>, and a separately issued
+        payments-only mandate bounds what it may do <b>(2)</b>. A confined run
+        produces the patch <b>(3)</b>. The diff crosses to atelier for independent
+        review <b>(4)</b>. Findings and signed evidence return and are verified
+        <b>(5)</b>. Mara accepts — or doesn't — against the pledged terms <b>(6)</b>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DISTINCTIONS ================= -->
+<section id="distinctions">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow">Why it can be trusted</p>
+      <h2>Words keep their meaning here.</h2>
+    </div>
+    <div class="neq reveal" id="neq">
+      <div class="neq-row"><span class="lhs">A message</span><span class="op">is not</span><span class="rhs">authority.</span>
+        <svg viewBox="0 0 230 64" aria-hidden="true">
+          <path d="M8 32 L70 32 L214 14" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+          <path d="M8 32 L70 32 L214 50" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-dasharray="5 5"/>
+          <circle cx="214" cy="14" r="3.5" fill="var(--ink)"/>
+          <circle cx="214" cy="50" r="3.5" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="neq-row"><span class="lhs">Attention</span><span class="op">is not</span><span class="rhs">obligation.</span>
+        <svg viewBox="0 0 230 64" aria-hidden="true">
+          <path d="M8 32 L70 32 L214 14" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+          <path d="M8 32 L70 32 L214 50" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-dasharray="5 5"/>
+          <circle cx="214" cy="14" r="3.5" fill="var(--ink)"/>
+          <circle cx="214" cy="50" r="3.5" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="neq-row"><span class="lhs">Delivery</span><span class="op">is not</span><span class="rhs">acceptance.</span>
+        <svg viewBox="0 0 230 64" aria-hidden="true">
+          <path d="M8 32 L70 32 L214 14" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+          <path d="M8 32 L70 32 L214 50" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-dasharray="5 5"/>
+          <circle cx="214" cy="14" r="3.5" fill="var(--ink)"/>
+          <circle cx="214" cy="50" r="3.5" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <p class="neq-cap">
+        Many agent products compress collaboration, permission, execution, and
+        success into one conversational gesture. Kovee begins by refusing that
+        compression — no inbound message, model output, or signature can
+        manufacture consent, a commitment, or a "done."
+      </p>
+    </div>
+    <div class="words reveal">
+      <div class="word wb"><span class="w">may</span><span class="rec">mandate</span><p>Permission for a bounded class of action. Not agreement to act.</p></div>
+      <div class="word wb"><span class="w">will</span><span class="rec">pledge</span><p>A voluntary, attributable commitment to an exact outcome.</p></div>
+      <div class="word wk"><span class="w">doing</span><span class="rec">run</span><p>One bounded attempt is underway — nothing more is implied.</p></div>
+      <div class="word wk"><span class="w">did</span><span class="rec">delivery</span><p>A claim that outputs and evidence were produced.</p></div>
+      <div class="word wk"><span class="w">checked</span><span class="rec">verification</span><p>Named checks passed on exact bytes. Still not acceptance.</p></div>
+      <div class="word wb"><span class="w">accepted</span><span class="rec">review</span><p>A reviewer decided the delivery satisfies the pledged terms.</p></div>
+    </div>
+    <div class="prose reveal">
+      <p>
+        Six small words, six separate records — and no API, screen, or convenience
+        workflow is allowed to collapse them into a generic "approved" flag. That is
+        a core part of the interaction model, stated plainly.
+      </p>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 5 of 8</p>
+      <p>
+        In the example, the six words are six records. @scout <b>may</b> touch the
+        payments module — its mandate says so, and nothing more. It pledged it
+        <b>will</b> deliver <span class="m">patch.v1</span>. A run means it is
+        <b>doing</b> the work. Its delivery claims it <b>did</b>. Verification
+        shows the bytes <b>checked</b>. Only Mara's review makes it <b>accepted</b>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BYOM ================= -->
+<section id="byom">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-byom">Byom · accountable agency</p>
+      <h2>A society, not a managed swarm.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Byom is the authority layer: a deterministic governance kernel through which
+        humans, agents, and formed collectives make voluntary pledges, receive
+        bounded mandates, and act accountably.
+      </p>
+      <p>
+        It is not the intelligence above a swarm. It never calls a model, invents a
+        plan, or picks a worker. A call <em>invites</em> — it cannot assign. Delegated
+        authority only ever narrows. And the root authority in every society remains,
+        explicitly, human.
+      </p>
+    </div>
+    <figure class="reveal scrollable" style="max-width: 40rem">
+      <svg class="fig" viewBox="160 30 700 300" role="img" aria-label="Participants of different kinds — humans, agents, bounded collectives — form a voluntary open ring around a call that no one owns. A mandate ring bounds one exact act; dissent is retained.">
+        <g fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-linecap="round">
+          <path class="drawable" pathLength="1" d="M429 62 L443 129"/>
+          <path class="drawable" pathLength="1" d="M346 110 L414 149"/>
+          <path class="drawable d2" pathLength="1" d="M337 211 L410 184"/>
+          <path class="drawable d2" pathLength="1" d="M409 283 L436 209"/>
+          <path class="drawable d3" pathLength="1" d="M510 274 L471 206"/>
+          <path class="drawable d3" pathLength="1" d="M568 191 L491 177"/>
+        </g>
+        <circle cx="450" cy="170" r="16" fill="none" stroke="var(--ink-2)" stroke-width="1.4" stroke-dasharray="4 4"/>
+        <text class="lblm lbldim" x="450" y="174" text-anchor="middle">call</text>
+        <g fill="var(--bg-raise)" stroke="var(--ink)" stroke-width="1.8">
+          <circle cx="429" cy="52" r="13"/>
+          <rect x="334" y="98" width="24" height="24"/>
+          <polygon points="352,211 344.5,198 329.5,198 322,211 329.5,224 344.5,224"/>
+          <circle cx="409" cy="283" r="13"/>
+          <rect x="498" y="262" width="24" height="24"/>
+          <circle cx="568" cy="191" r="13"/>
+        </g>
+        <circle class="fadein" cx="510" cy="274" r="22" fill="none" stroke="var(--byom)" stroke-width="1.3"/>
+        <circle class="fadein" cx="510" cy="274" r="29" fill="none" stroke="var(--byom)" stroke-width="1" stroke-dasharray="2 4"/>
+        <text class="lblm lb" x="548" y="308">mandate · budget — around the exact act</text>
+        <text class="lblm lbldim" x="352" y="176">pledge</text>
+        <polygon class="fadein" points="480,215 487,222 480,229 473,222" fill="var(--byom)"/>
+        <text class="lblm lb" x="494" y="226">review</text>
+        <path d="M346 110 L312 78" fill="none" stroke="var(--ink-3)" stroke-width="1.4"/>
+        <circle cx="308" cy="74" r="4.5" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+        <text class="lblm lbldim" x="298" y="58" text-anchor="end">dissent, retained</text>
+        <text class="lblm lbldim" x="548" y="92">open ring — refuse, leave, return</text>
+      </svg>
+      <figcaption>○ human · □ agent · ⬡ bounded collective — every line separately traceable; no pooled halo</figcaption>
+    </figure>
+    <div class="prose reveal">
+      <p class="anchorline s-byom-anchor">The plan is a lens. <em>The pledge is attributable.</em></p>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 6 of 8</p>
+      <p>
+        Nobody assigned @scout. Mara initiated an endeavor from the Space's
+        recorded frontier <span class="m">sf-7</span> and opened a call for
+        offers. Another hosted assistant never answered at all — an invitation
+        obligates no one. @scout's own assent created pledge
+        <span class="m">pl-142</span>; a <b>separate, authorized decision</b>
+        issued the payments-only mandate — the pledge itself grants no
+        permission.
+      </p>
+    </div>
+    <div class="ownrow reveal">
+      <div>
+        <h3>Owns</h3>
+        <p>Societies, standing, assemblies, endeavors, calls, <b>pledges</b>, <b>mandates</b>, decisions, governed episodes, and institutional memory.</p>
+      </div>
+      <div>
+        <h3>Never becomes</h3>
+        <p>The planner, the model host, the worker picker, or the effect runner. Intelligence stays at the edges; the kernel stays deterministic.</p>
+      </div>
+      <div>
+        <h3>Where you see it</h3>
+        <p>On decisions, receipts, and provenance — the <b>BYOM</b> stamp on an inbox item tells you exactly whose rules are being applied.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= AKSON ================= -->
+<section id="akson">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-akson">Akson · sovereign connection · <span style="text-transform:none"><a href="https://akson.cc">akson.cc</a></span></p>
+      <h2>Connected; authority stays local.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Akson is the edge: signed work crosses between independently administered
+        installations while authority stays local and the return stays checkable.
+      </p>
+      <p>
+        Two endpoints pair directly — no hosted account, no relay — and everything
+        that crosses is a signed contract or its signed result. Arrival is quiet:
+        receiving a task never starts a model, never grants access, never runs
+        anything. Each side decides for itself.
+      </p>
+    </div>
+    <figure class="reveal bigfig">
+      <svg class="fig" viewBox="0 0 900 300" role="img" aria-label="A signed request crosses a sovereign boundary, arrives inert, receives a local decision, runs as bounded work, and returns as a checkable, signed result with a receipt.">
+        <defs>
+          <marker id="arr-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--akson)"/>
+          </marker>
+        </defs>
+        <rect x="30" y="95" width="130" height="80" rx="10" fill="none" stroke="var(--akson)" stroke-width="2"/>
+        <text class="lblm la" x="95" y="128" text-anchor="middle">your endpoint</text>
+        <text class="lblm lbldim" x="95" y="148" text-anchor="middle">asks</text>
+        <rect x="740" y="95" width="130" height="80" rx="10" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+        <text class="lblm" x="805" y="128" text-anchor="middle">their endpoint</text>
+        <text class="lblm lbldim" x="805" y="148" text-anchor="middle">decides for itself</text>
+        <g stroke="var(--line)" stroke-width="1" fill="var(--bg-dim)">
+          <rect x="440" y="34" width="18" height="82"/>
+          <rect x="440" y="140" width="18" height="64"/>
+          <rect x="440" y="244" width="18" height="26"/>
+        </g>
+        <text class="lblm lbldim" x="449" y="24" text-anchor="middle">sovereign boundary</text>
+        <path class="wire drawable" pathLength="1" d="M160 132 H466" stroke="var(--akson)"/>
+        <polygon class="fadein" points="470,132 459,127 459,137" fill="var(--akson)"/>
+        <text class="lblm la" x="295" y="118" text-anchor="middle">signed request</text>
+        <rect class="fadein" x="470" y="110" width="92" height="44" rx="6" fill="none" stroke="var(--ink-2)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text class="lblm lbldim" x="516" y="172" text-anchor="middle">inert arrival — data, not permission</text>
+        <path class="wire drawable dlate" pathLength="1" d="M562 132 H588" stroke="var(--ink-2)"/>
+        <polygon class="fadein ph2" points="612,110 634,132 612,154 590,132" fill="none" stroke="var(--akson)" stroke-width="2"/>
+        <text class="lblm la" x="612" y="94" text-anchor="middle">local decision</text>
+        <path class="wire drawable dlate" pathLength="1" d="M634 132 H654" stroke="var(--ink-2)"/>
+        <circle class="fadein ph3" cx="688" cy="132" r="21" fill="none" stroke="var(--akson)" stroke-width="2"/>
+        <circle class="fadein ph3" cx="688" cy="132" r="30" fill="none" stroke="var(--akson)" stroke-width="1" stroke-dasharray="3 5"/>
+        <path class="wire drawable dlate" pathLength="1" d="M718 132 H740" stroke="var(--ink-2)"/>
+        <text class="lblm lbldim" x="688" y="188" text-anchor="middle">bounded work</text>
+        <path class="wire fadein ph4" d="M805 175 V232 H180" stroke="var(--akson)" stroke-dasharray="6 5" marker-end="url(#arr-a)"/>
+        <text class="lblm lbldim" x="330" y="218" text-anchor="start">checkable return — exact bytes, attributable signed result</text>
+        <g class="fadein ph5">
+          <rect x="120" y="212" width="44" height="32" rx="4" fill="var(--bg-raise)" stroke="var(--ink)" stroke-width="1.5"/>
+          <line x1="128" y1="222" x2="156" y2="222" stroke="var(--ink)" stroke-width="1.1"/>
+          <line x1="128" y1="229" x2="148" y2="229" stroke="var(--ink)" stroke-width="1.1"/>
+          <path d="M128 237 q5 -4 10 0 q5 4 10 0" fill="none" stroke="var(--akson)" stroke-width="1.4"/>
+        </g>
+        <text class="lblm lbldim" x="450" y="292" text-anchor="middle" font-style="italic">the wire never becomes permission</text>
+      </svg>
+      <figcaption>signed request → inert arrival → local decision → bounded work → checkable return</figcaption>
+    </figure>
+    <ol class="chainline smallchain reveal" aria-label="Akson exchange sequence">
+      <li><span class="c-step">signed request</span></li>
+      <li><span class="c-step">inert arrival</span></li>
+      <li><span class="c-step">local decision</span></li>
+      <li><span class="c-step">bounded work</span></li>
+      <li><span class="c-step">checkable return</span></li>
+    </ol>
+    <div class="ownrow reveal">
+      <div>
+        <h3>Owns</h3>
+        <p>Endpoint identity and pairing, exchange-specific <b>local consent</b>, signed contracts, and result-and-evidence carriage with independent validation.</p>
+      </div>
+      <div>
+        <h3>Never becomes</h3>
+        <p>An orchestrator or an ambient remote shell. The design requires approved work to run in a sandbox limited to supplied inputs — no network access, no host filesystem.</p>
+      </div>
+      <div>
+        <h3>Where you see it</h3>
+        <p>On connections and exchanges — the <b>AKSON</b> stamp means a sovereign boundary was crossed, with receipts you can re-verify yourself.</p>
+      </div>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 7 of 8</p>
+      <p>
+        The outbound payload contains only the 8&nbsp;KB diff — no credentials, no
+        repository access. atelier receives the signed request as inert data and
+        consents independently before its own agent analyzes the diff in a
+        confined sandbox. Findings return with signed evidence, and Mara's
+        endpoint re-verifies every digest before anything is admitted as exchange
+        <span class="m">ex-9</span>'s result.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= API ================= -->
+<section id="api">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow">For builders</p>
+      <h2>One SDK. Explicit ownership and next steps.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        The proposed Experience API is one high-level surface at the Kovee gateway —
+        a small resource model over Spaces, Runs, Pledges, Exchanges, and the
+        Inbox — composing the three underlying protocols without flattening them.
+      </p>
+      <p>
+        Every response is specified to answer the same three things: which owner
+        holds the record, what is required next, and which receipts already exist.
+        No fictional atomicity, no invented "done."
+      </p>
+    </div>
+    <div class="apigrid reveal">
+      <div class="codebox">
+        <div class="cbar"><span>a decision, as the API sees it</span><span>response</span></div>
+        <pre><code>{
+  "operation": { "id": "op_7f3", "state": <span class="ck">"needs_action"</span> },
+  "resource": {
+    "owner_protocol": <span class="cb">"byom"</span>,
+    "kind": "act_intent",
+    "revision": 3,
+    "subject_digest": "sha256:9f2c…"
+  },
+  "requirements": [
+    { "kind": <span class="cb">"byom.human_position"</span>, "expires_at": "…" },
+    { "kind": <span class="ca">"akson.local_consent"</span>,  "expires_at": "…" }
+  ],
+  "receipts": [],
+  "trace_ref": "trace_b21"
+}</code></pre>
+      </div>
+      <div class="codebox">
+        <div class="cbar"><span>illustrative assistant handler</span><span>python sdk</span></div>
+        <pre><code>class Reviewer(<span class="ck">Assistant</span>):
+    async def run(self, ctx):
+        <span class="cm"># exact, recorded context — never ambient history</span>
+        goal = ctx.context.goal
+        findings = await ctx.model.complete(prompt_for(goal))
+        await ctx.contribute(claim=findings.summary)
+        await ctx.relate(findings.evidence, supports=findings.claim)
+
+<span class="cm"># identity, authority, budget, and fences are supplied
+# by the supervisor — assistant code never holds credentials</span></code></pre>
+      </div>
+    </div>
+    <div class="prims reveal">
+      <div class="prim"><span class="pn">Ref</span><p>Points at a record; grants nothing. Every use re-checks visibility at the owner.</p></div>
+      <div class="prim"><span class="pn">Requirement</span><p>Says exactly what is needed next, from whom, by when — typed, never generic.</p></div>
+      <div class="prim"><span class="pn">Receipt</span><p>An owner-issued, verifiable record of the action or decision it reports.</p></div>
+      <div class="prim"><span class="pn">Trace</span><p>The causal story across all three systems — readable, never an authority.</p></div>
+      <div class="prim"><span class="pn">Problem</span><p>A typed failure that keeps its source and retry guidance. Ambiguity stays visible.</p></div>
+    </div>
+    <div class="story reveal">
+      <p class="slabel">Illustrative scenario · 8 of 8</p>
+      <p>
+        The response above captures an <b>earlier snapshot</b> of the scenario: at
+        that moment, sending the diff still waits on Mara's Byom position on
+        <span class="m">pl-142</span> and sender-side Akson consent for
+        <span class="m">ex-9</span> — and atelier will still make its own local
+        decision. What happens when the findings come back — and one of them
+        bites — is act two, below. Either way, one
+        <span class="m">trace_ref</span> connects every record without ever
+        merging their authority.
+      </p>
+    </div>
+    <blockquote class="pull reveal">
+      One UX, one SDK, and one trace — but never one omnipotent token, one generic
+      approval, or one source of authority.
+    </blockquote>
+  </div>
+</section>
+
+<!-- ================= ACT TWO ================= -->
+<section id="act-two">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow e-kovee">Illustrative scenario · act two</p>
+      <h2>The bad day is the point.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        Any demo can ship a happy path. The design is for the other days — when a
+        finding bites, a run dies, and the record has to hold.
+      </p>
+    </div>
+    <div class="moments reveal">
+      <div class="moment m-k">
+        <p class="mo">Kovee · verification</p>
+        <h3>The report passes verification — and one finding bites.</h3>
+        <p>
+          atelier's report comes back and every digest matches what was signed.
+          But one finding is real: on a retry timeout, the patched path can post a
+          ledger entry twice. Verification proved the bytes are exactly what
+          atelier produced — it never claimed the work was good.
+        </p>
+        <div class="mchips"><span class="mchip">checked ≠ accepted</span></div>
+      </div>
+      <div class="moment m-b">
+        <p class="mo">Byom · review</p>
+        <h3>Mara rejects the delivery.</h3>
+        <p>
+          She records a review against the pledged terms: not satisfied, finding
+          attached. The delivery is not erased and nothing retries by itself — the
+          pledge stands, and the rejection is now part of the record.
+        </p>
+        <div class="mchips"><span class="mchip">review is a decision, not a status</span></div>
+      </div>
+      <div class="moment m-k">
+        <p class="mo">Kovee · runtime</p>
+        <h3>The next run dies halfway.</h3>
+        <p>
+          @scout's second confined run crashes mid-write. Recovery records its
+          outcome as <em>ambiguous</em> — neither failed nor done. After a
+          separate retry decision, a fresh run starts with a new fence from the
+          durable record. The stale run can never write again.
+        </p>
+        <div class="mchips"><span class="mchip">ambiguous, not done</span><span class="mchip">fenced retry</span></div>
+      </div>
+      <div class="moment m-k">
+        <p class="mo">Kovee · provenance</p>
+        <h3>Jun's dissent pays off.</h3>
+        <p>
+          The double-post risk is exactly the concern Jun recorded on branch
+          <b>A₂</b>. Nobody had to remember it — the Space kept it, attributed and
+          pinned to the exact revision. The revised patch folds A₂'s guard into
+          A₁'s fix.
+        </p>
+        <div class="mchips"><span class="mchip">dissent retained</span></div>
+      </div>
+      <div class="moment m-b">
+        <p class="mo">Byom · review</p>
+        <h3>Accepted — on the second delivery.</h3>
+        <p>
+          Before the revised diff crosses to atelier, Mara records fresh
+          sender-side consent for that exchange; after it arrives as inert data,
+          atelier consents independently again before analysis. Nothing became
+          ambient in between. The findings come back clean, verification records
+          the named checks that passed on the second delivery's exact outputs —
+          and Mara records a review accepting that delivery against the same
+          pledged terms.
+        </p>
+        <div class="mchips"><span class="mchip">nothing becomes ambient</span><span class="mchip">same pledge, exact terms</span></div>
+      </div>
+    </div>
+    <div class="prose reveal">
+      <p>
+        Every distinction this page insists on — <strong>may, will, doing, did,
+        checked, accepted</strong> — carries weight in exactly one of these
+        moments. That is why the words stay separate.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= STATUS ================= -->
+<section id="status">
+  <div class="wrap">
+    <div class="kicker reveal">
+      <p class="eyebrow">Status · as of July 2026</p>
+      <h2>A direction, shown honestly.</h2>
+    </div>
+    <div class="prose reveal">
+      <p class="lede">
+        You are being invited into an architectural direction, not a polished
+        fiction of maturity.
+      </p>
+      <p>
+        This page describes a proposed family architecture, not a shipped unified
+        product. The three systems are at different implementation stages,
+        summarized below.
+      </p>
+    </div>
+    <div class="tracks reveal">
+      <div class="track">
+        <a class="tn ta" href="https://github.com/zarbafian/akson">akson</a>
+        <div class="tinfo">
+          <span class="badge bg-a">developer preview</span>
+          <span class="tl">runs end to end · pre-release · not fit for real use</span>
+        </div>
+      </div>
+      <div class="track">
+        <a class="tn tk" href="https://github.com/zarbafian/kovee">kovee</a>
+        <div class="tinfo">
+          <span class="badge bg-k">draft design v0.1</span>
+          <span class="tl">implementation underway</span>
+        </div>
+      </div>
+      <div class="track">
+        <a class="tn tb" href="https://github.com/zarbafian/byom">byom</a>
+        <div class="tinfo">
+          <span class="badge bg-b">design specification v0.2</span>
+          <span class="tl">implementation underway · conformance vectors defined ahead of code</span>
+        </div>
+      </div>
+    </div>
+    <div class="prose reveal">
+      <p>
+        What ships will say so precisely: the system advertises a capability only
+        when its complete operation set, authority behavior, and failure semantics
+        are ready — discovered by clients through <span style="font-family: var(--mono); font-size: 0.85em">system.describe()</span>,
+        never inferred from a version number.
+      </p>
+    </div>
+    <div class="domains reveal">
+      <b>kovee.cc</b> — the product and system doorway <span class="arr">(this site)</span><br>
+      <b class="a"><a href="https://akson.cc">akson.cc</a></b> — Akson protocol &amp; project documentation · overview here at <span class="a">/#akson</span><br>
+      <b class="b">byom.cc</b> — Byom protocol &amp; project documentation <span class="arr">(planned)</span> · overview here at <span class="b">/#byom</span><br>
+      <span class="arr">source, public:</span> <a href="https://github.com/zarbafian/kovee">kovee</a> · <a href="https://github.com/zarbafian/byom">byom</a> · <a href="https://github.com/zarbafian/akson">akson</a>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CLOSE ================= -->
+<section id="close">
+  <div class="wrap">
+    <p class="codaline reveal">
+      The scenario ends with one accepted fix — on the second delivery. The first
+      rejection, the crashed run and its ambiguous outcome, and Jun's dissent are
+      still in the trace: who saw what, who committed, who authorized, who
+      reviewed. Nothing was erased to get there.
+    </p>
+    <p class="close-beats reveal">
+      <span>Different minds.</span>
+      <span>Shared work.</span>
+      <span>Exact authority.</span>
+      <span>Sovereign edges.</span>
+    </p>
+    <p class="eyebrow reveal e-kovee">Kovee — together, without becoming one</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Kovee · Byom · Akson — the AKB family. Source: <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a> · <a href="https://github.com/zarbafian/byom">byom</a> · <a href="https://github.com/zarbafian/akson">akson</a>. Planned license: Apache-2.0. Copy on this page is drawn from the family's normative designs and interface recommendation, 2026-07. Component maturity is stated per system; no integration claim beyond what each design documents.</p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    document.documentElement.classList.add("has-js");
+    var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    /* reveals */
+    var toReveal = document.querySelectorAll(".reveal, .strands, .neq");
+    if (mq.matches || !("IntersectionObserver" in window)) {
+      toReveal.forEach(function (el) { el.classList.add("in"); });
+    } else {
+      var ro = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add("in"); ro.unobserve(e.target); }
+        });
+      }, { threshold: 0.15, rootMargin: "0px 0px -8% 0px" });
+      toReveal.forEach(function (el) { ro.observe(el); });
+    }
+
+    /* journey loop: nodes on the ellipse, pulse orbiting, steps highlighting */
+    var CX = 320, CY = 215, RX = 240, RY = 160;
+    var STEPS = [
+      { t: -90,  owner: "k", label: "explore" },
+      { t: -30,  owner: "b", label: "commit" },
+      { t: 30,   owner: "k", label: "execute" },
+      { t: 90,   owner: "a", label: "cross" },
+      { t: 150,  owner: "k", label: "admit" },
+      { t: 210,  owner: "b", label: "review" }
+    ];
+    function pos(deg) {
+      var r = (deg * Math.PI) / 180;
+      return { x: CX + RX * Math.cos(r), y: CY + RY * Math.sin(r) };
+    }
+    var nodesG = document.getElementById("loopnodes");
+    var svgns = "http://www.w3.org/2000/svg";
+    STEPS.forEach(function (s, i) {
+      var p = pos(s.t);
+      var c = document.createElementNS(svgns, "circle");
+      c.setAttribute("cx", p.x); c.setAttribute("cy", p.y); c.setAttribute("r", 14);
+      c.setAttribute("class", "node n-" + s.owner);
+      nodesG.appendChild(c);
+      var n = document.createElementNS(svgns, "text");
+      n.setAttribute("x", p.x); n.setAttribute("y", p.y + 4.5);
+      n.setAttribute("text-anchor", "middle");
+      n.textContent = String(i + 1);
+      nodesG.appendChild(n);
+      var rad = (s.t * Math.PI) / 180;
+      var t = document.createElementNS(svgns, "text");
+      t.setAttribute("x", CX + (RX + 46) * Math.cos(rad));
+      t.setAttribute("y", CY + (RY + 34) * Math.sin(rad) + 3);
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("class", "owner o-" + s.owner);
+      t.textContent = s.label.toUpperCase();
+      nodesG.appendChild(t);
+    });
+
+    var stepEls = document.querySelectorAll("#loopsteps .step");
+    function setActive(i) {
+      stepEls.forEach(function (el) {
+        el.classList.toggle("active", Number(el.getAttribute("data-i")) === i);
+      });
+    }
+    setActive(0);
+
+    var pulse = document.getElementById("looppulse");
+    var fig = document.getElementById("loopfig");
+    var PERIOD = 18000, raf = null, start = null, phaseMs = 0, visible = false;
+
+    function frame(ts) {
+      if (start === null) start = ts - phaseMs;
+      phaseMs = (ts - start) % PERIOD;
+      var frac = phaseMs / PERIOD;
+      var p = pos(-90 + frac * 360);
+      pulse.setAttribute("cx", p.x); pulse.setAttribute("cy", p.y);
+      setActive(Math.floor(frac * STEPS.length) % STEPS.length);
+      raf = requestAnimationFrame(frame);
+    }
+    function stopLoop() {
+      if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+      start = null;
+    }
+    function maybeRun() {
+      if (visible && !mq.matches && raf === null) raf = requestAnimationFrame(frame);
+    }
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          visible = e.isIntersecting;
+          if (visible) maybeRun(); else stopLoop();
+        });
+      }, { threshold: 0.2 }).observe(fig);
+    } else {
+      visible = true;
+      maybeRun();
+    }
+    if (mq.addEventListener) {
+      mq.addEventListener("change", function () {
+        if (mq.matches) { stopLoop(); setActive(0); } else { maybeRun(); }
+      });
+    }
+
+    /* spaces: lens switcher */
+    var lensBtns = document.querySelectorAll("#spaces .lens-btn");
+    var lensGroups = document.querySelectorAll("#spaces .lensgroup");
+    lensBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var d = b.getAttribute("data-lens");
+        lensBtns.forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+        lensGroups.forEach(function (g) {
+          var active = g.getAttribute("data-lens") === d;
+          g.classList.toggle("on", active);
+          g.setAttribute("aria-hidden", String(!active));
+        });
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
