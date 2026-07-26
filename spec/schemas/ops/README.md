@@ -1,4 +1,4 @@
-# Per-operation schemas — K0 (`core_v1`, `shared_space_v1`, `developer_assistant_v1`)
+# Per-operation schemas — K0 (`core_v1`, `shared_space_v1`, `developer_assistant_v1`) + K2 slice 1 (`governed_work_binding_v1` binding half)
 
 One closed request and one closed result schema per operation
 (`<op>-request.schema.json`, `<op>-result.schema.json`; the result schema is
@@ -6,10 +6,11 @@ the `CommandResult.result` payload of the §11.2 ok arm — the envelope's
 `revision`/`event_cursor` members live outside it). Slice 1 delivered
 `core_v1` + `developer_assistant_v1` (gap notes KG1–KG15); slice 2 delivered
 `shared_space_v1` (gap notes KG16–KG30), completing the per-operation suite
-named as remaining K0 work in `plan/sheets/K0.md`: both runners'
-`COVERED_BUNDLES` lists now cover all three K1 bundles and their coverage
-gates assert that every one of the registry's 90 `(operation, surface)`
-entries is schema-covered.
+named as remaining K0 work in `plan/sheets/K0.md`. K2 slice 1 adds the three
+`governed_work_binding_v1` greenfield-binding operations (gap notes
+KG31–KG33). Both runners' `COVERED_BUNDLES` lists cover all four bundles and
+their coverage gates assert that every one of the registry's 93
+`(operation, surface)` entries is schema-covered.
 
 Each request schema embeds the §11.2 command envelope (exact `op` const,
 closed per-operation `args`) and applies the read/mutation rule of
@@ -334,3 +335,38 @@ the bundle; a conflicting later registry/spec freeze wins.
   independently addressable immutable Kovee record carries fixed
   `revision: 1`") — Contribution, SpaceRelation, SpaceFrontier, and
   ContextAssembly.
+- **KG31 — `governance_enable` args.** The frozen family-contract §2.A
+  authority row states a dependency set, not an argument list. Derived
+  minimally: the caller supplies only what it can legitimately assert —
+  `byom_endpoint_ref`, `society_ref`, `exact_scope_selector`,
+  `allowed_project_and_space_selectors`, `classification_binding_ref`, the
+  exact-CAS `expected_owner_revision`, the optional
+  `expected_binding_ref` ("expected absent-or-identical"), and the optional
+  `confirmed_subject_digest`. The Society recovery epoch and the byomd
+  endpoint incarnation are NOT arguments: they come from a byomd projection
+  read and are server-recomputed, so a caller cannot assert a governance
+  fact it does not observe (the `-invalid-wrong-surface-args` vector pins
+  that). `governance_enable` also carries no `project_id`: a governed scope
+  is named by its own selector, never by envelope placement.
+- **KG32 — saga result payloads.** The `governance_enable` result projects
+  the three C2 host records verbatim (`KoveeRealmByomBinding`,
+  `KoveeSocietyMapping`, `KoveeGovernanceOwnerBinding`, field lists from
+  byom §16.6) plus the `enablement_id`, the descriptor `state`, the exact
+  `subject_digest` the confirming human sees, and the byomd-observed
+  Society facts the binding pinned. `governance_show` projects the recorded
+  saga slots and every owner row; each slot's `record` is the stored
+  result for that state, replayed verbatim — it is typed only as an object
+  because its shape is the enable/disable result of whichever state the
+  slot is in. Two §16.6 value sets left untyped there are closed here (the
+  recorded C2 gap): `KoveeRealmByomBinding.status` and
+  `KoveeSocietyMapping.status` are `pending | active | void`.
+- **KG33 — cross-member rules that JSON Schema cannot carry.** Three
+  constraints are enforced in code and named in the schema descriptions
+  instead: the `DigestRef` class/algorithm pairing and `key_ref` presence
+  (the closed object cannot condition one member on another without a
+  `oneOf` whose arms would have to restate the closed member set);
+  `UNIQUE(realm_ref, exact_scope_digest)` on the owner binding and the
+  no-overlapping-active-selectors rule (cross-record); and the owner-arm
+  rule (`governance_owner: none` carries no owner refs, an owning arm names
+  both). `kovee_byom::records::KoveeGovernanceOwnerBinding::owner_arm_is_coherent`
+  is the code half of the last one.

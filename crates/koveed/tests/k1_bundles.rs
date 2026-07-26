@@ -47,6 +47,34 @@ fn hello_and_protocol_info_advertise_the_three_complete_bundles() {
 }
 
 #[test]
+fn the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch() {
+    // §11.6: bundles are atomic — every operation of a LISTED bundle
+    // dispatches, or the bundle is not listed. K2 slice 1 implements only
+    // the binding half of `governed_work_binding_v1` (the formation
+    // operations arrive with slice 2), so the bundle must not appear in
+    // `hello`/`protocol_info` even though its three operations are live.
+    let base = tmp("k1-bundles-k2-honesty");
+    let daemon = DaemonProc::start(&base.join("data"), &base.join("run"), None);
+    let hello = daemon.expect_ok(&hello_cmd());
+    let features = hello["result"]["features"].as_array().unwrap();
+    assert!(
+        !features.iter().any(|f| f == "governed_work_binding_v1"),
+        "an incomplete bundle must not be advertised: {features:?}"
+    );
+    // Live all the same: a shape-valid read reaches its handler.
+    let show = daemon.expect_ok(&read_cmd("governance_show", None, json!({})));
+    assert_eq!(show["result"]["governance_owner"], json!("none"));
+    assert_eq!(
+        show["result"]["compatibility_bundle"],
+        json!("byom_governed_work_v1")
+    );
+    // And the reserved slice-2 names are still not callable.
+    for op in ["endeavor_promotion_prepare", "byom_episode_binding_show"] {
+        daemon.expect_problem(&read_cmd(op, None, json!({})), "unknown-op");
+    }
+}
+
+#[test]
 fn every_registry_entry_has_a_dispatch_arm_on_its_surface() {
     // The ops.rs↔registry parity of names is proven in kovee-core
     // (`ops_table_matches_the_frozen_registry_exactly`); this test closes
@@ -61,7 +89,11 @@ fn every_registry_entry_has_a_dispatch_arm_on_its_surface() {
     let registry: Value =
         serde_json::from_str(&std::fs::read_to_string(registry_path).unwrap()).unwrap();
     let entries = registry["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 90, "the frozen registry holds 90 entries");
+    assert_eq!(
+        entries.len(),
+        93,
+        "the frozen registry holds 90 K1 entries plus the 3 K2 slice-1 ones"
+    );
 
     let base = tmp("k1-bundles-parity");
     let daemon = DaemonProc::start(&base.join("data"), &base.join("run"), None);

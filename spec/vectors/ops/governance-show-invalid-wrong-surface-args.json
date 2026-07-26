@@ -1,0 +1,20 @@
+{
+  "name": "ops/governance-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: governance_show is the recovery-only QUERY surface; it cannot carry an activation instruction (the frozen row: a service may query saga state, never create or activate a binding)",
+  "input": {
+    "schema": "governance-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "binding_ref": "krbb-0001",
+        "activate": true
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member activate"
+  }
+}

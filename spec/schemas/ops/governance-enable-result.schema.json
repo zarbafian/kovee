@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/governance-enable-result.schema.json",
+  "title": "KCP governance_enable result (D10 greenfield enablement saga)",
+  "description": "CommandResult.result payload for governance_enable (§11.2 ok arm; the envelope's revision/event_cursor members live outside this payload). An exact retry returns this payload byte-identically — never a second creation, CAS, or epoch advance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enablement_id",
+    "state",
+    "binding",
+    "mapping",
+    "owner_binding",
+    "subject_digest",
+    "society"
+  ],
+  "properties": {
+    "enablement_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "bindings_created",
+        "active"
+      ],
+      "description": "The saga state this result records, verbatim from byom/spec/descriptors/greenfield-enablement.json. A successful governance_enable returns active; bindings_created appears only in the stored step-1 result a crash-resumed retry replays."
+    },
+    "binding": {
+      "$ref": "#/$defs/koveeRealmByomBinding"
+    },
+    "mapping": {
+      "$ref": "#/$defs/koveeSocietyMapping"
+    },
+    "owner_binding": {
+      "$ref": "#/$defs/koveeGovernanceOwnerBinding"
+    },
+    "subject_digest": {
+      "$ref": "#/$defs/digestHex",
+      "description": "The exact digest the confirming human sees (family contract §2.A subject digest cell)."
+    },
+    "society": {
+      "$ref": "#/$defs/society"
+    }
+  },
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256/HMAC value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "digestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "structural_public",
+            "portable_public",
+            "local_erasure_safe",
+            "scope_erasure_safe",
+            "disclosed_party",
+            "ciphertext_public"
+          ],
+          "description": "Family digest class (byom family-vectors PROFILE §6, D-R0-1). Governed-work host records use scope_erasure_safe: one protected per-realm governance key, so destroying it erases verifiability of the whole governance scope, never one row."
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "sha-256",
+            "hmac-sha-256"
+          ]
+        },
+        "key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key id for the keyed erasure classes; raw HMAC keys, per-object secrets, and salts are never part of a DigestRef."
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "Typed family DigestRef (PROFILE §6.1), never an unlabelled hash. The class/algorithm pairing and the key_ref-presence rule for the keyed classes are enforced in code (they are a cross-member constraint the closed object cannot express here)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "selector": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,256}$",
+      "description": "Kovee governed-scope selector, at most 256 visible-ASCII bytes. byom pins only this bounded opaque wire shape (C2 host schemas); the grammar (realm | project:<id|*>[/space:<id|*>]) and the overlap predicate of byom §16.6 item 1 are Kovee-owned and live in kovee_byom::scope."
+    },
+    "koveeRealmByomBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_ref",
+        "realm_ref",
+        "binding_revision",
+        "binding_epoch",
+        "byom_endpoint_ref",
+        "endpoint_incarnation",
+        "compatibility_bundle",
+        "delegated_principal_audience",
+        "external_authorization_audience",
+        "historical_recovery_mode",
+        "recovery_authorization_policy_ref",
+        "recovery_authorization_policy_digest",
+        "status",
+        "dependency_digest",
+        "digest"
+      ],
+      "properties": {
+        "binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "realm_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "binding_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "binding_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "predecessor_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "predecessor_binding_digest": {
+          "$ref": "#/$defs/digestRef"
+        },
+        "binding_lineage_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "binding_lineage_digest": {
+          "$ref": "#/$defs/digestRef"
+        },
+        "byom_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "endpoint_incarnation": {
+          "$ref": "#/$defs/identifier"
+        },
+        "compatibility_bundle": {
+          "const": "byom_governed_work_v1",
+          "description": "Compatibility is one explicit, all-or-nothing feature bundle (byom §16.6); a new bundle is a new schema version."
+        },
+        "delegated_principal_audience": {
+          "$ref": "#/$defs/identifier"
+        },
+        "external_authorization_audience": {
+          "$ref": "#/$defs/identifier"
+        },
+        "historical_recovery_mode": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "exact_formation_intent_only"
+          ],
+          "description": "Closed byom §16.6 enum."
+        },
+        "recovery_authorization_policy_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "recovery_authorization_policy_digest": {
+          "$ref": "#/$defs/digestRef"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "active",
+            "void"
+          ],
+          "description": "Kovee-owned status value set closing the recorded byom §16.6 gap: pending before the owner CAS (durable but NOT authoritative), active atomically with it, void after a rollback or a governed disable."
+        },
+        "dependency_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "Digest over the frozen governance_enable authorization dependency set (family contract §2.A)."
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      },
+      "description": "KoveeRealmByomBinding, field list verbatim from byom §16.6 (byom/spec/governed-work/kovee-realm-byom-binding.schema.json)."
+    },
+    "koveeSocietyMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "realm_ref",
+        "society_ref",
+        "society_recovery_epoch",
+        "allowed_project_and_space_selectors",
+        "classification_binding_ref",
+        "governance_owner_binding_ref",
+        "governance_owner_binding_digest",
+        "status",
+        "revision",
+        "digest"
+      ],
+      "properties": {
+        "realm_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "society_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "society_recovery_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "allowed_project_and_space_selectors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/selector"
+          }
+        },
+        "classification_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "governance_owner_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "governance_owner_binding_digest": {
+          "$ref": "#/$defs/digestRef"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "active",
+            "void"
+          ],
+          "description": "Same Kovee-owned value set as KoveeRealmByomBinding.status."
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      },
+      "description": "KoveeSocietyMapping, field list verbatim from byom §16.6."
+    },
+    "koveeGovernanceOwnerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "realm_ref",
+        "exact_scope_selector",
+        "exact_scope_digest",
+        "revision",
+        "binding_epoch",
+        "governance_owner",
+        "status",
+        "digest"
+      ],
+      "properties": {
+        "realm_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "exact_scope_selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "exact_scope_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "Canonical digest of the exact governed scope; UNIQUE(realm_ref, exact_scope_digest) and the no-overlapping-active-selectors rule are enforced in code, not expressible here."
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "CAS field: the owner transition commits only at the expected revision."
+        },
+        "binding_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "CAS field: the enablement epoch fence. A rolled-back epoch can never activate."
+        },
+        "governance_owner": {
+          "type": "string",
+          "enum": [
+            "sage",
+            "byom",
+            "none"
+          ],
+          "description": "Full byom §16.6 enum verbatim; the sage arm exists for spec fidelity and is never exercised in this stack (amendment A1)."
+        },
+        "owner_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "owner_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "cutover_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Present only on a byom §25 GovernanceCutover row; the greenfield saga never sets it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "frozen"
+          ],
+          "description": "Closed byom §16.6 enum. governance_disable freezes the row (active→frozen) with the owner arm retained for audit."
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      },
+      "description": "KoveeGovernanceOwnerBinding, field list verbatim from byom §16.6 with the full sage|byom|none enum. The owner-arm rule (governance_owner none carries no owner refs; an owning arm names both) is a cross-member constraint enforced in code."
+    },
+    "society": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "society_ref",
+        "state",
+        "recovery_epoch"
+      ],
+      "properties": {
+        "society_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "forming",
+            "active",
+            "held",
+            "dissolving",
+            "dissolved"
+          ],
+          "description": "Closed byom Society lifecycle enum, as read from byomd's projection surface."
+        },
+        "recovery_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        }
+      },
+      "description": "The byomd-observed Society facts this enablement pinned; server-recomputed from a projection read, never caller-supplied."
+    }
+  }
+}

@@ -158,6 +158,13 @@ version = "0.0.1"
 [[package]]
 name = "kovee-byom"
 version = "0.0.1"
+dependencies = [
+ "kovee-core",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "kovee-cli"
@@ -221,6 +228,7 @@ name = "koveed"
 version = "0.0.1"
 dependencies = [
  "kovee-artifacts",
+ "kovee-byom",
  "kovee-core",
  "kovee-store",
  "libc",

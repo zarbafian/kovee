@@ -7,6 +7,14 @@
 //! still passed. `EXPECTED` was generated once from the reviewed registry
 //! and hand-verified against DESIGN.md §11.6/§11.6.1 (counts 3/65/22; four
 //! dual-surface operations). Editing it is a deliberate registry revision.
+//!
+//! Registry revision `k2-1` adds the three `governed_work_binding_v1`
+//! greenfield-binding rows (`governance_enable/show/disable`), extracted
+//! from the frozen family-contract §2.A authority row and hand-verified
+//! against it field by field (spec/registry-README.md). The bundle is
+//! deliberately INCOMPLETE — its formation operations arrive with K2
+//! slice 2 — so `hello`/`protocol_info` must not advertise it (§11.6:
+//! bundles are atomic); `koveed`'s `k1_bundles` suite asserts that.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
@@ -14,7 +22,7 @@ use std::path::Path;
 
 /// The frozen exact `(bundle, operation, surface)` set — one row per
 /// expected (operation, surface) clause (K0 milestone sheet).
-const EXPECTED: [(&str, &str, &str); 90] = [
+const EXPECTED: [(&str, &str, &str); 93] = [
     ("core_v1", "hello", "external_client"),
     ("core_v1", "protocol_info", "external_client"),
     ("core_v1", "diagnose", "operator"),
@@ -269,13 +277,22 @@ const EXPECTED: [(&str, &str, &str); 90] = [
     ),
     ("developer_assistant_v1", "invocation_cancel", "worker"),
     ("developer_assistant_v1", "application_event_emit", "worker"),
+    // K2 slice 1 — the governed_work_binding_v1 binding half. The frozen
+    // row's surface cell reads "KCP admin", which normalizes to the
+    // registry's `operator` token (registry-README resolutions 5/6: in
+    // the personal profile an operator entry binds to the owner
+    // principal over the UID-checked local socket).
+    ("governed_work_binding_v1", "governance_enable", "operator"),
+    ("governed_work_binding_v1", "governance_show", "operator"),
+    ("governed_work_binding_v1", "governance_disable", "operator"),
 ];
 
 /// Per-bundle entry counts implied by `EXPECTED` (registry-README table).
-const EXPECTED_COUNTS: [(&str, usize); 3] = [
+const EXPECTED_COUNTS: [(&str, usize); 4] = [
     ("core_v1", 3),
     ("shared_space_v1", 65),
     ("developer_assistant_v1", 22),
+    ("governed_work_binding_v1", 3),
 ];
 
 /// The closed §9.2 dependency-kind enum, tokenized in §9.2 order
@@ -309,8 +326,8 @@ const SURFACES: [&str; 3] = ["external_client", "operator", "worker"];
 
 const OFFLINE: [&str; 3] = ["no", "cached_draft_only", "queueable"];
 
-/// Closed list of the exact actor-kind strings used by the 90 entries.
-const ACTOR_KINDS: [&str; 15] = [
+/// Closed list of the exact actor-kind strings used by the 93 entries.
+const ACTOR_KINDS: [&str; 16] = [
     "authenticated creator or authorized principal",
     "authenticated operator",
     "authenticated principal",
@@ -320,6 +337,7 @@ const ACTOR_KINDS: [&str; 15] = [
     "connector service (only for its mapped resources)",
     "current attempt (own exact child invocation under an explicit parent capability)",
     "fenced worker (exact listed proposal operation in its capability)",
+    "human realm-owner principal only",
     "invocation attempt only",
     "mapped connector (only for contribution/reaction/upload operations granted to it)",
     "narrow policy service consuming an exact active standing-policy/contract receipt",
@@ -328,8 +346,9 @@ const ACTOR_KINDS: [&str; 15] = [
     "principal only",
 ];
 
-/// Closed list of the exact assurance values used by the 90 entries.
-const ASSURANCES: [&str; 13] = [
+/// Closed list of the exact assurance values used by the 93 entries.
+const ASSURANCES: [&str; 15] = [
+    "always step-up",
     "current assurance required by policy",
     "current login",
     "current login (principal); workload identity (mapped connector)",
@@ -338,6 +357,7 @@ const ASSURANCES: [&str; 13] = [
     "current login; production test may require step-up",
     "current login; step-up for production activation",
     "current step-up observation at risk-required level",
+    "explicit confirmation in personal mode; fresh step-up/challenge in team mode",
     "none",
     "risk-required current step-up",
     "risk-required step-up",

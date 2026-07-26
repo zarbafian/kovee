@@ -50,6 +50,11 @@ const META_CURSOR_SECRET: &str = "cursor_secret";
 /// Destroying it erases verifiability of the entire chain, never one
 /// record.
 const META_PRIVACY_CHAIN_KEY: &str = "privacy_chain_key";
+/// The governed-work digest scope key (K2 slice 1): ONE key per
+/// installation's governance scope, class `scope_erasure_safe`.
+/// Destroying it erases verifiability of the whole governance scope,
+/// never of one binding row.
+const META_GOVERNANCE_SCOPE_KEY: &str = "governance_scope_key";
 
 /// The deterministic personal-profile realm id: the personal profile has
 /// exactly one realm and no `realm_create` operation exists before K3
@@ -371,14 +376,17 @@ impl Store {
             )));
         }
         let store = Store { conn };
-        // A database bootstrapped before V2 has no privacy chain key —
-        // mint it once (secrets need entropy, so migrations cannot).
-        if schema::meta_get(&store.conn, META_INSTALLATION_ID)?.is_some()
-            && schema::meta_get(&store.conn, META_PRIVACY_CHAIN_KEY)?.is_none()
-        {
-            let mut key = [0u8; 32];
-            fill_random(&mut key)?;
-            schema::meta_set(&store.conn, META_PRIVACY_CHAIN_KEY, &key)?;
+        // A database bootstrapped before V2/V4 has no privacy chain key
+        // and no governance scope key — mint them once (secrets need
+        // entropy, so migrations cannot).
+        if schema::meta_get(&store.conn, META_INSTALLATION_ID)?.is_some() {
+            for name in [META_PRIVACY_CHAIN_KEY, META_GOVERNANCE_SCOPE_KEY] {
+                if schema::meta_get(&store.conn, name)?.is_none() {
+                    let mut key = [0u8; 32];
+                    fill_random(&mut key)?;
+                    schema::meta_set(&store.conn, name, &key)?;
+                }
+            }
         }
         Ok(store)
     }
@@ -395,11 +403,14 @@ impl Store {
         fill_random(&mut secret)?;
         let mut chain_key = [0u8; 32];
         fill_random(&mut chain_key)?;
+        let mut governance_key = [0u8; 32];
+        fill_random(&mut governance_key)?;
         let tx = self.conn.unchecked_transaction()?;
         schema::meta_set(&tx, META_INSTALLATION_ID, installation_id.as_bytes())?;
         schema::meta_set(&tx, META_REALM_ID, PERSONAL_REALM_ID.as_bytes())?;
         schema::meta_set(&tx, META_CURSOR_SECRET, &secret)?;
         schema::meta_set(&tx, META_PRIVACY_CHAIN_KEY, &chain_key)?;
+        schema::meta_set(&tx, META_GOVERNANCE_SCOPE_KEY, &governance_key)?;
         tx.execute(
             "INSERT INTO realms (realm_id, installation_id, revision, name, status,
                  home_region, auth_policy_ref, retention_policy_ref,
@@ -710,6 +721,15 @@ impl Store {
             .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
     }
 
+    /// The governed-work digest scope key (PROFILE §6 scope key): every
+    /// `KoveeRealmByomBinding` / `KoveeSocietyMapping` /
+    /// `KoveeGovernanceOwnerBinding` / `DelegatedPrincipalCredential`
+    /// digest is an HMAC under this one key.
+    pub fn governance_scope_key(&self) -> Result<Vec<u8>, StoreError> {
+        schema::meta_get(&self.conn, META_GOVERNANCE_SCOPE_KEY)?
+            .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
+    }
+
     /// Looks up a stored idempotency record outside a command transaction
     /// (§10.10 artifact finalization pre-checks its key before its
     /// non-atomic seal pipeline). Returns `(request_digest, result)`.
@@ -727,6 +747,14 @@ impl Store {
             .optional()
             .map_err(StoreError::from)
     }
+}
+
+/// The governed-work digest scope key read from an OPEN transaction (the
+/// saga derives its digests inside the command transaction, so it cannot
+/// go through `&Store`).
+pub fn governance_scope_key_of(conn: &Connection) -> Result<Vec<u8>, StoreError> {
+    schema::meta_get(conn, META_GOVERNANCE_SCOPE_KEY)?
+        .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
 }
 
 /// The decoded payload of an opaque authenticated cursor/snapshot token.

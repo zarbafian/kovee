@@ -28,6 +28,13 @@ pub fn is_display_name(s: &str) -> bool {
     (1..=256).contains(&n)
 }
 
+/// `selector`: 1–256 visible-ASCII bytes — the bounded opaque wire shape
+/// byom pins for a Kovee governed-scope selector (C2 host schemas). The
+/// selector GRAMMAR is Kovee-owned and lives in `kovee_byom::scope`.
+pub fn is_selector(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 256 && s.bytes().all(|b| (0x21..=0x7e).contains(&b))
+}
+
 /// `digestHex`: exactly 64 lowercase hex characters.
 pub fn is_digest_hex(s: &str) -> bool {
     s.len() == 64

@@ -64,6 +64,12 @@ pub const EVENT_DEPLOYMENT_DRAINED: &str = "dev.kovee.assistant.deployment-drain
 pub const EVENT_ALIAS_BOUND: &str = "dev.kovee.assistant.alias-bound.v1";
 pub const EVENT_ALIAS_UPDATED: &str = "dev.kovee.assistant.alias-updated.v1";
 pub const EVENT_ALIAS_REVOKED: &str = "dev.kovee.assistant.alias-revoked.v1";
+// K2 slice 1: the four D10 greenfield-enablement transitions, one per
+// `events` entry of `byom/spec/descriptors/greenfield-enablement.json`.
+pub const EVENT_GOVERNANCE_BINDINGS_CREATED: &str = "dev.kovee.governance.bindings-created.v1";
+pub const EVENT_GOVERNANCE_ACTIVATED: &str = "dev.kovee.governance.activated.v1";
+pub const EVENT_GOVERNANCE_ROLLED_BACK: &str = "dev.kovee.governance.rolled-back.v1";
+pub const EVENT_GOVERNANCE_DISABLED: &str = "dev.kovee.governance.disabled.v1";
 /// The reserved Kovee event namespace (§11.3): application events may
 /// never emit under it.
 pub const RESERVED_EVENT_NAMESPACE: &str = "dev.kovee.";

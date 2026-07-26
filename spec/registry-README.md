@@ -1,18 +1,26 @@
-# Operation registry — extraction notes (K0)
+# Operation registry — extraction notes (K0, extended at K2 slice 1)
 
-`registry.json` is the K0-frozen machine-readable operation registry for the
-three K1 bundles: `core_v1`, `shared_space_v1`, `developer_assistant_v1`.
-It resolves the pinned `DESIGN.md` §11.6 (feature-bundle command/query sets)
-and §11.6.1 (normative authority matrix) together with amendment A5
-(`design/2026-07-25-amendment-governance-owner.md`). It is the source of all
-later counts (K0 milestone sheet). Structural invariants — including the
-frozen exact `(bundle, operation, surface)` set and every closed field enum —
-are enforced by `crates/kovee-core/tests/registry_parity.rs`.
+`registry.json` is the machine-readable operation registry. It carries the
+three K0-frozen K1 bundles — `core_v1`, `shared_space_v1`,
+`developer_assistant_v1` — plus, from K2 slice 1, the greenfield-binding
+half of `governed_work_binding_v1`. It resolves the pinned `DESIGN.md` §11.6
+(feature-bundle command/query sets) and §11.6.1 (normative authority matrix)
+together with amendment A5
+(`design/2026-07-25-amendment-governance-owner.md`), and for the K2 rows the
+**frozen `governance_enable` authority row** of the family contract §2.A
+(`byom/design/2026-07-25-family-contract.md`). It is the source of all later
+counts (K0 milestone sheet). Structural invariants — including the frozen
+exact `(bundle, operation, surface)` set and every closed field enum — are
+enforced by `crates/kovee-core/tests/registry_parity.rs`.
 
 Registry version `k0-2` applies R0 findings KREG-01 (canonical dependency
 tokens; `action_scope`/`constraints` fields) and KREG-02 (connector authority
 split; connector redaction decision). The `k0-1` prose-valued
 `dependency_categories` field no longer exists.
+
+Registry version `k2-1` adds three entries and changes nothing else; the
+K1 rows are byte-identical to `k0-2`. Its extraction is documented in
+"K2 slice 1" below.
 
 A minimal entry, and where each field comes from:
 
@@ -286,7 +294,7 @@ names the mapped-connector actor; `contribution_redact` must not name it.
   used by the 90 entries, frozen in `registry_parity.rs`. A new actor kind
   or assurance wording is a deliberate registry revision, not drift.
 
-## A5 resolution: no rename applied in these bundles
+## A5 resolution
 
 Amendment A5's wire-name table was checked against every operation extracted:
 
@@ -294,14 +302,14 @@ Amendment A5's wire-name table was checked against every operation extracted:
 - `mission_promotion_prepare/start/show/cancel/reconcile` → `endeavor_promotion_*`
 - `sage_turn_binding_show` → `byom_episode_binding_show`
 
-Every left-hand operation belongs to `governed_work_binding_v1` (K2, §11.6),
-which is **not** one of the three K1 bundles, so `a5_renames_applied` in
-`registry.json` is empty. The unchanged-name rows of the A5 table
-(`collaboration_context_bundle_prepare/show`, `workspace_*`) are also all in
-`governed_work_binding_v1`. Consequently no operation name in this registry
-contains `sage` or `mission` (asserted by the parity test), and no Sage-era
-wire name survives — vacuously for this registry, normatively once the K2
-bundle is extracted.
+Every left-hand operation belongs to `governed_work_binding_v1` (§11.6), so
+no rename applied to the three K1 bundles. **K2 slice 1 applies the first
+three**, and `a5_renames_applied` in `registry.json` now records exactly
+those three pairs. The remaining left-hand names — and the unchanged-name
+rows (`collaboration_context_bundle_prepare/show`, `workspace_*`) — belong to
+the bundle's formation half and are reserved for K2 slice 2. No operation
+name in this registry contains `sage` or `mission` (asserted by the parity
+test), so no Sage-era wire name survives.
 
 Amendment **A1** (byom is the sole governance owner) does touch two
 descriptive fields: the §11.6.1 fence cells "Sage fence when bound" (worker
@@ -392,6 +400,108 @@ bound". This is a retargeting of descriptive prose, not a wire rename.
 | `project_access_policy_change_confirm` | assurance "risk-required step-up"; + "authorization decision receipt" in `action_scope` |
 | `deployment_activate` | assurance "current login; step-up for production activation" (the row's "rollback" half binds `deployment_update/rollout`, K2) |
 
+## K2 slice 1 — the `governed_work_binding_v1` binding half
+
+Three entries, extracted from ONE source: the **frozen
+`governance_enable` authority row** stated field-complete in the family
+contract §2.A, read together with the D10 saga
+(`byom/spec/governed-work/greenfield-saga.md`) and the machine committed in
+`byom/spec/descriptors/greenfield-enablement.json`. The row covers all three
+operations ("`governance_enable` (and `governance_show` read;
+`governance_disable` with step-up)"), so all three entries inherit its actor,
+dependency set, and scope material; only the assurance and fence cells split
+per operation.
+
+**Bundle completeness.** These three operations are the binding half only.
+The bundle's formation half (`endeavor_promotion_*`,
+`byom_episode_binding_show`, `collaboration_context_bundle_*`, `workspace_*`)
+arrives with K2 slice 2 and has **no entry here** — an operation missing an
+entry is not callable (§11.6.1). Because §11.6 makes bundles atomic,
+`governed_work_binding_v1` is deliberately **not advertised** by
+`hello`/`protocol_info` until it is complete; `crates/koveed/tests/
+k1_bundles.rs::the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch`
+asserts both halves of that statement.
+
+### Surface (rule 3 applied)
+
+The frozen row's surface cell reads "KCP admin (personal: owner principal
+over the UID-checked local socket; team: realm `owner` role over the
+authenticated gateway)". The registry's closed surface enum has no `admin`
+token; "KCP admin" normalizes to **`operator`**, exactly as resolutions 5/6
+already do for `space_participant_activate` and
+`space_access_grant_create/revoke` — in the personal profile an operator
+entry binds to the owner principal over the client socket. All three
+entries take `operator`, including the `governance_show` read: the frozen row
+scopes the whole family to the admin surface, so `governance_show` does not
+fall into the generated `*_show` read family.
+
+### Phrase-to-token mapping (rule 4, from the frozen row)
+
+The row's "Authorization dependency set" cell, phrase by phrase:
+
+| Frozen-row phrase | Disposition |
+|---|---|
+| "realm revision" | `realm_status_kill_epoch` |
+| "target `society_ref` + Society recovery epoch" | `external_visibility_proof` (the byomd projection read that proves the Society exists and is active) + `action_scope` |
+| "byomd endpoint identity/incarnation" | `external_visibility_proof` + `action_scope` |
+| "expected absent-or-identical `KoveeRealmByomBinding`" | `realm_authority_binding` (§9.2 category 20 — the `RealmAuthorityBinding` this record implements, family contract L2) + `action_scope` |
+| "`KoveeSocietyMapping` revision" | `target_resource_revision` + `action_scope` |
+| "a human realm-owner principal only …" (Allowed actor) | `principal_status` + `constraints` (verbatim) |
+| "fresh step-up/challenge …; explicit confirmation …" (Assurance) | `current_authentication_observation` + the `assurance` cell |
+| "Subject digest" cell (the exact digest the confirming human sees) | `action_scope` |
+| "Service authority: recovery-only …" | `constraints` (verbatim) |
+
+Token order is the frozen §9.2 order, as everywhere else:
+`principal_status`, `current_authentication_observation`,
+`realm_status_kill_epoch`, `target_resource_revision`,
+`realm_authority_binding`, `external_visibility_proof`.
+
+### New closed-enum values (frozen in `registry_parity.rs`)
+
+| Field | New value | Source |
+|---|---|---|
+| `allowed_actor_kinds[]` | `human realm-owner principal only` | Allowed-actor cell, condensed; the "never a service identity, session, assistant, or connector" half is carried verbatim in `constraints` |
+| `assurance` | `explicit confirmation in personal mode; fresh step-up/challenge in team mode` | Assurance cell (enable) |
+| `assurance` | `always step-up` | Assurance cell ("`governance_disable` always step-up") |
+
+`governance_show` takes the authenticated-operator default `current login`:
+the frozen row names no separate read assurance, resolved as for `diagnose`
+(ambiguity 1 above).
+
+### Ambiguities hit, and how each was resolved
+
+1. **Which surface token.** Resolved above: `operator`, by rule 3 plus
+   resolutions 5/6.
+2. **`governance_show`'s assurance.** The row states assurance for enable and
+   disable only. Resolved: `current login`, the same default `diagnose` takes.
+3. **Personal-mode "explicit confirmation".** The personal profile has no
+   second factor to step up to. Resolved honestly rather than by claiming
+   one: `governance_enable`'s `confirmed_subject_digest` argument is
+   **optional** — the UID-checked owner channel is itself the explicit
+   confirmation — and, when supplied, must equal the server-recomputed
+   subject digest exactly; `governance_disable`'s is **required**, because
+   its assurance cell is unconditional step-up. The developer assurance
+   profile labels this for what it is; a real step-up arrives with K3's team
+   mode.
+4. **The Society facts are not arguments.** "target `society_ref` + Society
+   recovery epoch" and "byomd endpoint identity/incarnation" are dependency
+   inputs, not caller assertions. Resolved: only `society_ref` and
+   `byom_endpoint_ref` are wire arguments; the recovery epoch and the
+   endpoint incarnation are read from byomd's projection surface and
+   server-recomputed. The `governance-enable-invalid-wrong-surface-args`
+   vector pins that.
+5. **Selector grammar.** byom pins only the bounded opaque wire shape of a
+   scope selector (≤256 visible-ASCII bytes); the grammar
+   (`realm | project:<id|*>[/space:<id|*>]`) and the overlap predicate the
+   no-overlapping-active-owner rule needs are Kovee-owned and live in
+   `kovee_byom::scope`, not in the registry.
+6. **`governance_enable_rollback` is not a wire operation.** The descriptor
+   names it as a transition; §11.6 names no such operation and A5's rename
+   table does not list one. Resolved: it is the saga's own definite pre-CAS
+   failure handling, invoked internally by `governance_enable` when the
+   pre-CAS re-verification gets a DEFINITE contradiction, and it is not
+   callable. No registry row exists for it.
+
 ## Counts (frozen)
 
 | Bundle | Operations | Entries (operation × surface) |
@@ -399,8 +509,9 @@ bound". This is a retargeting of descriptive prose, not a wire rename.
 | `core_v1` | 3 | 3 |
 | `shared_space_v1` | 62 | 65 |
 | `developer_assistant_v1` | 21 | 22 |
-| **Total** | **86** | **90** |
+| `governed_work_binding_v1` (binding half; K2 slice 1) | 3 | 3 |
+| **Total** | **89** | **93** |
 
 Dual-surface operations: `contribution_append`, `relation_assert`,
 `context_assembly_create` (external + worker), `invocation_cancel`
-(external + worker).
+(external + worker). The three K2 entries are single-surface.

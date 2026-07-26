@@ -58,11 +58,16 @@ const NODE_CAP = 65536; // JSON values per document (profile-pinned)
 const LIST_CAP = 256; // §11.8: a request contains at most 256 list items
 const INLINE_CONTENT_CAP = 65536; // §11.8: inline event payload content, 64 KiB
 
-// K0 per-operation schema suite: all three K1 bundles (plan/sheets/K0.md;
-// slice 1 = core_v1 + developer_assistant_v1, slice 2 = shared_space_v1 —
-// the per-operation suite is complete and every registry entry must be
-// schema-covered).
-const COVERED_BUNDLES = ["core_v1", "shared_space_v1", "developer_assistant_v1"];
+// Per-operation schema suite: the three K1 bundles (plan/sheets/K0.md;
+// slice 1 = core_v1 + developer_assistant_v1, slice 2 = shared_space_v1)
+// plus K2 slice 1's governed_work_binding_v1 greenfield-binding rows. The
+// suite is complete for every registry entry of every covered bundle.
+const COVERED_BUNDLES = [
+  "core_v1",
+  "shared_space_v1",
+  "developer_assistant_v1",
+  "governed_work_binding_v1",
+];
 
 // §11.2 read/mutation split over the covered operations: reads never mutate
 // authoritative or user-visible state and never carry meta (R0 KENV-01);
@@ -117,6 +122,9 @@ const COVERED_READS = new Set([
   "artifact_upload_credential",
   "artifact_show",
   "disclosure_manifest_show",
+  // governed_work_binding_v1 (K2 slice 1): the query-first restore read
+  // of the greenfield saga (greenfield-saga §5).
+  "governance_show",
 ]);
 
 /** @type {string[]} */

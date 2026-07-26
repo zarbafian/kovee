@@ -597,8 +597,131 @@ UPDATE assistant_deployments SET record =
 WHERE deployment_id = 'dep-local-dev';
 "#;
 
+/// Version 4: the K2 slice-1 governed-work binding tables (byom §16.6 as
+/// frozen in `byom/spec/governed-work/*.schema.json`).
+///
+/// - `kovee_realm_byom_bindings` / `kovee_society_mappings`: step 1 of the
+///   D10 greenfield saga writes both durably and INERTLY (`status`
+///   `pending`); they become `active` only atomically with the owner CAS.
+///   `UNIQUE(realm_ref, exact_scope_digest_hex, binding_epoch)` makes an
+///   epoch single-use PER GOVERNED SCOPE, so a rolled-back epoch can
+///   never mint a second binding (epochs are per exact scope, not per
+///   realm — one realm may govern many disjoint scopes at epoch 1).
+/// - `kovee_governance_owner_bindings`: the CAS row. Its identity is
+///   `(realm_ref, exact_scope_digest)` — the §16.6 uniqueness rule — so
+///   that pair is the primary key; there is no surrogate id. `revision`
+///   is the exact-CAS field.
+/// - `delegated_principal_credentials`: the minted DPCs with the family
+///   contract L5–L6 atomic key `UNIQUE(issuer_ref, nonce)` and the
+///   stored result a replay returns instead of executing twice.
+/// - `greenfield_enablements`: the saga's slot/state table — one row per
+///   `(realm, exact scope, binding epoch)` carrying the descriptor state
+///   (`bindings_created | active | rolled_back | disabled`) and the
+///   canonical result an exact retry returns byte-identically.
+///
+/// Digests are stored as the typed family `DigestRef` JSON (never a bare
+/// hash); the `_hex` columns beside them are lookup keys only.
+const V4: &str = r#"
+CREATE TABLE kovee_realm_byom_bindings (
+    binding_ref                          TEXT PRIMARY KEY,
+    realm_ref                            TEXT NOT NULL REFERENCES realms(realm_id),
+    exact_scope_digest_hex               TEXT NOT NULL,
+    binding_revision                     INTEGER NOT NULL,
+    binding_epoch                        INTEGER NOT NULL,
+    predecessor_binding_ref              TEXT,
+    byom_endpoint_ref                    TEXT NOT NULL,
+    endpoint_incarnation                 TEXT NOT NULL,
+    compatibility_bundle                 TEXT NOT NULL,
+    delegated_principal_audience         TEXT NOT NULL,
+    external_authorization_audience      TEXT NOT NULL,
+    historical_recovery_mode             TEXT NOT NULL,
+    recovery_authorization_policy_ref    TEXT NOT NULL,
+    recovery_authorization_policy_digest TEXT NOT NULL,
+    status                               TEXT NOT NULL,
+    dependency_digest                    TEXT NOT NULL,
+    digest                               TEXT NOT NULL,
+    created_at                           TEXT NOT NULL,
+    UNIQUE(realm_ref, exact_scope_digest_hex, binding_epoch)
+) STRICT;
+
+CREATE TABLE kovee_society_mappings (
+    mapping_id                         TEXT PRIMARY KEY,
+    realm_ref                          TEXT NOT NULL REFERENCES realms(realm_id),
+    society_ref                        TEXT NOT NULL,
+    society_recovery_epoch             INTEGER NOT NULL,
+    allowed_project_and_space_selectors TEXT NOT NULL,
+    classification_binding_ref         TEXT NOT NULL,
+    governance_owner_binding_ref       TEXT NOT NULL,
+    governance_owner_binding_digest    TEXT NOT NULL,
+    status                             TEXT NOT NULL,
+    revision                           INTEGER NOT NULL,
+    digest                             TEXT NOT NULL,
+    binding_ref                        TEXT NOT NULL
+        REFERENCES kovee_realm_byom_bindings(binding_ref),
+    created_at                         TEXT NOT NULL,
+    UNIQUE(realm_ref, society_ref, binding_ref)
+) STRICT;
+
+CREATE TABLE kovee_governance_owner_bindings (
+    realm_ref              TEXT NOT NULL REFERENCES realms(realm_id),
+    exact_scope_digest_hex TEXT NOT NULL,
+    exact_scope_selector   TEXT NOT NULL,
+    exact_scope_digest     TEXT NOT NULL,
+    revision               INTEGER NOT NULL,
+    binding_epoch          INTEGER NOT NULL,
+    governance_owner       TEXT NOT NULL,
+    owner_endpoint_ref     TEXT,
+    owner_binding_ref      TEXT,
+    cutover_ref            TEXT,
+    status                 TEXT NOT NULL,
+    digest                 TEXT NOT NULL,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL,
+    PRIMARY KEY (realm_ref, exact_scope_digest_hex)
+) STRICT;
+
+CREATE TABLE delegated_principal_credentials (
+    credential_id      TEXT PRIMARY KEY,
+    issuer_ref         TEXT NOT NULL,
+    nonce              TEXT NOT NULL,
+    realm_ref          TEXT NOT NULL,
+    binding_ref        TEXT NOT NULL
+        REFERENCES kovee_realm_byom_bindings(binding_ref),
+    record             TEXT NOT NULL,
+    digest_hex         TEXT NOT NULL,
+    issued_at          TEXT NOT NULL,
+    expires_at         TEXT NOT NULL,
+    consumed_at        INTEGER,
+    consumed_operation TEXT,
+    consumed_result    BLOB,
+    UNIQUE(issuer_ref, nonce)
+) STRICT;
+
+CREATE TABLE greenfield_enablements (
+    enablement_id           TEXT PRIMARY KEY,
+    realm_ref               TEXT NOT NULL REFERENCES realms(realm_id),
+    exact_scope_digest_hex  TEXT NOT NULL,
+    exact_scope_selector    TEXT NOT NULL,
+    binding_epoch           INTEGER NOT NULL,
+    state                   TEXT NOT NULL,
+    society_ref             TEXT NOT NULL,
+    society_recovery_epoch  INTEGER NOT NULL,
+    byom_endpoint_ref       TEXT NOT NULL,
+    endpoint_incarnation    TEXT NOT NULL,
+    binding_ref             TEXT NOT NULL,
+    mapping_id              TEXT NOT NULL,
+    expected_owner_revision INTEGER NOT NULL,
+    subject_digest_hex      TEXT NOT NULL,
+    dependency_digest_hex   TEXT NOT NULL,
+    result                  TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    UNIQUE(realm_ref, exact_scope_digest_hex, binding_epoch)
+) STRICT;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4)];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting
 /// journal mode so the caller can fail closed when WAL did not take

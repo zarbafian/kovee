@@ -1,0 +1,24 @@
+{
+  "name": "ops/governance-disable-valid-request",
+  "description": "governed disable of an active binding: freezes the owner row (active→frozen, owner arm retained for audit) at the expected revision, with the required step-up subject-digest confirmation",
+  "input": {
+    "schema": "governance-disable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_disable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "binding_ref": "krbb-0001",
+        "expected_owner_revision": 2,
+        "confirmed_subject_digest": "2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

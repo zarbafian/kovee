@@ -52,7 +52,10 @@ pub struct OpSpec {
 /// operator entries bind to the owner principal in the personal profile,
 /// registry-README resolutions 5/6) is enforced by the daemon's
 /// per-socket dispatch tables, not here.
-pub const K1_OPS: [OpSpec; 86] = [
+///
+/// The three K1 bundles close at 86 operations; K2 slice 1 adds the
+/// three `governed_work_binding_v1` greenfield-binding operations (89).
+pub const KCP_OPS: [OpSpec; 89] = [
     OpSpec {
         name: "hello",
         kind: OpKind::Read,
@@ -571,10 +574,32 @@ pub const K1_OPS: [OpSpec; 86] = [
         realm_id: FieldRule::Required,
         project_id: FieldRule::Required,
     },
+    // ------------------------- K2 slice 1: governed_work_binding_v1 ----
+    // The greenfield-binding half (amendment A5 wire names). Realm-scoped
+    // and project-free: a governed scope is named by its own selector,
+    // never by the envelope's project placement.
+    OpSpec {
+        name: "governance_enable",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "governance_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "governance_disable",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
 ];
 
 pub fn op_spec(name: &str) -> Option<&'static OpSpec> {
-    K1_OPS.iter().find(|s| s.name == name)
+    KCP_OPS.iter().find(|s| s.name == name)
 }
 
 impl OpSpec {
@@ -2619,6 +2644,127 @@ impl ApplicationEventEmitArgs {
     }
 }
 
+// ------------------------------- governed_work_binding_v1 (K2 slice 1) ----
+
+/// `governance_enable` args (amendment A5 wire name). The Society
+/// recovery epoch and the byomd endpoint incarnation are NOT arguments:
+/// they are read from byomd's projection surface and server-recomputed,
+/// so a caller cannot assert a governance fact it does not observe.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GovernanceEnableArgs {
+    pub byom_endpoint_ref: String,
+    pub society_ref: String,
+    pub exact_scope_selector: String,
+    pub allowed_project_and_space_selectors: Vec<String>,
+    pub classification_binding_ref: String,
+    /// Exact-CAS field: the `KoveeGovernanceOwnerBinding` revision this
+    /// enable expects; `0` means "expected absent".
+    pub expected_owner_revision: u64,
+    /// The frozen row's "expected absent-or-identical
+    /// `KoveeRealmByomBinding`": absent means absent, present means the
+    /// retry of an existing binding.
+    #[serde(default)]
+    pub expected_binding_ref: Option<String>,
+    /// The exact subject digest the confirming human saw. Optional in the
+    /// personal profile (the UID-checked owner channel is the explicit
+    /// confirmation); when present it must equal the server-recomputed
+    /// digest exactly.
+    #[serde(default)]
+    pub confirmed_subject_digest: Option<String>,
+}
+
+impl GovernanceEnableArgs {
+    pub fn from_args(args: &JsonMap) -> Result<GovernanceEnableArgs, Problem> {
+        let parsed: GovernanceEnableArgs = parse_args(args)?;
+        check_identifier("byom_endpoint_ref", &parsed.byom_endpoint_ref)?;
+        check_identifier("society_ref", &parsed.society_ref)?;
+        check_selector("exact_scope_selector", &parsed.exact_scope_selector)?;
+        let selectors = &parsed.allowed_project_and_space_selectors;
+        if selectors.is_empty() || selectors.len() > limits::LIST_MAX_ITEMS {
+            return Err(invalid(
+                "allowed_project_and_space_selectors must hold 1-256 items",
+            ));
+        }
+        if !all_unique(selectors) {
+            return Err(invalid(
+                "allowed_project_and_space_selectors items must be unique",
+            ));
+        }
+        for selector in selectors {
+            check_selector("allowed_project_and_space_selectors item", selector)?;
+        }
+        check_identifier(
+            "classification_binding_ref",
+            &parsed.classification_binding_ref,
+        )?;
+        check_safe("expected_owner_revision", parsed.expected_owner_revision)?;
+        check_opt_identifier("expected_binding_ref", &parsed.expected_binding_ref)?;
+        check_opt_digest("confirmed_subject_digest", &parsed.confirmed_subject_digest)?;
+        Ok(parsed)
+    }
+}
+
+/// `governance_show` args: the whole realm's governance state, or one
+/// binding narrowed by ref.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GovernanceShowArgs {
+    #[serde(default)]
+    pub binding_ref: Option<String>,
+}
+
+impl GovernanceShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<GovernanceShowArgs, Problem> {
+        let parsed: GovernanceShowArgs = parse_args(args)?;
+        check_opt_identifier("binding_ref", &parsed.binding_ref)?;
+        Ok(parsed)
+    }
+}
+
+/// `governance_disable` args. The confirmed subject digest is REQUIRED —
+/// `governance_disable` is always step-up (frozen authority row), and in
+/// the personal profile the exact-digest confirmation is what stands in
+/// for a second factor (labeled honestly, developer assurance).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GovernanceDisableArgs {
+    pub binding_ref: String,
+    pub expected_owner_revision: u64,
+    pub confirmed_subject_digest: String,
+}
+
+impl GovernanceDisableArgs {
+    pub fn from_args(args: &JsonMap) -> Result<GovernanceDisableArgs, Problem> {
+        let parsed: GovernanceDisableArgs = parse_args(args)?;
+        check_identifier("binding_ref", &parsed.binding_ref)?;
+        check_safe("expected_owner_revision", parsed.expected_owner_revision)?;
+        if !limits::is_digest_hex(&parsed.confirmed_subject_digest) {
+            return Err(invalid("confirmed_subject_digest is not a digest hex"));
+        }
+        Ok(parsed)
+    }
+}
+
+fn check_selector(field: &str, value: &str) -> Result<(), Problem> {
+    if limits::is_selector(value) {
+        Ok(())
+    } else {
+        Err(invalid(format!(
+            "{field} is not a 1-256 visible-ASCII selector"
+        )))
+    }
+}
+
+fn check_opt_digest(field: &str, value: &Option<String>) -> Result<(), Problem> {
+    match value {
+        Some(v) if !limits::is_digest_hex(v) => {
+            Err(invalid(format!("{field} is not a digest hex")))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Validates an operation's args against its K1 schema mirror, discarding
 /// the parse — the shared schema-conformance gate the vector round-trip
 /// tests drive directly.
@@ -2710,6 +2856,10 @@ pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
         "invocation_list" => InvocationListArgs::from_args(args).map(drop),
         "invocation_cancel" => InvocationCancelArgs::from_args(args).map(drop),
         "application_event_emit" => ApplicationEventEmitArgs::from_args(args).map(drop),
+        // ------------------------------------------- K2 slice 1 ----
+        "governance_enable" => GovernanceEnableArgs::from_args(args).map(drop),
+        "governance_show" => GovernanceShowArgs::from_args(args).map(drop),
+        "governance_disable" => GovernanceDisableArgs::from_args(args).map(drop),
         other => Err(Problem::new(
             ProblemKind::UnknownOp,
             format!("operation {other} is not in the K1 table"),

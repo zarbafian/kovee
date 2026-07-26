@@ -42,9 +42,9 @@ fn vector_files() -> Vec<PathBuf> {
 }
 
 /// The request-schema basenames of the FULL K1 op table (slice 3 closes
-/// it): one `<op-with-dashes>-request` name per `ops::K1_OPS` row.
+/// it): one `<op-with-dashes>-request` name per `ops::KCP_OPS` row.
 fn k1_request_schemas() -> Vec<String> {
-    ops::K1_OPS
+    ops::KCP_OPS
         .iter()
         .map(|spec| format!("{}-request", spec.name.replace('_', "-")))
         .collect()
@@ -95,10 +95,10 @@ fn k1_op_request_vectors_round_trip() {
             negatives += 1;
         }
     }
-    // 86 ops × 3 negatives (missing-required, wrong-surface-args,
+    // 89 ops × 3 negatives (missing-required, wrong-surface-args,
     // replay) plus the positive requests.
-    assert!(checked >= 280, "only {checked} K1 op vectors found");
-    assert!(negatives >= 255, "only {negatives} negatives found");
+    assert!(checked >= 292, "only {checked} op vectors found");
+    assert!(negatives >= 264, "only {negatives} negatives found");
 }
 
 #[test]
@@ -142,13 +142,19 @@ fn ops_table_matches_the_frozen_registry_exactly() {
         .map(|e| e["operation"].as_str().unwrap())
         .collect();
     let table_ops: std::collections::BTreeSet<&str> =
-        ops::K1_OPS.iter().map(|spec| spec.name).collect();
+        ops::KCP_OPS.iter().map(|spec| spec.name).collect();
     assert_eq!(
         registry_ops, table_ops,
         "the ops table and spec/registry.json must carry the same exact operation set"
     );
-    assert_eq!(table_ops.len(), 86, "86 distinct K1 operations");
-    // The three bundles the registry pins are exactly the K1 bundles.
+    assert_eq!(
+        table_ops.len(),
+        89,
+        "86 K1 operations plus the 3 K2 slice-1 greenfield-binding ones"
+    );
+    // The bundles the registry pins: the three K1 bundles plus K2 slice
+    // 1's governed_work_binding_v1 (the binding half only — its
+    // formation operations arrive with slice 2).
     let bundles: Vec<&str> = registry["bundles"]
         .as_array()
         .unwrap()
@@ -157,7 +163,12 @@ fn ops_table_matches_the_frozen_registry_exactly() {
         .collect();
     assert_eq!(
         bundles,
-        vec!["core_v1", "shared_space_v1", "developer_assistant_v1"]
+        vec![
+            "core_v1",
+            "shared_space_v1",
+            "developer_assistant_v1",
+            "governed_work_binding_v1"
+        ]
     );
 }
 

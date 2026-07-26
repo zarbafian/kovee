@@ -1,0 +1,29 @@
+{
+  "name": "ops/governance-enable-invalid-missing-required",
+  "description": "missing required args member expected_owner_revision (the exact-CAS field of the frozen governance_enable authority row)",
+  "input": {
+    "schema": "governance-enable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_enable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "exact_scope_selector": "project:proj-0001",
+        "allowed_project_and_space_selectors": [
+          "project:proj-0001"
+        ],
+        "classification_binding_ref": "class-bind-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required expected_owner_revision"
+  }
+}

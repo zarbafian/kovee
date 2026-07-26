@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+pub mod byomstub;
+
 pub struct DaemonProc {
     child: Child,
     runtime_dir: PathBuf,
@@ -18,6 +20,17 @@ pub struct DaemonProc {
 
 impl DaemonProc {
     pub fn start(data_dir: &Path, runtime_dir: &Path, abort: Option<&str>) -> DaemonProc {
+        DaemonProc::start_with_env(data_dir, runtime_dir, abort, &[])
+    }
+
+    /// Starts `koveed` with extra environment — the K2 suites point
+    /// `KOVEE_BYOM_RUNTIME_DIR` at a byomd (stub or real).
+    pub fn start_with_env(
+        data_dir: &Path,
+        runtime_dir: &Path,
+        abort: Option<&str>,
+        env: &[(&str, &str)],
+    ) -> DaemonProc {
         std::fs::create_dir_all(data_dir).unwrap();
         std::fs::create_dir_all(runtime_dir).unwrap();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_koveed"));
@@ -25,6 +38,9 @@ impl DaemonProc {
             .env("KOVEE_RUNTIME_DIR", runtime_dir)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
         match abort {
             Some(spec) => {
                 cmd.env("KOVEED_ABORT", spec);

@@ -1,0 +1,26 @@
+{
+  "name": "ops/governance-disable-invalid-wrong-surface-args",
+  "description": "wrong-surface args: disable freezes, it never re-owns — a governance_owner arm is not a wire argument",
+  "input": {
+    "schema": "governance-disable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_disable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "binding_ref": "krbb-0001",
+        "expected_owner_revision": 2,
+        "confirmed_subject_digest": "2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e",
+        "governance_owner": "none"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member governance_owner"
+  }
+}

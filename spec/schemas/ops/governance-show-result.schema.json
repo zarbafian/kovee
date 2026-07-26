@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/governance-show-result.schema.json",
+  "title": "KCP governance_show result (D10 greenfield enablement saga state)",
+  "description": "CommandResult.result payload for governance_show (§11.2 ok arm). The realm's recorded governance state: the current owner arm, every enablement saga slot with its descriptor state and binding epoch, and every KoveeGovernanceOwnerBinding row (frozen rows retain their owner arm for audit).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "realm_id",
+    "governance_owner",
+    "compatibility_bundle",
+    "enablements",
+    "owner_bindings"
+  ],
+  "properties": {
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "governance_owner": {
+      "type": "string",
+      "enum": [
+        "sage",
+        "byom",
+        "none"
+      ],
+      "description": "Full byom §16.6 enum verbatim; the sage arm is never exercised in this stack (amendment A1)."
+    },
+    "compatibility_bundle": {
+      "const": "byom_governed_work_v1"
+    },
+    "enablements": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/enablement"
+      }
+    },
+    "owner_bindings": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/koveeGovernanceOwnerBinding"
+      }
+    }
+  },
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256/HMAC value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "digestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "structural_public",
+            "portable_public",
+            "local_erasure_safe",
+            "scope_erasure_safe",
+            "disclosed_party",
+            "ciphertext_public"
+          ],
+          "description": "Family digest class (byom family-vectors PROFILE §6, D-R0-1). Governed-work host records use scope_erasure_safe: one protected per-realm governance key, so destroying it erases verifiability of the whole governance scope, never one row."
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "sha-256",
+            "hmac-sha-256"
+          ]
+        },
+        "key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key id for the keyed erasure classes; raw HMAC keys, per-object secrets, and salts are never part of a DigestRef."
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "Typed family DigestRef (PROFILE §6.1), never an unlabelled hash. The class/algorithm pairing and the key_ref-presence rule for the keyed classes are enforced in code (they are a cross-member constraint the closed object cannot express here)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "selector": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,256}$",
+      "description": "Kovee governed-scope selector, at most 256 visible-ASCII bytes. byom pins only this bounded opaque wire shape (C2 host schemas); the grammar (realm | project:<id|*>[/space:<id|*>]) and the overlap predicate of byom §16.6 item 1 are Kovee-owned and live in kovee_byom::scope."
+    },
+    "koveeGovernanceOwnerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "realm_ref",
+        "exact_scope_selector",
+        "exact_scope_digest",
+        "revision",
+        "binding_epoch",
+        "governance_owner",
+        "status",
+        "digest"
+      ],
+      "properties": {
+        "realm_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "exact_scope_selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "exact_scope_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "Canonical digest of the exact governed scope; UNIQUE(realm_ref, exact_scope_digest) and the no-overlapping-active-selectors rule are enforced in code, not expressible here."
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "CAS field: the owner transition commits only at the expected revision."
+        },
+        "binding_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "CAS field: the enablement epoch fence. A rolled-back epoch can never activate."
+        },
+        "governance_owner": {
+          "type": "string",
+          "enum": [
+            "sage",
+            "byom",
+            "none"
+          ],
+          "description": "Full byom §16.6 enum verbatim; the sage arm exists for spec fidelity and is never exercised in this stack (amendment A1)."
+        },
+        "owner_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "owner_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "cutover_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Present only on a byom §25 GovernanceCutover row; the greenfield saga never sets it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "frozen"
+          ],
+          "description": "Closed byom §16.6 enum. governance_disable freezes the row (active→frozen) with the owner arm retained for audit."
+        },
+        "digest": {
+          "$ref": "#/$defs/digestRef"
+        }
+      },
+      "description": "KoveeGovernanceOwnerBinding, field list verbatim from byom §16.6 with the full sage|byom|none enum. The owner-arm rule (governance_owner none carries no owner refs; an owning arm names both) is a cross-member constraint enforced in code."
+    },
+    "enablement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enablement_id",
+        "state",
+        "binding_epoch",
+        "exact_scope_selector",
+        "exact_scope_digest",
+        "society_ref",
+        "society_recovery_epoch",
+        "byom_endpoint_ref",
+        "endpoint_incarnation",
+        "binding_ref",
+        "subject_digest",
+        "record"
+      ],
+      "properties": {
+        "enablement_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "bindings_created",
+            "active",
+            "rolled_back",
+            "disabled"
+          ],
+          "description": "The four saga states, verbatim from byom/spec/descriptors/greenfield-enablement.json. A bindings_created slot with an unknown CAS outcome is resolved query-first: only a verified answer drives retry or rollback (greenfield-saga §5)."
+        },
+        "binding_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "exact_scope_selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "exact_scope_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "society_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "society_recovery_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "byom_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "endpoint_incarnation": {
+          "$ref": "#/$defs/identifier"
+        },
+        "binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "subject_digest": {
+          "$ref": "#/$defs/digestHex"
+        },
+        "record": {
+          "type": "object",
+          "description": "The stored governance_enable / governance_disable result for this slot's state, replayed verbatim — the byte-identical retry payload."
+        }
+      },
+      "description": "One greenfield-enablement saga slot."
+    }
+  }
+}

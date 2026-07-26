@@ -1,15 +1,16 @@
 {
-  "title": "Kovee KCP operation registry — K0 frozen (K1 bundles)",
-  "registry_version": "k0-2",
+  "title": "Kovee KCP operation registry — K0 frozen (K1 bundles) + K2 slice 1 (governed_work_binding_v1 binding half)",
+  "registry_version": "k2-1",
   "bundles": [
     "core_v1",
     "shared_space_v1",
-    "developer_assistant_v1"
+    "developer_assistant_v1",
+    "governed_work_binding_v1"
   ],
   "sources": {
     "design": "DESIGN.md §11.6 (feature bundles) and §11.6.1 (normative authority matrix), with §9.2 as the AuthorizationDependencySet category key",
     "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)",
-    "revision": "k0-2: R0 findings KREG-01/KREG-02 applied — canonical §9.2 dependency tokens, action_scope/constraints fields, connector authority split (spec/registry-README.md)"
+    "revision": "k2-1: the governed_work_binding_v1 greenfield-binding rows (governance_enable/show/disable) added for K2 slice 1, extracted from the frozen family-contract §2.A authority row; the k0-2 rows are unchanged (spec/registry-README.md)"
   },
   "dependency_category_tokens": [
     "principal_status",
@@ -34,12 +35,26 @@
     "realm_authority_binding",
     "external_visibility_proof"
   ],
-  "a5_renames_applied": [],
-  "a5_note": "No A5 wire-name rename applies to these three bundles: every operation in amendment A5's rename table belongs to governed_work_binding_v1 (K2), where the resolved names governance_enable/show/disable, endeavor_promotion_prepare/start/show/cancel/reconcile, and byom_episode_binding_show are reserved. See spec/registry-README.md.",
+  "a5_renames_applied": [
+    {
+      "pinned": "personal_governed_work_enable",
+      "resolved": "governance_enable"
+    },
+    {
+      "pinned": "personal_governed_work_show",
+      "resolved": "governance_show"
+    },
+    {
+      "pinned": "personal_governed_work_disable",
+      "resolved": "governance_disable"
+    }
+  ],
+  "a5_note": "No A5 wire-name rename applies to the three K1 bundles. K2 slice 1 extracts the greenfield-binding half of governed_work_binding_v1 and applies the A5 renames personal_governed_work_enable/show/disable → governance_enable/show/disable; the bundle's remaining operations (endeavor_promotion_*, byom_episode_binding_show, collaboration_context_bundle_*, workspace_*) are reserved for K2 slice 2 and are NOT in this registry. The bundle is therefore incomplete and is not advertised by hello/protocol_info (§11.6: bundles are atomic). See spec/registry-README.md.",
   "entry_counts": {
     "core_v1": 3,
     "shared_space_v1": 65,
-    "developer_assistant_v1": 22
+    "developer_assistant_v1": 22,
+    "governed_work_binding_v1": 3
   },
   "entries": [
     {
@@ -2633,6 +2648,99 @@
       "assurance": "workload identity plus invocation capability",
       "offline": "no",
       "source": "DESIGN.md §11.6 (developer_assistant_v1 row) + §11.6.1 (family: checkpoint/contribution/semantic-relation/model/tool/application_event_emit worker operations)"
+    },
+    {
+      "operation": "governance_enable",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact greenfield-enablement action over one exact governed scope",
+        "target society_ref and Society recovery epoch",
+        "byomd endpoint identity and incarnation",
+        "expected absent-or-identical KoveeRealmByomBinding",
+        "KoveeSocietyMapping revision",
+        "canonical subject digest over the (realm, society_ref, recovery epoch, byom endpoint, mapping revision, owner-binding transition none→byom) tuple — the exact digest the confirming human sees"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket and cannot bind an arbitrary endpoint or map another principal",
+        "Kovee is never the genesis governance actor: an already-active Society established by native society_prepare/society_bootstrap is required and is verified by a byomd projection read; Kovee may start/configure/bind byomd and supply inert context only (amendment A2)",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never create or activate a binding",
+        "no overlapping scope selector may hold an active owner binding or a pending enablement past step 1 (byom §16.6 item 1); rejection precedes creating anything"
+      ],
+      "fence": "binding epoch CAS at the expected KoveeGovernanceOwnerBinding revision; overlap rejected; retry returns the identical binding; rollback-before-activation spends the epoch; restore behavior per the D10 saga",
+      "assurance": "explicit confirmation in personal mode; fresh step-up/challenge in team mode",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/design/2026-07-25-family-contract.md §2.A (the frozen governance_enable authority row, field-complete) + byom/spec/governed-work/greenfield-saga.md (D10)"
+    },
+    {
+      "operation": "governance_show",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact governance-state read over the realm's bindings, mappings, owner rows, and enablement saga slots",
+        "recorded saga state and binding epoch (query-first restore resolution)"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket and cannot bind an arbitrary endpoint or map another principal",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never create or activate a binding",
+        "a read: it never creates, activates, rolls back, or freezes a binding"
+      ],
+      "fence": "none",
+      "assurance": "current login",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/design/2026-07-25-family-contract.md §2.A (the frozen governance_enable authority row, field-complete) + byom/spec/governed-work/greenfield-saga.md (D10)"
+    },
+    {
+      "operation": "governance_disable",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact governance-disable action over one active owner binding",
+        "exact scope selector and digest, binding epoch, and expected owner-binding revision",
+        "canonical subject digest the confirming human sees"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket and cannot bind an arbitrary endpoint or map another principal",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never create or activate a binding",
+        "freezes the owner row (status active→frozen) with the owner arm retained for audit and invalidates derived channels and permits; re-enablement is a fresh saga row under a new binding epoch, not a transition of this machine"
+      ],
+      "fence": "owner-binding CAS at the expected revision under the active binding epoch",
+      "assurance": "always step-up",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/design/2026-07-25-family-contract.md §2.A (the frozen governance_enable authority row, field-complete) + byom/spec/governed-work/greenfield-saga.md (D10)"
     }
   ]
 }

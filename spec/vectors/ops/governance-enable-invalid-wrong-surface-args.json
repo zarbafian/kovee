@@ -1,0 +1,32 @@
+{
+  "name": "ops/governance-enable-invalid-wrong-surface-args",
+  "description": "wrong-surface args: society_recovery_epoch and endpoint_incarnation are server-recomputed from a byomd projection read, never caller-supplied — a caller cannot assert a governance fact it does not observe",
+  "input": {
+    "schema": "governance-enable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_enable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "exact_scope_selector": "project:proj-0001",
+        "allowed_project_and_space_selectors": [
+          "project:proj-0001"
+        ],
+        "classification_binding_ref": "class-bind-0001",
+        "expected_owner_revision": 0,
+        "society_recovery_epoch": 0,
+        "endpoint_incarnation": "inc-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown members society_recovery_epoch, endpoint_incarnation"
+  }
+}

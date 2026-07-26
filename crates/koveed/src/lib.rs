@@ -14,8 +14,10 @@
 
 pub mod artifact_ops;
 pub mod assistant_ops;
+pub mod credentials;
 pub mod dispatch;
 pub mod disposition_ops;
+pub mod governance;
 pub mod handlers;
 pub mod invoke;
 pub mod lifecycle_ops;

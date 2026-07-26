@@ -1,0 +1,28 @@
+{
+  "name": "ops/governance-enable-invalid-genesis-selector",
+  "description": "wrong-shape args: an empty allowed_project_and_space_selectors list — a mapping exists to allow, so it names at least one selector (byom §16.6)",
+  "input": {
+    "schema": "governance-enable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_enable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "exact_scope_selector": "project:proj-0001",
+        "allowed_project_and_space_selectors": [],
+        "classification_binding_ref": "class-bind-0001",
+        "expected_owner_revision": 0
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "allowed_project_and_space_selectors must hold 1-256 items"
+  }
+}

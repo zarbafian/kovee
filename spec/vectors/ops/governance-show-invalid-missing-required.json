@@ -1,0 +1,16 @@
+{
+  "name": "ops/governance-show-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "governance-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_show",
+      "realm_id": "realm-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}

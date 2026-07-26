@@ -1,0 +1,31 @@
+{
+  "name": "ops/governance-enable-invalid-project-placement",
+  "description": "dependency invalidation: a governed scope is named by its own selector, never by the envelope's project placement — governance_enable carries no project_id member",
+  "input": {
+    "schema": "governance-enable-request",
+    "value": {
+      "version": "0.1",
+      "op": "governance_enable",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "exact_scope_selector": "project:proj-0001",
+        "allowed_project_and_space_selectors": [
+          "project:proj-0001"
+        ],
+        "classification_binding_ref": "class-bind-0001",
+        "expected_owner_revision": 0
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown envelope member project_id"
+  }
+}

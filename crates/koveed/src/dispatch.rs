@@ -12,6 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use kovee_artifacts::{ArtifactPaths, Fault, FinalizeHooks};
+use kovee_byom::bpp::Endpoint;
 use kovee_core::envelope::{CommandResult, RawCommand, Shape};
 use kovee_core::limits;
 use kovee_core::ops::{self, OpKind};
@@ -19,6 +20,7 @@ use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::unix_now;
 use kovee_store::{CrashHooks, Store, PERSONAL_REALM_ID};
 
+use crate::governance;
 use crate::handlers::{self, AppendAuthor};
 use crate::invoke;
 use crate::peercred::{authenticate_same_uid, current_uid};
@@ -965,6 +967,41 @@ impl Daemon {
                     project,
                     args,
                     meta,
+                    now,
+                    hooks,
+                )
+            }
+            // ---------------------- K2 slice 1: governed-work binding ----
+            // The frozen `governance_enable` row's surface is "KCP admin";
+            // in the personal profile that is the owner principal over
+            // this UID-checked local socket (registry-README resolutions
+            // 5/6, as for every other operator-surface entry).
+            ("governance_enable", OpKind::Mutation) => {
+                let args = ops::GovernanceEnableArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let resolver = |endpoint_ref: &str| Endpoint::local(endpoint_ref);
+                governance::governance_enable(
+                    &mut *self.lock_store()?,
+                    &resolver,
+                    scope,
+                    realm,
+                    args,
+                    now,
+                    |op| self.hooks(op),
+                )
+            }
+            ("governance_show", _) => {
+                let args = ops::GovernanceShowArgs::from_args(&cmd.args)?;
+                governance::governance_show(&*self.lock_store()?, &realm, &args)
+            }
+            ("governance_disable", OpKind::Mutation) => {
+                let args = ops::GovernanceDisableArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                governance::governance_disable(
+                    &mut *self.lock_store()?,
+                    scope,
+                    realm,
+                    args,
                     now,
                     hooks,
                 )

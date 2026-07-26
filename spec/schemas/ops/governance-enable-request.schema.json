@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/governance-enable-request.schema.json",
+  "title": "KCP governance_enable request (amendment A5 wire name; family contract §2.A frozen authority row; byom/spec/governed-work/greenfield-saga.md D10)",
+  "description": "Mutation (meta required; §11.2). Step 1 of the D10 greenfield enablement saga: durably create the KoveeRealmByomBinding and KoveeSocietyMapping inert, then CAS the KoveeGovernanceOwnerBinding none→byom at the expected revision. The Society recovery epoch and the byomd endpoint incarnation are NOT arguments: they are read from byomd's projection surface and server-recomputed, so a caller cannot assert a governance fact it does not observe. Kovee is never the genesis governance actor (amendment A2): an already-active Society is required. Registry (governed_work_binding_v1): surface operator / human realm-owner principal only — never a service identity, session, assistant, or connector. Surface and actor kind are registry-enforced, not schema-expressible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "governance_enable"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byom_endpoint_ref",
+        "society_ref",
+        "exact_scope_selector",
+        "allowed_project_and_space_selectors",
+        "classification_binding_ref",
+        "expected_owner_revision"
+      ],
+      "properties": {
+        "byom_endpoint_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The configured byomd endpoint (personal profile: `local`, per amendment A5's canonical verb `kovee governance enable --byom local`)."
+        },
+        "society_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The already-active Society (byom's society_id, carried verbatim)."
+        },
+        "exact_scope_selector": {
+          "$ref": "#/$defs/selector"
+        },
+        "allowed_project_and_space_selectors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/selector"
+          }
+        },
+        "classification_binding_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_owner_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "Exact-CAS field: the KoveeGovernanceOwnerBinding revision this enable expects; 0 means expected absent. A changed revision conflicts and commits nothing."
+        },
+        "expected_binding_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The frozen dependency set's expected absent-or-identical KoveeRealmByomBinding: absent means absent, present names the identical binding a retry expects."
+        },
+        "confirmed_subject_digest": {
+          "$ref": "#/$defs/digestHex",
+          "description": "The exact subject digest the confirming human saw (family contract §2.A). Optional in the personal profile, where the UID-checked owner channel is itself the explicit confirmation; when present it must equal the server-recomputed digest exactly."
+        }
+      },
+      "description": "The frozen authorization dependency set's caller-supplied half."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256/HMAC value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "digestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "structural_public",
+            "portable_public",
+            "local_erasure_safe",
+            "scope_erasure_safe",
+            "disclosed_party",
+            "ciphertext_public"
+          ],
+          "description": "Family digest class (byom family-vectors PROFILE §6, D-R0-1). Governed-work host records use scope_erasure_safe: one protected per-realm governance key, so destroying it erases verifiability of the whole governance scope, never one row."
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "sha-256",
+            "hmac-sha-256"
+          ]
+        },
+        "key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key id for the keyed erasure classes; raw HMAC keys, per-object secrets, and salts are never part of a DigestRef."
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "Typed family DigestRef (PROFILE §6.1), never an unlabelled hash. The class/algorithm pairing and the key_ref-presence rule for the keyed classes are enforced in code (they are a cross-member constraint the closed object cannot express here)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "selector": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,256}$",
+      "description": "Kovee governed-scope selector, at most 256 visible-ASCII bytes. byom pins only this bounded opaque wire shape (C2 host schemas); the grammar (realm | project:<id|*>[/space:<id|*>]) and the overlap predicate of byom §16.6 item 1 are Kovee-owned and live in kovee_byom::scope."
+    },
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}
