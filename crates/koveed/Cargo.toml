@@ -23,6 +23,7 @@ workspace = true
 kovee-core = { workspace = true }
 kovee-artifacts = { workspace = true }
 kovee-byom = { workspace = true }
+kovee-effects = { workspace = true }
 kovee-store = { workspace = true }
 libc = { workspace = true }
 rusqlite = { workspace = true }

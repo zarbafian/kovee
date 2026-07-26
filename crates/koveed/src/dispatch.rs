@@ -18,6 +18,7 @@ use kovee_core::limits;
 use kovee_core::ops::{self, OpKind};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::unix_now;
+use kovee_effects::HttpsTransport;
 use kovee_store::{CrashHooks, Store, PERSONAL_REALM_ID};
 
 use crate::episode;
@@ -25,6 +26,7 @@ use crate::formation;
 use crate::governance;
 use crate::handlers::{self, AppendAuthor};
 use crate::invoke;
+use crate::model_broker;
 use crate::peercred::{authenticate_same_uid, current_uid};
 use crate::reads;
 use crate::space_ops;
@@ -83,19 +85,31 @@ impl AbortSpec {
     }
 }
 
-/// The daemon: one store behind a mutex, two dispatch surfaces.
+/// The daemon: one store behind a mutex, two dispatch surfaces, and ONE
+/// egress transport. The transport lives here — not in the worker path —
+/// because it is the only thing that holds a provider credential, and
+/// `Daemon` never lends it out (§16.3 step 5).
 pub struct Daemon {
     store: Mutex<Store>,
     abort: Option<AbortSpec>,
     paths: ArtifactPaths,
+    egress: HttpsTransport,
 }
 
 impl Daemon {
-    /// Opens the daemon and runs the startup **mark-and-sweep for
-    /// orphaned staging blobs** (KV-C1): a crash between an artifact's
-    /// finalize commit and its staging tidy-up leaves a second plaintext
-    /// copy on disk, and the sweep removes it on the next start against
-    /// a fresh database reference check.
+    /// Opens the daemon and runs two startup sweeps:
+    ///
+    /// 1. the **mark-and-sweep for orphaned staging blobs** (KV-C1): a
+    ///    crash between an artifact's finalize commit and its staging
+    ///    tidy-up leaves a second plaintext copy on disk, and the sweep
+    ///    removes it on the next start against a fresh reference check;
+    /// 2. the **ambiguous-effect sweep** (§16.1): any model-effect attempt
+    ///    the previous process left `dispatching` may have transmitted a
+    ///    request, so it resolves to `ambiguous` with retry frozen rather
+    ///    than being retried or written off as a failure.
+    ///
+    /// It also seeds the two shipped provider bindings from the daemon's own
+    /// environment; a provider whose key is absent is recorded `disabled`.
     pub fn new(store: Store, abort: Option<AbortSpec>, data_dir: &Path) -> Daemon {
         let paths = ArtifactPaths::new(data_dir);
         match kovee_artifacts::sweep_staging(&store, &paths) {
@@ -103,10 +117,22 @@ impl Daemon {
             Ok(n) => eprintln!("koveed: swept {n} orphaned staging blob(s)"),
             Err(e) => eprintln!("koveed: staging sweep: {e}"),
         }
+        let mut store = store;
+        match model_broker::recover_dispatching(&mut store, unix_now()) {
+            Ok(0) => {}
+            Ok(n) => eprintln!("koveed: {n} model effect(s) recovered as ambiguous (retry frozen)"),
+            Err(e) => eprintln!("koveed: ambiguous-effect sweep: {}", e.title),
+        }
+        if let Err(e) =
+            model_broker::seed_default_bindings(&mut store, PERSONAL_REALM_ID, unix_now())
+        {
+            eprintln!("koveed: model provider bindings: {}", e.title);
+        }
         Daemon {
             store: Mutex::new(store),
             abort,
             paths,
+            egress: HttpsTransport::new(),
         }
     }
 
@@ -1224,8 +1250,69 @@ impl Daemon {
                     hooks,
                 )
             }
+            // §16.3: agent code calls a logical model profile; the broker
+            // does everything else. The worker's request never names a
+            // provider, a host, a header, or a credential, and the reply
+            // (§16.3 step 7) is bounded output through the supervisor.
+            "model_complete" => {
+                let spec = ops::op_spec("model_complete").ok_or_else(internal)?;
+                cmd.validate(spec.shape())?;
+                spec.check_placement(&cmd.realm_id, &cmd.project_id)?;
+                require_realm(cmd)?;
+                let args = ops::ModelCompleteArgs::from_args(&cmd.args)?;
+                self.model_complete(cmd, args, now)
+            }
             _ => Err(unknown_op()),
         }
+    }
+
+    /// The worker-surface model call. The byom RUNTIME endpoint and the
+    /// daemon's own egress transport are supplied HERE: a worker cannot
+    /// reach either.
+    fn model_complete(
+        &self,
+        cmd: &RawCommand,
+        args: ops::ModelCompleteArgs,
+        now: i64,
+    ) -> Result<Vec<u8>, Problem> {
+        // The byom RUNTIME socket directory comes from
+        // `$KOVEE_BYOM_RUNTIME_DIR` and the workload-token directory from
+        // `$KOVEE_BYOM_CHANNELS_DIR` — both the daemon's own configuration,
+        // neither reachable from a worker request.
+        let endpoint = Endpoint::local("local");
+        let runtime = episode::Runtime::configured(&endpoint)?;
+        let authorization = model_broker::ActAuthorization {
+            act_intent_ref: args.act_intent_ref.clone(),
+            act_intent_digest: args.act_intent_digest.clone(),
+            act_revision: args.act_revision,
+            subject_digest: args.subject_digest.clone(),
+            stable_execution_key: args.stable_execution_key.clone(),
+            budget_reservation_set_ref: args.budget_reservation_set_ref.clone(),
+        };
+        let request = model_broker::CompleteRequest {
+            realm: PERSONAL_REALM_ID,
+            project: cmd.project_id.as_deref(),
+            attempt_id: &args.attempt_id,
+            fence_epoch: args.fence_epoch,
+            model_profile_ref: &args.model_profile_ref,
+            purpose_ref: &args.purpose_ref,
+            classification_ref: &args.classification_ref,
+            system: args.system.as_deref(),
+            prompt: &args.prompt,
+            max_output_tokens: args.max_output_tokens,
+            stable_binding_key: args.stable_binding_key.as_deref(),
+        };
+        let mut store = self.lock_store()?;
+        let completion = model_broker::complete(
+            &mut store,
+            &runtime,
+            &self.egress,
+            &request,
+            &authorization,
+            now,
+            model_broker::Fault::None,
+        )?;
+        handlers::ok_reply(completion.worker_view(), None)
     }
 }
 

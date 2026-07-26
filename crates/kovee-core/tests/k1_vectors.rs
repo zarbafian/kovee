@@ -149,9 +149,10 @@ fn ops_table_matches_the_frozen_registry_exactly() {
     );
     assert_eq!(
         table_ops.len(),
-        95,
-        "86 K1 operations, the 3 K2 slice-1 greenfield-binding ones, and the 6 slice-2 \
-         formation/episode-binding ones"
+        96,
+        "86 K1 operations, the 3 K2 slice-1 greenfield-binding ones, the 6 slice-2 \
+         formation/episode-binding ones, and `model_complete` — the §11.6.1 worker-operations \
+         family's `model` row, delivered with the K2 model broker"
     );
     // The bundles the registry pins: the three K1 bundles plus
     // governed_work_binding_v1 — still INCOMPLETE after slice 2

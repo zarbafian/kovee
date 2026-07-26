@@ -46,7 +46,7 @@ use serde_json::Value;
 
 use crate::bpp::{BppError, Endpoint, Surface};
 
-/// The three narrow runtime channels of byom's B0.4 bundle.
+/// The narrow runtime channels of byom's B0.4 bundle that Kovee speaks on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Workload {
     /// One exact Episode attempt: claim, start, checkpoint, yield,
@@ -57,6 +57,13 @@ pub enum Workload {
     Meter,
     /// One exact `ResourceAllocation`: `placement_admit` only.
     Placement,
+    /// The TRUSTED HOST EFFECT SERVICE bound to one exact prepared act
+    /// (byom R34): the only channel that may call
+    /// `execution_permit_consume`. Its subject is the ActIntent id, so a
+    /// permit token is unusable for any other act — which makes "the model
+    /// broker cannot consume another act's authority" a transport fact
+    /// rather than a code review.
+    Permit,
 }
 
 impl Workload {
@@ -66,6 +73,7 @@ impl Workload {
             Workload::Worker => "worker",
             Workload::Meter => "meter",
             Workload::Placement => "placement",
+            Workload::Permit => "permit",
         }
     }
 
@@ -75,11 +83,13 @@ impl Workload {
             Workload::Worker => "rwk1.",
             Workload::Meter => "rmt1.",
             Workload::Placement => "rpl1.",
+            Workload::Permit => "rpm1.",
         }
     }
 
     /// The file byomd publishes for one subject: the Episode id for the
-    /// worker and meter channels, the allocation id for the placement one.
+    /// worker and meter channels, the allocation id for the placement one,
+    /// and the ActIntent id for the permit one.
     pub fn token_file(self, subject: &str) -> String {
         format!("runtime-{}-{subject}.token", self.tag())
     }
@@ -183,10 +193,11 @@ mod tests {
     }
 
     #[test]
-    fn the_three_channels_are_byoms_three_classes() {
+    fn the_channels_are_byoms_own_classes() {
         assert_eq!(Workload::Worker.prefix(), "rwk1.");
         assert_eq!(Workload::Meter.prefix(), "rmt1.");
         assert_eq!(Workload::Placement.prefix(), "rpl1.");
+        assert_eq!(Workload::Permit.prefix(), "rpm1.");
         assert_eq!(
             Workload::Worker.token_file("ep-1"),
             "runtime-worker-ep-1.token"
@@ -194,6 +205,11 @@ mod tests {
         assert_eq!(
             Workload::Placement.token_file("alloc-1"),
             "runtime-placement-alloc-1.token"
+        );
+        // The permit channel's subject is the ACT, not the Episode.
+        assert_eq!(
+            Workload::Permit.token_file("actint-1"),
+            "runtime-permit-actint-1.token"
         );
     }
 

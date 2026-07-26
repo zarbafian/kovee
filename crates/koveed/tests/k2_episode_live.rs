@@ -107,11 +107,22 @@ impl Live {
             requested.state, "eligible",
             "the Episode is eligible but NOT queued: queueing needs both exact reservation sets"
         );
-        notice.resource_allocation_digest = serde_json::from_value(
-            self.byomd
-                .allocation_digest(&notice.resource_allocation_ref),
-        )
-        .unwrap();
+        // Stages 2 and 3 are byom's, and so is the allocation identity: it
+        // comes out of byom's OWN reply, not out of its database. The
+        // published digest is the CROSS-BOUNDARY `portable_public` one
+        // (amendment A8), which is exactly what `placement_admit` compares.
+        notice.resource_allocation_ref = requested
+            .resource_allocation_ref
+            .clone()
+            .expect("episode_request publishes the stage-3 allocation id");
+        notice.resource_allocation_digest = requested
+            .resource_allocation_digest
+            .clone()
+            .expect("episode_request publishes the allocation binding digest");
+        assert_eq!(
+            notice.resource_allocation_digest.class, "portable_public",
+            "a cross-boundary digest is unkeyed so both sides recompute it"
+        );
         (notice, requested.episode_ref)
     }
 
@@ -893,10 +904,10 @@ fn protected_call(
         "kovee_invocation_fence": fences.kovee,
         "expected_lease_revision": bound.lease_revision,
         "checkpoint_ref": format!("kovee-probe-ckpt-{}", fences.byom),
+        // CROSS-BOUNDARY (byom amendment A8): unkeyed, so byom recomputes it.
         "checkpoint_digest": {
-            "class": "local_erasure_safe",
-            "algorithm": "hmac-sha-256",
-            "key_ref": "kovee-probe-object:1",
+            "class": "portable_public",
+            "algorithm": "sha-256",
             "value_hex": "1c".repeat(32),
         },
     });
@@ -924,21 +935,16 @@ fn raw_claim(
         "episode_ref": episode_ref,
         "generation": notice.generation,
         "holder_runtime_binding": "kovee-runtime-probe",
-        "claim_subject_digest": {
-            "class": "local_erasure_safe",
-            "algorithm": "hmac-sha-256",
-            "key_ref": "kovee-probe-object:1",
-            "value_hex": "2d".repeat(32),
-        },
+        // No `claim_subject_digest`: byom computes its own authority subject
+        // over its own staged attempt, so it is not a request member (S-2).
         "lease_ttl_seconds": ttl,
         "kovee_invocation_ref": "kovee-inv-probe",
         "kovee_invocation_fence": 1,
         "stable_binding_key": format!("ebk-probe-{placement_id}"),
         "context_manifest_ref": notice.context_manifest_ref,
         "context_manifest_digest": {
-            "class": "local_erasure_safe",
-            "algorithm": "hmac-sha-256",
-            "key_ref": "kovee-probe-object:1",
+            "class": "portable_public",
+            "algorithm": "sha-256",
             "value_hex": "3e".repeat(32),
         },
         "context_source_digest": {

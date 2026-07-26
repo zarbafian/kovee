@@ -22,7 +22,7 @@ use std::path::Path;
 
 /// The frozen exact `(bundle, operation, surface)` set — one row per
 /// expected (operation, surface) clause (K0 milestone sheet).
-const EXPECTED: [(&str, &str, &str); 99] = [
+const EXPECTED: [(&str, &str, &str); 100] = [
     ("core_v1", "hello", "external_client"),
     ("core_v1", "protocol_info", "external_client"),
     ("core_v1", "diagnose", "operator"),
@@ -277,6 +277,9 @@ const EXPECTED: [(&str, &str, &str); 99] = [
     ),
     ("developer_assistant_v1", "invocation_cancel", "worker"),
     ("developer_assistant_v1", "application_event_emit", "worker"),
+    // The §11.6.1 worker-operations family's `model` row, delivered with the
+    // K2 model broker: `ctx.model.complete` on the wire.
+    ("developer_assistant_v1", "model_complete", "worker"),
     // K2 slice 1 — the governed_work_binding_v1 binding half. The frozen
     // row's surface cell reads "KCP admin", which normalizes to the
     // registry's `operator` token (registry-README resolutions 5/6: in
@@ -325,7 +328,7 @@ const EXPECTED: [(&str, &str, &str); 99] = [
 const EXPECTED_COUNTS: [(&str, usize); 4] = [
     ("core_v1", 3),
     ("shared_space_v1", 65),
-    ("developer_assistant_v1", 22),
+    ("developer_assistant_v1", 23),
     ("governed_work_binding_v1", 9),
 ];
 

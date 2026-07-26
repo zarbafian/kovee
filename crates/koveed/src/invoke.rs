@@ -634,6 +634,84 @@ pub fn invocation_complete(
 
 /// Resolves the invocation id an attempt binds — the worker scope needs
 /// it before the transaction opens. Uniform `not-found` when absent.
+/// One RUNNING invocation and its claimed attempt, inserted directly — the
+/// state a worker-surface operation needs to exist before it can be called.
+///
+/// Test/fixture use only (the `budget::seam_fixture` convention): the real
+/// path is `invocation_create` then `invocation_claim` over the two sockets.
+/// It exists so a library-level suite can exercise a worker-surface operation
+/// without also re-driving the whole §10.6 registry pipeline.
+pub fn attempt_fixture(
+    store: &mut Store,
+    project_id: &str,
+    space_id: Option<&str>,
+    context_assembly_ref: Option<&str>,
+) -> Result<(String, String, u64), Problem> {
+    let invocation_id = new_id("inv").map_err(store_problem)?;
+    let attempt_id = new_id("invatt").map_err(store_problem)?;
+    let created_at = rfc3339_utc(0);
+    let record = serde_json::json!({
+        "invocation_id": invocation_id,
+        "realm_id": PERSONAL_REALM_ID,
+        "project_id": project_id,
+        "space_id": space_id,
+        "context_assembly_ref": context_assembly_ref,
+        "state": "running",
+        "revision": 1,
+        "created_at": created_at,
+    });
+    store
+        .conn()
+        .execute(
+            "INSERT INTO invocations (invocation_id, realm_id, project_id, space_id,
+                 branch_id, context_assembly_ref, state, revision, record, created_at)
+             VALUES (?1,?2,?3,?4,NULL,?5,'running',1,?6,?7)",
+            params![
+                invocation_id,
+                PERSONAL_REALM_ID,
+                project_id,
+                space_id,
+                context_assembly_ref,
+                serde_json::to_string(&record).map_err(|_| internal())?,
+                created_at,
+            ],
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    store
+        .conn()
+        .execute(
+            "INSERT INTO invocation_attempts (attempt_id, invocation_id, ordinal,
+                 worker_instance_id, fence_epoch, state, lease_expires_at, started_at,
+                 ended_at, result_ref)
+             VALUES (?1,?2,1,'worker-local',1,'running',NULL,?3,NULL,NULL)",
+            params![attempt_id, invocation_id, created_at],
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    Ok((invocation_id, attempt_id, 1))
+}
+
+/// Advances one attempt's fence, leaving the presented fence stale — the
+/// fixture a "stale fence is refused" proof needs.
+pub fn advance_attempt_fence(store: &mut Store, attempt_id: &str) -> Result<u64, Problem> {
+    store
+        .conn()
+        .execute(
+            "UPDATE invocation_attempts SET fence_epoch = fence_epoch + 1
+             WHERE attempt_id = ?1",
+            [attempt_id],
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    let fence: i64 = store
+        .conn()
+        .query_row(
+            "SELECT fence_epoch FROM invocation_attempts WHERE attempt_id = ?1",
+            [attempt_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    Ok(fence.max(0) as u64)
+}
+
 pub fn attempt_invocation_id(store: &Store, attempt_id: &str) -> Result<String, Problem> {
     Ok(get_attempt(store.conn(), attempt_id)
         .map_err(store_problem)?

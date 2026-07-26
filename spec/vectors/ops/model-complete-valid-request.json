@@ -1,0 +1,47 @@
+{
+  "name": "ops/model-complete-valid-request",
+  "description": "worker model call: attempt binding, logical model profile, purpose and classification, prompt, and byom's authorizing model_egress act (§14.1, §16.1-§16.3). No provider, host, URL, header, or credential is expressible.",
+  "input": {
+    "schema": "model-complete-request",
+    "value": {
+      "version": "0.1",
+      "op": "model_complete",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "attempt_id": "att-0001",
+        "fence_epoch": 4,
+        "model_profile_ref": "mp-anthropic-realm-0001",
+        "purpose_ref": "purpose-review",
+        "classification_ref": "class-public",
+        "system": "Be brief.",
+        "prompt": "Summarize the pinned contribution in one sentence.",
+        "max_output_tokens": 256,
+        "stable_binding_key": "ebk-0f8a1c2d3e4f5061",
+        "act_intent_ref": "actint-0001",
+        "act_intent_digest": {
+          "class": "local_erasure_safe",
+          "algorithm": "hmac-sha-256",
+          "key_ref": "byom-act-object:actint-0001",
+          "value_hex": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        },
+        "act_revision": 2,
+        "subject_digest": {
+          "class": "local_erasure_safe",
+          "algorithm": "hmac-sha-256",
+          "key_ref": "byom-act-object:actint-0001",
+          "value_hex": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+        },
+        "stable_execution_key": "exec-0001",
+        "budget_reservation_set_ref": "rset-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,6 +1,6 @@
 {
   "title": "Kovee KCP operation registry — K0 frozen (K1 bundles) + K2 slices 1-2 (governed_work_binding_v1 binding + formation halves)",
-  "registry_version": "k2-2",
+  "registry_version": "k2-3",
   "bundles": [
     "core_v1",
     "shared_space_v1",
@@ -10,7 +10,7 @@
   "sources": {
     "design": "DESIGN.md §11.6 (feature bundles) and §11.6.1 (normative authority matrix), with §9.2 as the AuthorizationDependencySet category key",
     "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)",
-    "revision": "k2-2: the governed_work_binding_v1 formation rows (endeavor_promotion_prepare/start/show/cancel/reconcile, byom_episode_binding_show) added for K2 slice 2, extracted from byom DESIGN.md §16.3/§16.6 item 3 and the Kovee-owned descriptors endeavor-formation.json / byom-episode-binding.json; the k2-1 rows are unchanged (spec/registry-README.md)"
+    "revision": "k2-3: the developer_assistant_v1 worker row `model_complete` added for the K2 model broker — the §11.6.1 worker-operations family's `model` operation — extracted from DESIGN.md §16.1-§16.3 and byom DESIGN.md §13.1-§13.3 (act_intent_prepare/position/finalize then execution_permit_consume); the k2-2 rows are unchanged. k2-2: the governed_work_binding_v1 formation rows (endeavor_promotion_prepare/start/show/cancel/reconcile, byom_episode_binding_show) added for K2 slice 2, extracted from byom DESIGN.md §16.3/§16.6 item 3 and the Kovee-owned descriptors endeavor-formation.json / byom-episode-binding.json; the k2-1 rows are unchanged (spec/registry-README.md)"
   },
   "dependency_category_tokens": [
     "principal_status",
@@ -77,7 +77,7 @@
   "entry_counts": {
     "core_v1": 3,
     "shared_space_v1": 65,
-    "developer_assistant_v1": 22,
+    "developer_assistant_v1": 23,
     "governed_work_binding_v1": 9
   },
   "entries": [
@@ -2672,6 +2672,41 @@
       "assurance": "workload identity plus invocation capability",
       "offline": "no",
       "source": "DESIGN.md §11.6 (developer_assistant_v1 row) + §11.6.1 (family: checkpoint/contribution/semantic-relation/model/tool/application_event_emit worker operations)"
+    },
+    {
+      "operation": "model_complete",
+      "bundle": "developer_assistant_v1",
+      "surface": "worker",
+      "allowed_actor_kinds": [
+        "invocation attempt only"
+      ],
+      "action_scope": [
+        "exact model call through ONE logical ModelProfile named by the invocation capability",
+        "the destination is that profile's ModelProviderBinding endpoint; a worker cannot name a provider, host, URL, header, or credential",
+        "invocation manifest, attempt, and the exact DisclosureManifest the ProviderContextManifest chain seals",
+        "the byom model_egress ActIntent whose one-shot ExecutionConsumptionReceipt the broker must hold before egress",
+        "budget"
+      ],
+      "dependency_categories": [
+        "service_identity_capability",
+        "target_resource_revision",
+        "context_item_visibility",
+        "classification_retention_policy",
+        "remaining_use_grant",
+        "kovee_policy_set",
+        "realm_authority_binding"
+      ],
+      "constraints": [
+        "the complete current authorization dependency set is required",
+        "no egress without a valid byom ExecutionConsumptionReceipt (max_uses 1) for this effect's exact stable_execution_key: the act chain is byom's and Kovee only consumes the permit",
+        "the prepared Effect and the dispatching EffectAttempt are each committed before the next step; an attempt left dispatching resolves to ambiguous and is never auto-retried",
+        "the act refs a worker presents are CLAIMS, never authority: byomd re-derives intent/subject/disclosure digests, both fences, and the driver audience inside execution_permit_consume, and the permit-channel token is byomd's own file keyed to that act",
+        "credentials never enter workers, events, or portable manifests: credential_secret_ref lives only on the ModelProviderBinding and resolves inside the broker"
+      ],
+      "fence": "current Kovee invocation fence and the byom Episode fence when bound; both are re-presented to byomd (family contract L21)",
+      "assurance": "workload identity plus invocation capability",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (developer_assistant_v1 row) + §11.6.1 (family: checkpoint/contribution/semantic-relation/model/tool/application_event_emit worker operations) + §16.1-§16.3 (effect lifecycle, disclosure manifest, model broker) + byom/DESIGN.md §13.1-§13.3 (the model-egress act chain and execution_permit_consume) + byom/spec/governed-work/provider-context-manifest-byom-fields.schema.json"
     },
     {
       "operation": "governance_enable",

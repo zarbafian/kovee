@@ -29,7 +29,14 @@ Plumbing below: the UDS line protocol, the branch-head fold (the section
 derives its idempotency key from ``invocation_key``/``operation_key``, so
 the whole flow is safely re-runnable end to end.
 
-Stdlib only; no model dependency (kovee section 26 K1).
+``ctx.model.complete`` (section 16.3) is the K2 addition: the worker names a
+logical model PROFILE and gets bounded output back. It cannot name a
+provider, a host, a URL, a header, or a credential — the broker resolves the
+destination from the profile's provider binding and injects the credential
+outside the worker, and no byte leaves without byom's one-shot execution
+permit for that exact effect.
+
+Stdlib only; no model or HTTP dependency in the worker (kovee section 26).
 """
 
 import hashlib
@@ -287,6 +294,87 @@ class InvocationContext:
             )
         revision, digest = self._pins[ref]
         return {"object_ref": ref, "revision": revision, "digest": digest}
+
+    @property
+    def model(self):
+        """The mediated model surface (section 16.3): ``ctx.model.complete``.
+
+        There is no way to name a provider, a host, a URL, a header, or a
+        credential from here — the broker resolves the destination from the
+        model PROFILE's provider binding and injects the credential outside
+        the worker. What comes back is bounded output plus the usage that was
+        metered.
+        """
+        return _ModelSurface(self)
+
+
+class _ModelSurface:
+    """``ctx.model`` — one operation, and nothing that widens what leaves."""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    def complete(
+        self,
+        prompt,
+        *,
+        authorization,
+        model_profile_ref,
+        purpose_ref,
+        operation_key=None,
+        system=None,
+        classification_ref="class-public",
+        max_output_tokens=1024,
+        stable_binding_key=None,
+    ):
+        """One brokered model call.
+
+        ``authorization`` is byom's notice for the ``model_egress`` act that
+        authorizes this disclosure — the intent ref/digest/revision, the
+        authorized subject digest, byom's one-shot ``stable_execution_key``,
+        and the budget reservation set. It is a set of CLAIMS: byomd
+        re-derives every one of them inside ``execution_permit_consume``, and
+        the permit-channel token is byomd's own file keyed to that act, so
+        naming another act's refs authorizes nothing.
+
+        Returns the section 16.3 result: ``text`` when the call completed,
+        ``usage``, the effect/attempt identity, and the two manifest refs an
+        auditor can follow. ``state == "ambiguous"`` means a request may have
+        been transmitted; ``retry_frozen`` is then true and an operator
+        reconciles — never retry it yourself.
+        """
+        ctx = self._ctx
+        operation_key = ctx._require_key(operation_key)
+        args = {
+            "attempt_id": ctx.attempt_id,
+            "fence_epoch": ctx.fence_epoch,
+            "model_profile_ref": model_profile_ref,
+            "purpose_ref": purpose_ref,
+            "classification_ref": classification_ref,
+            "prompt": prompt,
+            "max_output_tokens": max_output_tokens,
+            "act_intent_ref": authorization["act_intent_ref"],
+            "act_intent_digest": authorization["act_intent_digest"],
+            "act_revision": authorization["act_revision"],
+            "subject_digest": authorization["subject_digest"],
+            "stable_execution_key": authorization["stable_execution_key"],
+            "budget_reservation_set_ref": authorization[
+                "budget_reservation_set_ref"
+            ],
+        }
+        if system is not None:
+            args["system"] = system
+        if stable_binding_key is not None:
+            args["stable_binding_key"] = stable_binding_key
+        reply = ctx._worker.ok(
+            _mutation(
+                "model_complete",
+                args,
+                f"{ctx.invocation_id}.{operation_key}",
+                project_id=ctx.project_id,
+            )
+        )
+        return reply["result"]
 
 
 class Assistant:

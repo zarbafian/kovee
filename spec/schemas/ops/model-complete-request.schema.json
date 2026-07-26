@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/model-complete-request.schema.json",
+  "title": "KCP model_complete request (DESIGN.md §14.1, §16.1-§16.3, §11.6.1 worker-operations family)",
+  "description": "Mutation (meta required; §11.2: every state-changing operation requires meta). Worker-surface model call — `ctx.model.complete` on the wire. What is absent is the contract: no provider, host, URL, path, header, credential, or credential reference is expressible here, because agent code calls a logical model PROFILE and the broker resolves the destination from that profile's ModelProviderBinding (§16.3). The act_* / subject_digest / stable_execution_key members name byom's authorizing model_egress act; they are CLAIMS, re-derived by byomd inside execution_permit_consume, and the permit-channel token is byomd's own file keyed to that act — so naming another act's refs authorizes nothing. Registry (developer_assistant_v1): surface worker / invocation attempt only (assurance: workload identity plus invocation capability). Surface and actor kind are registry-enforced, not schema-expressible (gap note KG14).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "project_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "model_complete"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "fence_epoch",
+        "model_profile_ref",
+        "purpose_ref",
+        "classification_ref",
+        "prompt",
+        "max_output_tokens",
+        "act_intent_ref",
+        "act_intent_digest",
+        "act_revision",
+        "subject_digest",
+        "stable_execution_key",
+        "budget_reservation_set_ref"
+      ],
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "fence_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "Every worker operation carries {attempt_id, fence_epoch}; an expired or superseded attempt receives stale-lease (§15.2)."
+        },
+        "model_profile_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The logical ModelProfile (§16.3). It selects an exact ModelProviderBinding revision and digest and cannot override its endpoint, account, region, transport, or provider terms."
+        },
+        "purpose_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The stated purpose the DisclosureManifest binds (§16.2); authorization binds the final bytes for this purpose, not a broad topic name."
+        },
+        "classification_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The classification of everything that leaves; the profile's allowed_classification_refs must permit it, re-checked immediately before use (§16.3)."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 131072,
+          "description": "The disclosed request text. Byte-capped so an over-cap prompt is refused before any manifest is built for it (§11.8)."
+        },
+        "system": {
+          "type": "string",
+          "maxLength": 16384,
+          "description": "The assistant/system instruction, recorded as its own ordered segment of the ProviderContextManifest chain (§16.3)."
+        },
+        "max_output_tokens": {
+          "$ref": "#/$defs/safePositiveInteger",
+          "description": "Must not exceed the profile's request_limits.output_tokens (§16.3)."
+        },
+        "stable_binding_key": {
+          "$ref": "#/$defs/identifier",
+          "description": "The governed byom Episode binding this call runs inside. Both fences are re-presented to byomd; one current fence is not enough (family contract L21)."
+        },
+        "act_intent_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "byom's authorized model_egress ActIntent, and the subject of the narrow permit channel byomd published for it (byom R34)."
+        },
+        "act_intent_digest": {
+          "$ref": "#/$defs/digestRef"
+        },
+        "act_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "The CAS revision execution_permit_consume expects on byom's act head."
+        },
+        "subject_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "byom's authorized act subject digest, echoed. Kovee canonicalizes its OWN effect separately (host_effect_digest); it never invents byom's subject."
+        },
+        "stable_execution_key": {
+          "$ref": "#/$defs/identifier",
+          "description": "byom's kernel-derived one-shot key. It is the local Effect's identity (UNIQUE), and the ExecutionConsumptionReceipt must name exactly it or no byte leaves (§16.1 steps 1-4)."
+        },
+        "budget_reservation_set_ref": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "description": "ctx.model.complete(profile, prompt, …) on the wire (§14.1); the SDK operation_key is sugar the supervisor combines with the invocation id into the durable deduplication key — carried as meta.idempotency_key."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "digestRef": {
+      "$comment": "The closed family DigestRef wire (byom family-vectors/PROFILE.md §6.1, normative; D-R0-1): exactly the members {class, algorithm, key_ref?, value_hex}. Expressed as two CLOSED alternatives rather than one open object refined by a oneOf, so each arm states its own complete member set: an unkeyed public class with sha-256 and no key_ref, or a keyed erasure class with hmac-sha-256 and a mandatory key_ref. Substituting one class where a schema requires another is a conformance failure.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unkeyedDigestRef"
+        },
+        {
+          "$ref": "#/$defs/keyedDigestRef"
+        }
+      ],
+      "description": "Typed DigestRef: every digest field is typed, never an unlabelled hash."
+    },
+    "unkeyedDigestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "structural_public",
+            "portable_public",
+            "disclosed_party",
+            "ciphertext_public"
+          ],
+          "description": "The unkeyed classes: recomputable by a counterparty, which is what makes cross-boundary agreement a machine check."
+        },
+        "algorithm": {
+          "const": "sha-256"
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      }
+    },
+    "keyedDigestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "key_ref",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "local_erasure_safe",
+            "scope_erasure_safe"
+          ],
+          "description": "The keyed erasure classes: destroying the key erases exactly that object's (or that scope's) verifiability."
+        },
+        "algorithm": {
+          "const": "hmac-sha-256"
+        },
+        "key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key id for the keyed erasure classes; raw HMAC keys, per-object secrets, and salts are never part of a DigestRef."
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      }
+    },
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Exactly 64 lowercase hex characters."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "safePositiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe positive integer (§11.8)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

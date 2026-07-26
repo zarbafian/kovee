@@ -11,7 +11,7 @@
 //! | idempotent create over the stable key | `the_binding_is_idempotent_over_its_stable_key` |
 //! | a successor attempt gets a NEW row under a NEW key | `a_successor_invocation_binds_afresh` |
 //! | the read surface reports both fences and byom's lease revision | `the_read_surface_reports_both_fences_and_the_byom_lease_revision` |
-//! | the `local_erasure_safe` episode digests die with their secret | `destroying_the_placement_secret_erases_the_episode_digests` |
+//! | the per-object secret is random and wrapped, and the episode digests byom recomputes are cross-boundary | `the_placement_secret_is_a_random_wrapped_blob_and_the_episode_digests_are_cross_boundary` |
 //!
 //! There is NO scripted byom endpoint here: the whole four-stage path
 //! against a live `byomd` — `episode_request`, `placement_admit`,
@@ -136,9 +136,28 @@ fn bind_attempt(store: &mut Store, byom_fence: u64, lease_revision: u64) -> epis
         },
         lease_revision,
         &key,
+        // byom's own binding identity, as `episode_claim` would have
+        // reported it: the fence digest the model broker later presents to
+        // `execution_permit_consume` and the §12.1 source fragment.
+        &episode::ByomBindingSide {
+            binding_ref: Some(format!("beb-byom-{byom_fence}")),
+            binding_digest: Some(kovee_core::family::DigestRef::portable_public(
+                format!("{byom_fence:02x}").repeat(32),
+            )),
+            source_fields: Some(serde_json::to_value(byom_source_fields(byom_fence)).unwrap()),
+        },
         0,
     )
     .unwrap()
+}
+
+/// byom's §12.1 provider-context source fragment, C2 member for member.
+fn byom_source_fields(byom_fence: u64) -> kovee_effects::ByomSourceFields {
+    let mut fields = kovee_effects::ByomSourceFields::example();
+    fields.byom_fence_epoch = byom_fence;
+    fields.episode_ref = "ep-1".to_owned();
+    fields.byom_attempt_ref = format!("att-{byom_fence}");
+    fields
 }
 
 fn admitted(store: &mut Store, placement_id: &str) {
@@ -340,18 +359,14 @@ fn the_binding_is_idempotent_over_its_stable_key() {
         json!("bridge-alloc-wi-1-r1")
     );
     assert_eq!(record["mandate_use_refs"], json!(["mu-1"]));
+    // CROSS-BOUNDARY (byom amendment A8): byom holds only the ContextManifest
+    // ref, so the digest must be one byom can recompute — unkeyed.
     assert_eq!(
         record["context_manifest_digest"]["class"],
-        "local_erasure_safe"
+        "portable_public"
     );
-    assert_eq!(
-        record["context_manifest_digest"]["algorithm"],
-        "hmac-sha-256"
-    );
-    assert!(record["context_manifest_digest"]["key_ref"]
-        .as_str()
-        .unwrap()
-        .starts_with("kovee-placement-object:"));
+    assert_eq!(record["context_manifest_digest"]["algorithm"], "sha-256");
+    assert!(record["context_manifest_digest"]["key_ref"].is_null());
     assert_eq!(record["context_source_digest"]["class"], "portable_public");
 }
 
@@ -394,10 +409,23 @@ fn the_read_surface_reports_both_fences_and_the_byom_lease_revision() {
     );
 }
 
-// ---------------------------------------------------------------- erasure ----
+// ------------------------------------------------ per-object secrets, A8 ----
 
 #[test]
-fn destroying_the_placement_secret_erases_the_episode_digests() {
+fn the_placement_secret_is_a_random_wrapped_blob_and_the_episode_digests_are_cross_boundary() {
+    // byom's amendment A8 (family lock c1-r3) settled which class each
+    // episode-claim digest takes, and it moved the ones Kovee AUTHORS to the
+    // CROSS-BOUNDARY `portable_public` class: byom holds only their refs, so
+    // it must be able to recompute the digest itself, and a keyed value
+    // inside a class both sides derive is exactly what D-R1-2 forbids.
+    //
+    // Two consequences this proves:
+    //   1. the per-object secret is still a RANDOM wrapped blob, minted at
+    //      placement time and destroyed with the row (D-R1-2);
+    //   2. destroying it no longer breaks a checkpoint, because no episode
+    //      digest is keyed under it any more. Per-object erasure now applies
+    //      where `local_erasure_safe` actually lives: the model broker's own
+    //      disclosure / provider-context / effect records (`k2_broker`).
     let (mut store, endpoint, channels) = fixture("k2-episode-erasure");
     let runtime = unreachable_runtime(&endpoint, &channels);
     let bound = bind_attempt(&mut store, 7, 2);
@@ -409,8 +437,6 @@ fn destroying_the_placement_secret_erases_the_episode_digests() {
             |r| r.get(0),
         )
         .unwrap();
-    // The secret is a RANDOM per-object blob, wrapped — not a root
-    // derivation (disposition D-R1-2).
     let wrapped: Vec<u8> = store
         .conn()
         .query_row(
@@ -421,8 +447,19 @@ fn destroying_the_placement_secret_erases_the_episode_digests() {
         .unwrap();
     assert_eq!(wrapped.len(), kovee_store::objkey::WRAPPED_LEN);
 
-    // Destroying it erases exactly these digests' verifiability: no
-    // further `local_erasure_safe` episode digest can be derived.
+    // Every digest Kovee authors for byom is unkeyed and therefore
+    // recomputable by byom.
+    let record = bindings(&store)[0]["record"].clone();
+    for field in ["context_manifest_digest", "context_source_digest"] {
+        assert_eq!(
+            record[field]["class"], "portable_public",
+            "{field} is cross-boundary (A8)"
+        );
+        assert!(record[field]["key_ref"].is_null(), "{field} carries no key");
+    }
+
+    // Destroying the secret leaves the episode path working: the refusal it
+    // used to cause was a keyed-digest derivation that no longer happens.
     store
         .conn()
         .execute(
@@ -430,21 +467,23 @@ fn destroying_the_placement_secret_erases_the_episode_digests() {
             [&placement],
         )
         .unwrap();
-    let refused = episode::checkpoint(
+    let outcome = episode::checkpoint(
         &mut store,
         &runtime,
         &bound.stable_binding_key,
         bound.fences,
         "ckpt-1",
         1,
-    )
-    .unwrap_err();
-    assert_eq!(refused.kind, ProblemKind::Forbidden);
+    );
+    // It still fails — but at the UNREACHABLE endpoint, not at a destroyed
+    // secret, which is the whole point.
+    let refused = outcome.unwrap_err();
+    assert_ne!(refused.kind, ProblemKind::Forbidden, "{refused:?}");
     assert!(
-        refused
+        !refused
             .detail
-            .as_ref()
-            .unwrap()
+            .as_deref()
+            .unwrap_or_default()
             .contains("can no longer be re-derived"),
         "{refused:?}"
     );

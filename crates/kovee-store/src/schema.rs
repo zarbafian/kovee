@@ -989,6 +989,192 @@ ALTER TABLE byom_episode_bindings ADD COLUMN lease_revision INTEGER NOT NULL DEF
 ALTER TABLE byom_placement_bindings ADD COLUMN object_secret BLOB;
 "#;
 
+/// Version 8: the K2 model broker (§16.1-§16.3).
+///
+/// The table set is the §16.1 lifecycle, one table per record, and the
+/// ORDER of writes across them is the safety property:
+///
+/// - `model_provider_bindings` / `model_profiles` — the revisioned §16.3
+///   records. `credential_secret_ref` is an `env:NAME` / `store:REF`
+///   reference; there is no column anywhere below that can hold key
+///   material.
+/// - `provider_credentials` — the `store:REF` arm of that indirection, so a
+///   deployment without environment variables still keeps the secret out of
+///   every worker-visible surface.
+/// - `disclosure_manifests` — the V3 read-surface table, now WRITTEN: it
+///   gains the recipient kind, the §16.2 digest a byom permit binds, and the
+///   total disclosed bytes. `disclosure_manifest_show` already returns its
+///   `record` column, so the K1 read surface needs no change.
+/// - `provider_context_manifests` — §16.3, with the chain digest and the
+///   final provider-request byte digest.
+/// - `model_effects` — the PREPARED record. `UNIQUE(execution_key)` makes
+///   byom's one-shot key the effect's identity, so a repeated key finds the
+///   existing effect instead of authorizing a second call, and
+///   `UNIQUE(external_idempotency_key)` does the same for a driver retry.
+///   This row is committed BEFORE any permit is consumed and before any
+///   byte leaves.
+/// - `external_authorization_consumptions` — §16.1's
+///   `ExternalAuthorizationConsumption`, `phase: pre_egress`, with
+///   `UNIQUE(owner_protocol, owner_endpoint_ref, execution_key)`: the
+///   pre-existing effect is what makes every consumed byom permit
+///   recoverable by key after a crash.
+/// - `model_effect_attempts` — one row per dispatch, committed
+///   `dispatching` before the socket opens. `retry_frozen` is set with
+///   `ambiguous` and is what a reconciliation clears; `transport_profile`
+///   records WHICH wire carried it, so a receipt can never silently claim a
+///   real provider call.
+/// - `model_usage_reports` — what was metered to byom, keyed by the stable
+///   report key so a re-report is a replay rather than a second charge.
+///
+/// Plus three columns on `byom_episode_bindings`. `execution_permit_consume`
+/// compares `episode_fence_digest` against **byom's own** committed
+/// `ByomEpisodeBinding.digest`, and §16.3 makes the byom source fields part
+/// of the `ProviderContextManifest` — both arrive in `episode_claim`'s reply
+/// and were previously discarded, so a model call had no way to name them.
+const V8: &str = r#"
+ALTER TABLE byom_episode_bindings ADD COLUMN byom_binding_ref TEXT;
+ALTER TABLE byom_episode_bindings ADD COLUMN byom_binding_digest TEXT;
+ALTER TABLE byom_episode_bindings ADD COLUMN byom_source_fields TEXT;
+
+CREATE TABLE model_provider_bindings (
+    model_provider_binding_id TEXT PRIMARY KEY,
+    realm_ref                 TEXT NOT NULL REFERENCES realms(realm_id),
+    revision                  INTEGER NOT NULL,
+    provider_kind             TEXT NOT NULL,
+    endpoint_host             TEXT NOT NULL,
+    endpoint_port             INTEGER NOT NULL,
+    credential_secret_ref     TEXT NOT NULL,
+    status                    TEXT NOT NULL,
+    record                    TEXT NOT NULL,
+    digest                    TEXT NOT NULL,
+    created_at                TEXT NOT NULL,
+    updated_at                TEXT NOT NULL,
+    UNIQUE(realm_ref, provider_kind)
+) STRICT;
+
+CREATE TABLE model_profiles (
+    model_profile_id         TEXT PRIMARY KEY,
+    realm_ref                TEXT NOT NULL REFERENCES realms(realm_id),
+    revision                 INTEGER NOT NULL,
+    provider_binding_ref     TEXT NOT NULL
+        REFERENCES model_provider_bindings(model_provider_binding_id),
+    provider_binding_revision INTEGER NOT NULL,
+    model_selector           TEXT NOT NULL,
+    status                   TEXT NOT NULL,
+    record                   TEXT NOT NULL,
+    digest                   TEXT NOT NULL,
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE provider_credentials (
+    credential_ref TEXT PRIMARY KEY,
+    realm_ref      TEXT NOT NULL REFERENCES realms(realm_id),
+    secret         TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+) STRICT;
+
+ALTER TABLE disclosure_manifests ADD COLUMN recipient_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE disclosure_manifests ADD COLUMN digest_hex TEXT NOT NULL DEFAULT '';
+ALTER TABLE disclosure_manifests ADD COLUMN total_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE disclosure_manifests ADD COLUMN object_secret BLOB;
+
+CREATE TABLE provider_context_manifests (
+    provider_context_id TEXT PRIMARY KEY,
+    realm_ref           TEXT NOT NULL REFERENCES realms(realm_id),
+    invocation_ref      TEXT NOT NULL,
+    attempt_ref         TEXT NOT NULL,
+    record              TEXT NOT NULL,
+    digest_hex          TEXT NOT NULL,
+    final_request_digest_hex TEXT NOT NULL,
+    object_secret       BLOB,
+    created_at          TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE model_effects (
+    effect_id                TEXT PRIMARY KEY,
+    realm_ref                TEXT NOT NULL REFERENCES realms(realm_id),
+    project_ref              TEXT,
+    invocation_ref           TEXT NOT NULL,
+    attempt_ref              TEXT NOT NULL,
+    kovee_invocation_fence   INTEGER NOT NULL,
+    stable_binding_key       TEXT,
+    episode_ref              TEXT,
+    byom_fence_epoch         INTEGER,
+    act_intent_ref           TEXT NOT NULL,
+    execution_key            TEXT NOT NULL,
+    external_idempotency_key TEXT NOT NULL,
+    model_profile_ref        TEXT NOT NULL,
+    provider_binding_ref     TEXT NOT NULL,
+    subject_digest           TEXT NOT NULL,
+    host_effect_digest       TEXT NOT NULL,
+    disclosure_manifest_ref  TEXT NOT NULL
+        REFERENCES disclosure_manifests(disclosure_id),
+    disclosure_digest        TEXT NOT NULL,
+    provider_context_ref     TEXT NOT NULL
+        REFERENCES provider_context_manifests(provider_context_id),
+    provider_context_digest  TEXT NOT NULL,
+    state                    TEXT NOT NULL,
+    object_secret            BLOB,
+    created_at               TEXT NOT NULL,
+    updated_at               TEXT NOT NULL,
+    UNIQUE(execution_key),
+    UNIQUE(external_idempotency_key)
+) STRICT;
+
+CREATE TABLE external_authorization_consumptions (
+    consumption_id       TEXT PRIMARY KEY,
+    effect_id            TEXT NOT NULL REFERENCES model_effects(effect_id),
+    owner_protocol       TEXT NOT NULL,
+    phase                TEXT NOT NULL,
+    owner_endpoint_ref   TEXT NOT NULL,
+    owner_intent_ref     TEXT NOT NULL,
+    execution_key        TEXT NOT NULL,
+    owner_receipt_ref    TEXT NOT NULL,
+    owner_receipt_digest TEXT NOT NULL,
+    mandate_use_ref      TEXT NOT NULL,
+    permit               TEXT NOT NULL,
+    receipt              TEXT NOT NULL,
+    replayed             INTEGER NOT NULL,
+    consumed_at          TEXT NOT NULL,
+    state                TEXT NOT NULL,
+    UNIQUE(owner_protocol, owner_endpoint_ref, execution_key)
+) STRICT;
+
+CREATE TABLE model_effect_attempts (
+    effect_attempt_id  TEXT PRIMARY KEY,
+    effect_id          TEXT NOT NULL REFERENCES model_effects(effect_id),
+    attempt_ordinal    INTEGER NOT NULL,
+    consumption_ref    TEXT NOT NULL
+        REFERENCES external_authorization_consumptions(consumption_id),
+    transport_profile  TEXT NOT NULL,
+    state              TEXT NOT NULL,
+    retry_frozen       INTEGER NOT NULL,
+    external_ref       TEXT,
+    response_digest_hex TEXT,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    latency_ms         INTEGER,
+    observation        TEXT,
+    reconciliation     TEXT,
+    started_at         TEXT NOT NULL,
+    completed_at       TEXT,
+    UNIQUE(effect_id, attempt_ordinal)
+) STRICT;
+
+CREATE TABLE model_usage_reports (
+    stable_report_key TEXT PRIMARY KEY,
+    effect_attempt_id TEXT NOT NULL
+        REFERENCES model_effect_attempts(effect_attempt_id),
+    episode_ref       TEXT NOT NULL,
+    input_tokens      INTEGER NOT NULL,
+    output_tokens     INTEGER NOT NULL,
+    settled_by_byom   INTEGER NOT NULL,
+    result            TEXT NOT NULL,
+    reported_at       TEXT NOT NULL
+) STRICT;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1),
@@ -998,6 +1184,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, V5),
     (6, V6),
     (7, V7),
+    (8, V8),
 ];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting

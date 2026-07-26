@@ -24,6 +24,7 @@ pub mod governance;
 pub mod handlers;
 pub mod invoke;
 pub mod lifecycle_ops;
+pub mod model_broker;
 pub mod peercred;
 pub mod reads;
 pub mod socket;

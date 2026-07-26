@@ -67,7 +67,7 @@ use kovee_byom::runtime::{self, Workload, WorkloadToken};
 use kovee_core::event::{
     EVENT_EPISODE_BINDING_BOUND, EVENT_EPISODE_BINDING_FENCED, EVENT_EPISODE_BINDING_RELEASED,
 };
-use kovee_core::family::{hex, hmac_sha256, tagged_canonical, DigestRef};
+use kovee_core::family::{tagged_canonical, DigestRef};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::rfc3339_utc;
 use kovee_store::{new_id, NewEvent, Store, OWNER_ACTOR_REF};
@@ -81,7 +81,6 @@ const TAG_PLACEMENT: &str = "kovee-placement-binding-v1";
 const TAG_CONSTRAINT: &str = "kovee-placement-constraint-v1";
 const TAG_BINDING: &str = "kovee-byom-episode-binding-v1";
 const TAG_CONTEXT_SOURCE: &str = "kovee-episode-context-source-v1";
-const TAG_CLAIM_SUBJECT: &str = "kovee-episode-claim-subject-v1";
 const TAG_CONTEXT_MANIFEST: &str = "kovee-episode-context-manifest-v1";
 const TAG_CHECKPOINT: &str = "kovee-episode-checkpoint-v1";
 
@@ -149,7 +148,10 @@ impl Runtime {
         )
     }
 
-    fn token(&self, channel: Workload, subject: &str) -> Result<WorkloadToken, Problem> {
+    /// The byomd-minted token for one exact subject and channel class.
+    /// Public because the model broker needs the `rpm1.` permit channel;
+    /// there is still no Kovee-side minting path, by construction.
+    pub fn token(&self, channel: Workload, subject: &str) -> Result<WorkloadToken, Problem> {
         runtime::token(&self.channels, channel, subject).map_err(|e| {
             // A missing token is a STATE answer: byomd removes it when the
             // subject leaves its live states.
@@ -161,7 +163,9 @@ impl Runtime {
         })
     }
 
-    fn call(&self, token: &WorkloadToken, request: &Value) -> Result<Value, Problem> {
+    /// One runtime-surface call under a workload token, byom's typed
+    /// problem passed through.
+    pub fn call(&self, token: &WorkloadToken, request: &Value) -> Result<Value, Problem> {
         runtime::call(&self.endpoint, token, request)
             .map(|reply| reply.result)
             .map_err(|e| bpp::passthrough(&e))
@@ -223,12 +227,20 @@ pub struct Placed {
     pub record: PlacementBinding,
 }
 
-/// One requested Episode, as byom answered.
+/// One requested Episode, as byom answered — including the stage-3
+/// allocation byom's kernel created inside the same call and the CROSS-
+/// BOUNDARY digest it published for it.
 #[derive(Debug, Clone)]
 pub struct Requested {
     pub episode_ref: String,
     pub generation: u64,
     pub state: String,
+    /// byom's stage-3 `ResourceAllocation` id, as the reply named it.
+    pub resource_allocation_ref: Option<String>,
+    /// The `portable_public` allocation binding digest `placement_admit`
+    /// compares against its own row. Unkeyed exactly so both sides can
+    /// recompute it, which is what makes the pin a machine check.
+    pub resource_allocation_digest: Option<DigestRef>,
 }
 
 /// One admitted placement, as byom's adapter answered.
@@ -284,32 +296,21 @@ fn portable(tag: &str, projection: &Value) -> Result<DigestRef, Problem> {
     )))
 }
 
-/// The `local_erasure_safe` derivation byom's runtime schemas require for
-/// the fields Kovee AUTHORS and byom only stores (`claim_subject_digest`,
-/// `context_manifest_digest`, `checkpoint_digest`). Keyed under this
-/// placement's own RANDOM per-object secret, wrapped under the realm key
-/// (disposition D-R1-2): destroying that one blob erases exactly these
-/// digests' verifiability and nothing else.
-fn erasure_safe(
-    placement_id: &str,
-    secret: &[u8; 32],
-    tag: &str,
-    projection: &Value,
-) -> Result<DigestRef, Problem> {
-    let preimage = tagged_canonical(tag, projection).map_err(|_| internal())?;
-    Ok(DigestRef::local_erasure_safe(
-        &object_key_ref(placement_id),
-        hex(&hmac_sha256(secret, &preimage)),
-    ))
-}
-
 fn object_key_ref(placement_id: &str) -> String {
     format!("kovee-placement-object:{placement_id}")
 }
 
 /// This placement's per-object erasure secret, unwrapped. Absent means
-/// erased: the digests it keyed can no longer be re-derived by anyone,
-/// including a holder of the realm key.
+/// erased.
+///
+/// Nothing in the episode path keys a digest under it any more: byom's
+/// amendment A8 moved every episode digest Kovee authors to the
+/// CROSS-BOUNDARY `portable_public` class, because byom holds only their refs
+/// and must be able to recompute them. The secret is still minted at
+/// placement time and destroyed with the row, so a future Kovee-only episode
+/// digest has a per-object key to use; per-object erasure is exercised today
+/// by the model broker's own records (`koveed::model_broker`).
+#[allow(dead_code)]
 fn object_secret(conn: &Connection, placement_id: &str) -> Result<[u8; 32], Problem> {
     let wrapped: Option<Vec<u8>> = conn
         .query_row(
@@ -380,6 +381,21 @@ pub fn request(
             .and_then(Value::as_u64)
             .unwrap_or(notice.generation),
         state: string_of(&reply.result, "state")?,
+        // Stage 3's allocation, as byom PUBLISHES it: the cross-boundary
+        // `portable_public` binding digest, which `placement_admit` then
+        // compares against its own row (byom S-1/S-2, amendment A8). The
+        // row's keyed record commitment is byom's own and is never asked
+        // for — so Kovee echoes exactly what this reply carried.
+        resource_allocation_ref: reply
+            .result
+            .get("resource_allocation_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        resource_allocation_digest: reply
+            .result
+            .get("resource_allocation_digest")
+            .filter(|v| !v.is_null())
+            .and_then(|d| serde_json::from_value(d.clone()).ok()),
     })
 }
 
@@ -729,7 +745,6 @@ pub fn claim(
     }
     let realm = placed.realm_ref.clone();
     let seam = seam_of(store.conn(), &notice.society_ref, notice.recovery_epoch)?;
-    let secret = object_secret(store.conn(), placement_id)?;
     let token = runtime.token(Workload::Worker, episode_ref)?;
 
     // The stable key is derivable BEFORE the claim (byom keys the claim's
@@ -750,24 +765,18 @@ pub fn claim(
             "generation": notice.generation,
         }),
     )?;
-    let context_manifest_digest = erasure_safe(
-        placement_id,
-        &secret,
+    // CROSS-BOUNDARY (byom S-2, amendment A8): the ContextManifest is
+    // KOVEE's object, so byom holds only the ref and cannot re-derive a keyed
+    // digest over content it does not have — and this value is also preimage
+    // material for the `portable_public` `context_source_digest`. A keyed
+    // class inside a class both sides must derive is exactly what D-R1-2
+    // forbids, so the digest is unkeyed.
+    let context_manifest_digest = portable(
         TAG_CONTEXT_MANIFEST,
         &json!({"context_manifest_ref": notice.context_manifest_ref}),
     )?;
-    let claim_subject = erasure_safe(
-        placement_id,
-        &secret,
-        TAG_CLAIM_SUBJECT,
-        &json!({
-            "episode_ref": episode_ref,
-            "generation": notice.generation,
-            "kovee_placement_ref": placement_id,
-            "kovee_invocation_ref": placed.record.kovee_invocation_ref,
-            "kovee_invocation_fence": placed.record.kovee_fence_epoch,
-        }),
-    )?;
+    // The CLAIM SUBJECT is byom's authority subject over byom's own staged
+    // attempt, so byom computes it and it is not a request member at all.
     let allowed_local_commitments: Vec<String> = ALLOWED_LOCAL_COMMITMENTS
         .iter()
         .map(|c| (*c).to_owned())
@@ -785,7 +794,6 @@ pub fn claim(
             "episode_ref": episode_ref,
             "generation": notice.generation,
             "holder_runtime_binding": placed.record.host_runtime_binding,
-            "claim_subject_digest": claim_subject,
             "lease_ttl_seconds": lease_ttl_seconds,
             "kovee_invocation_ref": placed.record.kovee_invocation_ref,
             "kovee_invocation_fence": placed.record.kovee_fence_epoch,
@@ -809,6 +817,24 @@ pub fn claim(
         ));
     }
     let lease_revision = number_of(&claimed, "lease_revision")?;
+    // What the model broker needs and only the claim can supply: byom's OWN
+    // committed `ByomEpisodeBinding` ref and digest (the exact
+    // `episode_fence_digest` `execution_permit_consume` compares against),
+    // and byom's §12.1 provider-context source fields (§16.6 item 5). Both
+    // are byom's derivations, echoed and never recomputed here.
+    let byom_side = ByomBindingSide {
+        binding_ref: claimed
+            .get("byom_episode_binding_ref")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        binding_digest: claimed
+            .pointer("/byom_episode_binding/digest")
+            .and_then(|d| serde_json::from_value::<DigestRef>(d.clone()).ok()),
+        source_fields: claimed
+            .get("provider_context_manifest_byom_fields")
+            .filter(|v| !v.is_null())
+            .cloned(),
+    };
 
     bind(
         store,
@@ -820,8 +846,20 @@ pub fn claim(
         fences,
         lease_revision,
         &stable_binding_key,
+        &byom_side,
         now,
     )
+}
+
+/// The byom-owned half of one claim reply: byom's committed binding
+/// identity and its §12.1 source fragment. Absent members mean byomd did
+/// not report them, and the broker then refuses a governed model call
+/// rather than inventing a fence digest.
+#[derive(Debug, Clone, Default)]
+pub struct ByomBindingSide {
+    pub binding_ref: Option<String>,
+    pub binding_digest: Option<DigestRef>,
+    pub source_fields: Option<Value>,
 }
 
 /// `episode_start` (runtime, update): the claimed lease begins running.
@@ -929,6 +967,7 @@ pub fn bind(
     fences: Fences,
     lease_revision: u64,
     stable_binding_key: &str,
+    byom_side: &ByomBindingSide,
     now: i64,
 ) -> Result<Bound, Problem> {
     let digests = digests_of(store.conn(), realm)?;
@@ -943,7 +982,6 @@ pub fn bind(
         return Err(internal());
     }
     let (binding_row, mapping) = active_seam(store.conn(), realm)?.ok_or_else(internal)?;
-    let secret = object_secret(store.conn(), &placed.record.placement_id)?;
     let context_source = portable(
         TAG_CONTEXT_SOURCE,
         &json!({
@@ -1001,9 +1039,7 @@ pub fn bind(
         stable_binding_key: stable_binding_key.to_owned(),
         allowed_local_commitments,
         context_manifest_ref: notice.context_manifest_ref.clone(),
-        context_manifest_digest: erasure_safe(
-            &placed.record.placement_id,
-            &secret,
+        context_manifest_digest: portable(
             TAG_CONTEXT_MANIFEST,
             &json!({"context_manifest_ref": notice.context_manifest_ref}),
         )?,
@@ -1030,8 +1066,9 @@ pub fn bind(
             "INSERT INTO byom_episode_bindings (binding_id, realm_ref, stable_binding_key,
                  placement_id, episode_ref, byom_attempt_ref, kovee_invocation_ref,
                  byom_fence_epoch, kovee_invocation_fence, lease_revision, state, episode_state,
-                 record, created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14)",
+                 record, created_at, updated_at,
+                 byom_binding_ref, byom_binding_digest, byom_source_fields)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,?15,?16,?17)",
             params![
                 new_id("beb").map_err(store_problem)?,
                 realm,
@@ -1049,6 +1086,9 @@ pub fn bind(
                 "queued",
                 serde_json::to_string(&record).map_err(|_| internal())?,
                 at,
+                byom_side.binding_ref,
+                byom_side.binding_digest.as_ref().map(digest_json),
+                byom_side.source_fields.as_ref().map(|v| v.to_string()),
             ],
         )
         .map_err(|e| store_problem(e.into()))?;
@@ -1155,17 +1195,16 @@ pub fn checkpoint(
         "checkpoint_commit",
         now,
     )?;
-    let placement_id = binding_placement(store.conn(), stable_binding_key)?;
-    let secret = object_secret(store.conn(), &placement_id)?;
     let seam = seam_of(
         store.conn(),
         &bound.record.society_ref,
         bound.record.recovery_epoch,
     )?;
     let token = runtime.token(Workload::Worker, &bound.episode_ref)?;
-    let digest = erasure_safe(
-        &placement_id,
-        &secret,
+    // Cross-boundary, for the same reason as `context_manifest_digest`: the
+    // checkpoint is Kovee's object and byom stores only the digest, so it is
+    // unkeyed `portable_public` (byom S-2, amendment A8).
+    let digest = portable(
         TAG_CHECKPOINT,
         &json!({
             "checkpoint_ref": checkpoint_ref,
@@ -1374,10 +1413,28 @@ pub fn complete(
 /// pins: byomd's endpoint incarnation, the Society's recovery epoch, and
 /// the binding epoch the placement adapter verifies its source against.
 #[derive(Debug, Clone)]
-struct Seam {
-    endpoint_incarnation: String,
-    recovery_epoch: u64,
-    binding_epoch: u64,
+pub struct Seam {
+    pub endpoint_incarnation: String,
+    pub recovery_epoch: u64,
+    pub binding_epoch: u64,
+}
+
+/// The active seam of one realm — what the model broker's `meta` must pin
+/// and what its permit gate compares byom's receipt against. A realm with
+/// no ACTIVE binding has no seam, and a governed model call is then
+/// refused rather than sent under a stale incarnation.
+pub fn seam_of_binding(conn: &Connection, realm: &str) -> Result<Seam, Problem> {
+    let (binding, mapping) = active_seam(conn, realm)?.ok_or_else(|| {
+        forbidden(
+            "this realm has no active governed-work binding",
+            "a model call under byom authority needs an ACTIVE KoveeRealmByomBinding",
+        )
+    })?;
+    Ok(Seam {
+        endpoint_incarnation: binding.endpoint_incarnation.clone(),
+        recovery_epoch: mapping.society_recovery_epoch,
+        binding_epoch: binding.binding_epoch,
+    })
 }
 
 fn seam_of(conn: &Connection, society_ref: &str, recovery_epoch: u64) -> Result<Seam, Problem> {
@@ -1555,6 +1612,35 @@ pub fn read_binding(conn: &Connection, key: &str) -> Result<Option<Bound>, Probl
     }))
 }
 
+/// byom's own committed binding identity and §12.1 source fragment for one
+/// bound attempt, exactly as `episode_claim` reported them. The model broker
+/// needs both and can derive neither.
+pub fn read_byom_side(conn: &Connection, key: &str) -> Result<ByomBindingSide, Problem> {
+    let row: Option<(Option<String>, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT byom_binding_ref, byom_binding_digest, byom_source_fields
+             FROM byom_episode_bindings WHERE stable_binding_key = ?1",
+            [key],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| store_problem(e.into()))?;
+    let Some((binding_ref, digest, fields)) = row else {
+        return Ok(ByomBindingSide::default());
+    };
+    Ok(ByomBindingSide {
+        binding_ref,
+        binding_digest: digest.and_then(|t| serde_json::from_str(&t).ok()),
+        source_fields: fields.and_then(|t| serde_json::from_str(&t).ok()),
+    })
+}
+
+/// Whether this binding is still live (not fenced or released) — the state
+/// check every fenced mutation makes, exposed for the broker.
+pub fn binding_is_bound(conn: &Connection, key: &str) -> Result<bool, Problem> {
+    Ok(binding_state(conn, key)? == BindingState::Bound)
+}
+
 fn binding_state(conn: &Connection, key: &str) -> Result<BindingState, Problem> {
     let text: String = conn
         .query_row(
@@ -1575,6 +1661,10 @@ fn binding_realm(conn: &Connection, key: &str) -> Result<String, Problem> {
     .map_err(|e| store_problem(e.into()))
 }
 
+/// The placement one binding belongs to. Retained beside
+/// [`object_secret`]: both are the per-object erasure pair the episode path
+/// no longer keys anything under (byom amendment A8).
+#[allow(dead_code)]
 fn binding_placement(conn: &Connection, key: &str) -> Result<String, Problem> {
     conn.query_row(
         "SELECT placement_id FROM byom_episode_bindings WHERE stable_binding_key = ?1",

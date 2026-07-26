@@ -101,9 +101,9 @@ fn every_registry_entry_has_a_dispatch_arm_on_its_surface() {
     let entries = registry["entries"].as_array().unwrap();
     assert_eq!(
         entries.len(),
-        99,
-        "the frozen registry holds 90 K1 entries, the 3 K2 slice-1 binding ones, and the 6 \
-         slice-2 formation/episode-binding ones"
+        100,
+        "the frozen registry holds 90 K1 entries, the 3 K2 slice-1 binding ones, the 6 slice-2 \
+         formation/episode-binding ones, and the model broker's `model_complete` worker row"
     );
 
     let base = tmp("k1-bundles-parity");

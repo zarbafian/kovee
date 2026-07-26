@@ -622,7 +622,11 @@ pub fn bootstrap_agent_society(byomd: &Byomd, tag: &str) -> AgentSociety {
             "meta": meta("mprep", None),
             "grantee_participant_ref": participant_ref,
             "purpose_ref": "purpose-explore-live",
-            "allowed_operations": ["activity_open", "continuation_write", "wake_intent_submit"],
+            // The Δ4 act classes a Mandate grants are named here too: byom's
+            // `act_intent_prepare` refuses a class outside the grant, so the
+            // model broker's `model_egress` has to be in it.
+            "allowed_operations": ["activity_open", "continuation_write", "wake_intent_submit",
+                                   "model_egress"],
             "resource_selectors": ["res-repo-live"],
             "data_class_selectors": ["class-public"],
             "destination_selectors": [],

@@ -1,0 +1,28 @@
+{
+  "name": "ops/model-complete-valid-result",
+  "description": "the worker's whole view of one completed model call: bounded output, metered usage, the effect/attempt identity, and the two manifest refs an auditor follows (§16.1-§16.3). It carries no provider, host, URL, header, or credential member — that absence is the contract.",
+  "input": {
+    "schema": "model-complete-result",
+    "value": {
+      "effect_id": "meff-0001",
+      "effect_attempt_id": "meffatt-0001",
+      "state": "completed",
+      "text": "The pinned contribution proposes narrowing the lens scope.",
+      "model": "claude-haiku-4-5-20251001",
+      "stop_reason": "end_turn",
+      "provider_ref": "msg_01ABCDEF",
+      "usage": {
+        "input_tokens": 412,
+        "output_tokens": 18
+      },
+      "disclosure_manifest_ref": "disc-0f8a1c2d3e4f50617283949a5b6c7d8e",
+      "provider_context_manifest_ref": "pcm-1122334455667788990011223344556",
+      "latency_ms": 1183,
+      "retry_frozen": false,
+      "usage_reported": true
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

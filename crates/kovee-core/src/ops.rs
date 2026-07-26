@@ -54,11 +54,13 @@ pub struct OpSpec {
 /// per-socket dispatch tables, not here.
 ///
 /// The three K1 bundles close at 86 operations; K2 slice 1 adds the three
-/// `governed_work_binding_v1` greenfield-binding operations (89) and slice
-/// 2 the six formation/episode-binding ones (95). The bundle is still
+/// `governed_work_binding_v1` greenfield-binding operations (89), slice 2
+/// the six formation/episode-binding ones (95), and the model broker adds
+/// `model_complete` to `developer_assistant_v1` (96) — the `model` row of
+/// the §11.6.1 worker-operations family. `governed_work_binding_v1` is still
 /// INCOMPLETE — `collaboration_context_bundle_*` and `workspace_*` are
 /// unbuilt — so `hello` does not advertise it (§11.6: bundles are atomic).
-pub const KCP_OPS: [OpSpec; 95] = [
+pub const KCP_OPS: [OpSpec; 96] = [
     OpSpec {
         name: "hello",
         kind: OpKind::Read,
@@ -573,6 +575,15 @@ pub const KCP_OPS: [OpSpec; 95] = [
     },
     OpSpec {
         name: "application_event_emit",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Required,
+    },
+    // The §11.6.1 worker-operations family names a `model` operation
+    // alongside checkpoint/contribution/semantic-relation/tool. K2 delivers
+    // it: `ctx.model.complete` on the wire, brokered egress underneath.
+    OpSpec {
+        name: "model_complete",
         kind: OpKind::Mutation,
         realm_id: FieldRule::Required,
         project_id: FieldRule::Required,
@@ -2689,6 +2700,123 @@ impl ApplicationEventEmitArgs {
     }
 }
 
+// -------------------------------------------------------- model_complete ----
+
+/// The §11.8-shaped cap on one model prompt. The whole request is already
+/// capped at 256 KiB; this bounds the disclosed text specifically, so an
+/// over-cap prompt is refused before any manifest is built for it.
+pub const MODEL_PROMPT_MAX_BYTES: usize = 131_072;
+/// And on the assistant/system instruction.
+pub const MODEL_SYSTEM_MAX_BYTES: usize = 16_384;
+
+/// `model_complete` args — `ctx.model.complete` on the wire (§14.1, §16.3).
+///
+/// What is NOT here is the point: no provider, no host, no URL, no header,
+/// no credential and no credential reference. A worker names a logical model
+/// PROFILE, and the broker resolves the destination from the profile's
+/// binding.
+///
+/// The `act_*` / `subject_digest` / `stable_execution_key` members are
+/// byom's own values for the authorizing `model_egress` act, presented as
+/// CLAIMS: byomd re-derives every one of them inside
+/// `execution_permit_consume`, and the permit-channel token is byomd's own
+/// file keyed to that act — so naming another act's refs authorizes nothing.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCompleteArgs {
+    pub attempt_id: String,
+    pub fence_epoch: u64,
+    /// The logical model profile (§16.3 "Agent code calls a logical model
+    /// profile").
+    pub model_profile_ref: String,
+    pub purpose_ref: String,
+    pub classification_ref: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub system: Option<String>,
+    pub max_output_tokens: u64,
+    /// The governed Episode this call runs inside.
+    #[serde(default)]
+    pub stable_binding_key: Option<String>,
+    pub act_intent_ref: String,
+    pub act_intent_digest: crate::family::DigestRef,
+    pub act_revision: u64,
+    pub subject_digest: crate::family::DigestRef,
+    pub stable_execution_key: String,
+    pub budget_reservation_set_ref: String,
+}
+
+impl ModelCompleteArgs {
+    pub fn from_args(args: &JsonMap) -> Result<ModelCompleteArgs, Problem> {
+        let parsed: ModelCompleteArgs = parse_args(args)?;
+        check_identifier("attempt_id", &parsed.attempt_id)?;
+        check_safe("fence_epoch", parsed.fence_epoch)?;
+        check_identifier("model_profile_ref", &parsed.model_profile_ref)?;
+        check_identifier("purpose_ref", &parsed.purpose_ref)?;
+        check_identifier("classification_ref", &parsed.classification_ref)?;
+        check_identifier("act_intent_ref", &parsed.act_intent_ref)?;
+        check_safe("act_revision", parsed.act_revision)?;
+        check_identifier("stable_execution_key", &parsed.stable_execution_key)?;
+        check_identifier(
+            "budget_reservation_set_ref",
+            &parsed.budget_reservation_set_ref,
+        )?;
+        check_opt_identifier("stable_binding_key", &parsed.stable_binding_key)?;
+        check_digest_ref("act_intent_digest", &parsed.act_intent_digest)?;
+        check_digest_ref("subject_digest", &parsed.subject_digest)?;
+        if parsed.prompt.is_empty() {
+            return Err(invalid("prompt is empty: there is nothing to disclose"));
+        }
+        if parsed.prompt.len() > MODEL_PROMPT_MAX_BYTES {
+            return Err(invalid("prompt exceeds the model-call cap"));
+        }
+        if let Some(system) = &parsed.system {
+            if system.len() > MODEL_SYSTEM_MAX_BYTES {
+                return Err(invalid("system exceeds the model-call cap"));
+            }
+        }
+        check_safe("max_output_tokens", parsed.max_output_tokens)?;
+        if parsed.max_output_tokens == 0 {
+            return Err(invalid("max_output_tokens must be positive"));
+        }
+        Ok(parsed)
+    }
+}
+
+/// Validates one typed family `DigestRef` argument against the closed wire
+/// the family profile fixes: the class/algorithm pairing, `key_ref` exactly
+/// for the keyed erasure classes, and 64 lowercase hex.
+fn check_digest_ref(field: &str, digest: &crate::family::DigestRef) -> Result<(), Problem> {
+    let keyed = match digest.class.as_str() {
+        "structural_public" | "portable_public" | "disclosed_party" | "ciphertext_public" => false,
+        "local_erasure_safe" | "scope_erasure_safe" => true,
+        other => {
+            return Err(invalid(format!(
+                "{field}.class {other:?} is not a digest class"
+            )))
+        }
+    };
+    let expected = if keyed { "hmac-sha-256" } else { "sha-256" };
+    if digest.algorithm != expected {
+        return Err(invalid(format!(
+            "{field}.algorithm must be {expected} for class {}",
+            digest.class
+        )));
+    }
+    match (keyed, &digest.key_ref) {
+        (true, Some(reference)) => check_identifier(&format!("{field}.key_ref"), reference)?,
+        (true, None) => return Err(invalid(format!("{field}.key_ref is required"))),
+        (false, Some(_)) => return Err(invalid(format!("{field}.key_ref is not permitted"))),
+        (false, None) => {}
+    }
+    if !limits::is_digest_hex(&digest.value_hex) {
+        return Err(invalid(format!(
+            "{field}.value_hex is not 64 lowercase hex"
+        )));
+    }
+    Ok(())
+}
+
 // ------------------------------- governed_work_binding_v1 (K2 slice 1) ----
 
 /// `governance_enable` args (amendment A5 wire name). The Society
@@ -3080,6 +3208,7 @@ pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
         "invocation_list" => InvocationListArgs::from_args(args).map(drop),
         "invocation_cancel" => InvocationCancelArgs::from_args(args).map(drop),
         "application_event_emit" => ApplicationEventEmitArgs::from_args(args).map(drop),
+        "model_complete" => ModelCompleteArgs::from_args(args).map(drop),
         // ------------------------------------------- K2 slice 1 ----
         "governance_enable" => GovernanceEnableArgs::from_args(args).map(drop),
         "governance_show" => GovernanceShowArgs::from_args(args).map(drop),

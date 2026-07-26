@@ -93,6 +93,18 @@ pub const EVENT_SUBORDINATE_DENIED: &str = "dev.kovee.subordinate-reservation.de
 pub const EVENT_SUBORDINATE_UNCERTAIN: &str = "dev.kovee.subordinate-reservation.uncertain.v1";
 pub const EVENT_SUBORDINATE_SETTLED: &str = "dev.kovee.subordinate-reservation.settled.v1";
 pub const EVENT_SUBORDINATE_RELEASED: &str = "dev.kovee.subordinate-reservation.released.v1";
+// K2 model broker: one type per §16.1 effect-lifecycle transition, plus the
+// metering evidence. `prepared` is emitted BEFORE any permit is consumed and
+// `dispatching` BEFORE the first byte leaves, so the event stream alone
+// establishes the egress ordering.
+pub const EVENT_MODEL_EFFECT_PREPARED: &str = "dev.kovee.model-effect.prepared.v1";
+pub const EVENT_MODEL_EFFECT_AUTHORIZED: &str = "dev.kovee.model-effect.authorized.v1";
+pub const EVENT_MODEL_EFFECT_DISPATCHING: &str = "dev.kovee.model-effect.dispatching.v1";
+pub const EVENT_MODEL_EFFECT_COMPLETED: &str = "dev.kovee.model-effect.completed.v1";
+pub const EVENT_MODEL_EFFECT_FAILED: &str = "dev.kovee.model-effect.failed.v1";
+pub const EVENT_MODEL_EFFECT_AMBIGUOUS: &str = "dev.kovee.model-effect.ambiguous.v1";
+pub const EVENT_MODEL_EFFECT_RECONCILED: &str = "dev.kovee.model-effect.reconciled.v1";
+pub const EVENT_MODEL_USAGE_REPORTED: &str = "dev.kovee.model-effect.usage-reported.v1";
 /// The reserved Kovee event namespace (§11.3): application events may
 /// never emit under it.
 pub const RESERVED_EVENT_NAMESPACE: &str = "dev.kovee.";
