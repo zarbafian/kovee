@@ -1,15 +1,21 @@
 # Kovee: an agent-native collaboration environment
 
-Status: **Draft specification v0.1**
+Status: **Draft specification v0.1.1** — v0.1's scope, with the governance-owner
+amendment's naming and ontology corrections (A1, A3, A5) folded into the text.
+The ratified byte-frozen **v0.1** remains sha256
+`40820c476d59ebdd458955fd5939289b3ef2bff03c3d1266f5e80f3087935860` (repo
+`7aad4a6`), which is what the family contract and the implementation plan pin.
 
-Date: 2026-07-25
+Date: 2026-07-25 (v0.1.1: 2026-07-27)
 
 Companion designs:
 
-- [Sage coordination layer](../sage/design/2026-07-19-sage-coordination-layer.md)
-- [Sage Session Protocol](../sage/spec/session-protocol.md)
-- [Sage Engram format](../sage/design/2026-07-19-engram-knowledge-format.md)
-- [Akson gateway](../axon/README.md)
+- [Byom: a living society of autonomous participants](../byom/DESIGN.md)
+- [Byom Participation Protocol specification](../byom/spec/README.md)
+- [The akson + kovee + byom family contract](../byom/design/2026-07-25-family-contract.md)
+  and its [amendments A1–A8](../byom/design/2026-07-25-amendment-family-contract.md)
+- [Kovee governance-owner amendment A1–A5](design/2026-07-25-amendment-governance-owner.md)
+- [Akson gateway](../akson/README.md)
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY**
 are normative requirements when capitalized. Examples are illustrative unless
@@ -27,24 +33,25 @@ typed contributions; direct attention through bounded contracts; explore
 alternative branches; assemble exact context; and negotiate local commitments.
 Conversation is one lens over that space, not the architecture's center.
 
-Kovee also supplies the parts Sage intentionally does not own: hosted identity,
+Kovee also supplies the parts Byom intentionally does not own: hosted identity,
 assistant packaging and deployment, worker placement, realtime delivery,
 connectors, collaboration views, and clustered operations.
 
-Kovee is **not** a replacement for Sage or Akson:
+Kovee is **not** a replacement for Byom or Akson:
 
 - **Kovee** owns shared spaces, contributions, relations, local attention,
   deliberation branches, non-governed collaboration commitments, and assistant
   execution inside one administered installation.
-- **Sage** owns governed work: missions, aspects, logical sessions, leases,
-  turns, gates, standing rules, budgets, directories, and engrams.
-- **Akson** owns sovereign endpoint and peer identity, pairing, signed remote
-  contracts, consent, evidence, and carriage between independently administered
-  installations.
+- **Byom** owns governed work: societies, charters, participants, assemblies,
+  endeavors, calls, pledges, mandates, episodes-as-authority, budgets, engrams,
+  and decisions.
+- **Akson** owns sovereign endpoint and peer identity, introduction, signed
+  remote contracts, consent, evidence, and carriage between independently
+  administered installations.
 
-The shorthand “Kovee backend, Sage frontend” is therefore inaccurate. Sage has
-a frontend, but it is also the coordination protocol and deterministic authority
-kernel. The accurate relationship is:
+The shorthand “Kovee backend, Byom frontend” is therefore inaccurate. Byom is a
+protocol and a deterministic governance kernel; it has no frontend to speak of,
+and Kovee is not its skin. The accurate relationship is:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -54,8 +61,8 @@ kernel. The accurate relationship is:
 │ Kovee collaboration semantics                                      │
 │ contributions · relations · context assemblies · branches · merges │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Sage bounded context                                                │
-│ missions · aspects · sessions · gates · knowledge · causal ledger   │
+│ Byom bounded context                                                │
+│ societies · endeavors · pledges · mandates · decisions · memory     │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Kovee infrastructure                                                │
 │ authn/z · SQL state · artifacts · workers · internal event delivery │
@@ -65,8 +72,9 @@ kernel. The accurate relationship is:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-Sage remains independently implementable through its protocol. Kovee is its
-reference product host and distributed runtime, not the definition of Sage.
+Byom remains independently implementable through the Byom Participation
+Protocol (BPP). Kovee is its reference product host and distributed runtime, not
+the definition of Byom.
 
 The control substrate deliberately uses conventional transactional engineering:
 SQL authority, immutable records, idempotency, leases, fencing, and outboxes.
@@ -89,11 +97,11 @@ backend model conflates concerns that need different guarantees.
 | `agent.<name>.rpc` is inter-agent request/reply. | `request_work` opens a Need with exact outcome, context, budget, deadline, and disclosure ceilings; an optional solicitation invites a target to submit an Offer. Only a fully assented Formation creates a Commitment and pinned WorkRealization, so retry transport is not the collaboration contract. |
 | Every matching event should wake an agent. | An attention contract defines eligible changes, target acceptance, context recipe, rate, budget, coalescing, and wake behavior. Semantic ranking may prioritize eligible candidates but cannot create authority. |
 | One shared transcript is collective memory. | A space is a causal contribution graph with explicit frontiers, provenance, branches, and saved lenses. Context is assembled and digested for an audience; it is never “whatever the chat contains now.” |
-| A heartbeat says `blocked/working/done/idle`. | Heartbeats report instance presence only. Durable run and Sage aspect states come from fenced controller transitions. “Done” is never accepted from presence. |
+| A heartbeat says `blocked/working/done/idle`. | Heartbeats report instance presence only. Durable run and Byom Pledge/Episode states come from fenced controller transitions. “Done” is never accepted from presence. |
 | JetStream replay is session persistence. | SQLite is authoritative locally; PostgreSQL is authoritative in team mode. State, event, idempotency record, and outbox commit atomically. JetStream is rebuildable delivery state. |
 | NATS accounts make cross-user access safe. | NATS credentials isolate backend workloads. Kovee authenticates people and performs per-resource authorization. Cross-installation trust uses Akson. |
 | Loading arbitrary Python into a server is production hosting. | Drop-a-file import is a developer mode. Production runs immutable, digest-pinned packages in confined workers without database, broker, model, or cloud credentials. |
-| Cross-user inbox delivery is a handoff. | Delivery is not consent. Same-installation handoffs use exact offers and recipient admission; cross-installation handoffs use Sage gates and Akson contracts. |
+| Cross-user inbox delivery is a handoff. | Delivery is not consent. Same-installation handoffs use exact offers and recipient admission; cross-installation handoffs use Byom act decisions and Akson contracts. |
 | PostgreSQL `LISTEN/NOTIFY` is single-machine only. | It works across machines but is nondurable and unsuitable as the work/event log. It MAY be a wakeup optimization, never authoritative delivery. |
 
 The subject pattern in the brainstorm is discarded rather than versioned. In
@@ -102,11 +110,12 @@ particular, `*.event.*` does not match `ws.<workspace>.event.<dotted.type>`, and
 cross-workspace permission.
 
 The brainstorm uses the external `akson-ai` Python project as authoring
-inspiration, while the sibling Rust project in `../axon` also names itself
+inspiration, while the sibling Rust project in `../akson` also names itself
 **Akson**. This specification calls the former **akson-ai** and the latter the
 **Akson Gateway**. `Akson`, `aksond`, `akson-*`, and Akson's protocol namespaces
-are canonical here; Sage drafts using the historical spelling “Axon” must be
-updated rather than creating a documentation-only alias.
+are canonical here; any drafts using the historical spelling “Axon” must be
+updated rather than creating a documentation-only alias (family-contract
+amendment A1, plan decision D9).
 
 ## 3. Product thesis
 
@@ -128,15 +137,15 @@ Kovee offers two connected modes of collaboration:
 1. **Open-space mode** — fluid exploration through typed contributions,
    relations, attention, branches, context views, conversation lenses, and
    non-governed local commitments.
-2. **Mission mode** — an exact goal and space frontier become a Sage mission;
-   plans, aspects, leases, gates, review, delegation, and knowledge use Sage's
-   stronger authoritative semantics.
+2. **Endeavor mode** — an exact goal and space frontier become a Byom
+   **Endeavor**; calls, pledges, mandates, episode leases, act decisions,
+   review, delegation, and engrams use Byom's stronger authoritative semantics.
 
 A contribution or relation is not true because an agent asserted it. An
-attention match is not work acceptance. A branch merge is not a plan decision.
-A local commitment is not a Sage aspect or a contract binding another
-organization. A natural-language imperative cannot approve a gate, change a
-budget, mark work accepted, grant a capability, or dispatch data to a peer.
+attention match is not work acceptance. A branch merge is not a governed
+decision. A local commitment is not a Byom Pledge or a contract binding another
+organization. A natural-language imperative cannot decide a governed act, change a
+budget, mark work accepted, grant a mandate, or dispatch data to a peer.
 Those actions require typed commands on the owning authority surface.
 
 ### 3.1 Agent-native interaction model
@@ -179,7 +188,7 @@ tokens as collaboration state.
 - A team collaborating with people and assistants in shared projects.
 - An assistant author shipping a Python package with a small, stable contract.
 - An operator running a self-hosted Kovee installation and worker fleet.
-- A Sage session or attached CLI harness performing governed long-running work.
+- A Byom Participant or attached CLI harness performing governed long-running work.
 - An organization delegating bounded work to another sovereign Akson endpoint.
 
 ### 3.3 Goals
@@ -198,7 +207,7 @@ Kovee MUST provide:
   resumable cursors, and policy-governed payload erasure.
 - Explicit authority, disclosure, admission, and audit boundaries.
 - Fenced execution, crash-honest effects, bounded retries, and budgets.
-- A clean Sage integration without duplicating Sage authority.
+- A clean Byom integration without duplicating Byom authority.
 - Akson-based federation between independent installations.
 - Replaceable internal infrastructure; public clients MUST NOT depend on NATS.
 
@@ -218,7 +227,8 @@ Kovee does not provide:
   store hidden chain-of-thought.
 - A live multi-writer space across realms or sovereign installations. Such
   boundaries use immutable handoffs and admitted projections.
-- A replacement for Sage's mission, gate, directory, or engram semantics.
+- A replacement for Byom's endeavor, decision, participant-evidence, or engram
+  semantics.
 - PTY rendering or terminal multiplexing. CLI harnesses remain supported through
   typed providers and `session_attach`; their terminals are not Kovee's state.
 - Secure execution in the `developer` profile.
@@ -254,7 +264,7 @@ the first milestone.
    and are never retried blindly.
 10. **Disclosure is an action.** Cross-space/project, model-provider, connector,
     and peer egress binds an exact disclosure manifest to policy or a human decision.
-11. **One semantic owner per record.** Kovee may cache Sage or Akson views, but a
+11. **One semantic owner per record.** Kovee may cache Byom or Akson views, but a
     projection never becomes a second writer or an alternate authority.
 12. **Intelligence cannot manufacture authority.** Models MAY rank already
     eligible attention candidates, propose relations, assemble a synthesis, or
@@ -282,7 +292,7 @@ the first milestone.
     parties, outcome, context, budget, disclosure, deadline, and cancellation
     policy before runtime work is created. Runtime success is only a delivery
     claim until the applicable reviewer accepts it. Kovee terms remain bounded
-    local contribution/draft-artifact work and never replace Sage or Akson.
+    local contribution/draft-artifact work and never replace Byom or Akson.
 20. **Binding acceptance is typed and attributable.** Activating/widening
     attention and recording each Formation/amendment party assent require an
     exact authenticated principal decision, bounded current requester
@@ -296,30 +306,30 @@ the first milestone.
 |---|---|
 | **installation** | One independently administered Kovee system. An installation is a security and failure boundary and has one stable installation id. |
 | **realm** | The top-level tenancy, policy, data-residency, and billing boundary inside an installation. A personal installation has one realm. |
-| **principal** | An authenticated human identity. Only principals may satisfy human-governance decisions. This maps to Sage's local governance principal, not an Akson peer. |
+| **principal** | An authenticated human identity. Only principals may satisfy human-governance decisions. This maps to the source-qualified human filling a Byom human-authority seat, not an Akson peer. |
 | **service identity** | An authenticated backend workload or connector. It can receive narrow machine permissions but is not a human approver. |
-| **actor** | The attributable local author of a collaboration action: a principal, fenced Kovee invocation attempt, bound Sage session, or service identity. An imported Akson peer author remains source-qualified provenance and never authenticates as a local actor. Identity is stamped by the owning service. |
-| **project** | An administrative ownership, policy, billing, and deployment scope containing spaces and optional Sage links. Space is the normal collaboration/visibility boundary. It is deliberately not called a workspace. |
-| **workspace allocation** | Sage's bounded filesystem snapshot/worktree for one execution attempt. It is not a Kovee project. |
+| **actor** | The attributable local author of a collaboration action: a principal, fenced Kovee invocation attempt, bound Byom Manifestation, or service identity. An imported Akson peer author remains source-qualified provenance and never authenticates as a local actor. Identity is stamped by the owning service. |
+| **project** | An administrative ownership, policy, billing, and deployment scope containing spaces and optional Byom links. Space is the normal collaboration/visibility boundary. It is deliberately not called a workspace. |
+| **workspace allocation** | Byom's logical grant of a bounded filesystem snapshot/worktree for one execution attempt, authored by the kernel at `resource_allocate`. It is not a Kovee project, and Kovee owns only its physical materialization ledger. |
 | **space** | A realm/project-owned shared situation containing typed contributions, relations, branches, lenses, attention, and local commitments. It has one home write boundary. |
 | **contribution** | An immutable, attributed externalized unit such as an utterance, goal, question, observation, hypothesis, proposal, critique, evidence, synthesis, or delivery. It is a claim or work product, not hidden chain-of-thought. |
 | **relation** | An immutable, attributed typed edge between exact object revisions. Structural edges record facts Kovee observed; semantic edges remain assertions. Neither grants transitive authority. |
 | **frontier** | A digest-bound stable boundary over one space/branch and its source cursors, used to assemble context or fork work. |
 | **lens** | A saved authorized presentation/query over a space. Conversation is an ordered lens; evidence maps and commitment boards are other lenses. |
-| **conversation** | A familiar linear lens whose entries reference canonical contributions. It may be linked to Sage objects but is not the collective memory or authority ledger. |
+| **conversation** | A familiar linear lens whose entries reference canonical contributions. It may be linked to Byom objects but is not the collective memory or authority ledger. |
 | **reasoning branch** | An isolated line of explicit contributions based on an exact frontier. A merge admits references into another branch without rewriting origin. |
 | **attention contract** | Revocable bounded permission for eligible committed changes to create notifications, candidates, or local invocations under an exact context recipe, budget, and wake policy. |
 | **context assembly** | An immutable audience-specific selection manifest of exact authorized contributions, relations, transformations, omissions, limits, and digests. It grants nothing; every use reauthorizes. Provider instructions live in a separate recorded provider-context chain. |
-| **collaboration commitment** | A Kovee-local, non-governance agreement around an exact need and terms. It requires a principal decision or exact active standing-policy use and cannot replace a Sage aspect/gate or Akson contract. |
-| **assistant definition** | Stable Kovee identity and metadata for a code-defined assistant. It is not a process or a Sage session. |
+| **collaboration commitment** | A Kovee-local, non-governance agreement around an exact need and terms. It requires a principal decision or exact active standing-policy use and cannot replace a Byom Pledge/act decision or Akson contract. |
+| **assistant definition** | Stable Kovee identity and metadata for a code-defined assistant. It is not a process or a Byom Participant. |
 | **assistant revision** | An immutable package, manifest, configuration schema, and digest for one version of an assistant definition. |
 | **assistant deployment** | A revision activated under exact realm/project policy, placement, configuration, and concurrency settings. |
 | **worker instance** | An ephemeral process or container able to run one or more permitted assistant deployments. Its lease represents presence only. |
-| **invocation** | One durable bounded execution of an assistant deployment, caused by an authenticated direct command, admitted AttentionActivation, WorkRealization from an accepted commitment, deployment test, or Sage turn. A mention alone is inert. |
+| **invocation** | One durable bounded execution of an assistant deployment, caused by an authenticated direct command, admitted AttentionActivation, WorkRealization from an accepted commitment, deployment test, or Byom Episode. A mention alone is inert. |
 | **attempt** | One worker's fenced claim on an invocation. A retried invocation has a new attempt and fence epoch. |
 | **work realization** | The pinned Kovee runtime record created for an accepted assistant commitment. It is an execution mechanism, not the semantic agreement. |
 | **presence** | Expiring liveness and availability hints for principals, clients, or worker instances. Never authoritative progress. |
-| **mission/aspect/session/turn/gate/engram** | The exact Sage meanings; Kovee does not overload them. |
+| **society/charter/participant/endeavor/call/pledge/mandate/episode/decision/engram** | The exact Byom meanings; Kovee does not overload them. |
 | **peer** | An independently operated Akson endpoint, identified and bound by Akson rather than Kovee. |
 
 All wire identifiers are opaque, lowercase, and globally collision-resistant.
@@ -329,19 +339,19 @@ display metadata. An internal NATS subject MUST use an independently derived
 opaque routing token rather than interpolating user-provided ids or event types.
 
 References that can cross installations include the issuing installation and realm,
-or use the owning protocol's qualified reference. Akson peer ids and Sage object
+or use the owning protocol's qualified reference. Akson peer ids and Byom object
 ids are never rewritten into Kovee ids.
 
 ```text
 ActorRef {
-  owner_protocol: kovee|sage|akson,
+  owner_protocol: kovee|byom|akson,
   owner_endpoint_ref,
-  kind: principal|invocation_attempt|sage_session|service|akson_peer_projection,
+  kind: principal|invocation_attempt|byom_manifestation|service|akson_peer_projection,
   object_id
 }
 
 EventRef {
-  owner_protocol: kovee|sage|akson,
+  owner_protocol: kovee|byom|akson,
   owner_endpoint_ref,
   event_id,
   cursor?
@@ -391,37 +401,40 @@ $ kovee need open sp-1 --branch br-2 --outcome patch.v1 \
 need nd-1; offer of-1; formation fm-1 accepted by dc-2/pu-2;
 commitment cm-1 active; realization wr-1 queued
 
-$ kovee mission enable --sage local
-started isolated saged; governed_work enabled for this realm
+$ kovee governance enable --byom local --society soc-1
+bound realm to byomd endpoint local (society soc-1, active); governed_work enabled
 
-$ kovee mission promote sp-1 --branch br-2 --frontier sf-7 \
+$ kovee endeavor promote sp-1 --branch br-2 --frontier sf-7 \
     --goal ct-1 --review
-context bundle cb-1; exact frontier/members/gates/budget shown; mission m-1 submitted
+context bundle cb-1; exact frontier/decision-rules/budget/workspace shown;
+endeavor en-1 formed (one human seat filled by you)
 
 $ kovee inbox
-plan v-1: diagnose -> fix; exact digest ...
-$ kovee gate approve v-1
+act ai-1 (class model_egress) awaits your human-authority seat; exact subject digest ...
+$ kovee act position ai-1 --value assent
+position recorded; act ai-1 finalized deterministically
 
 $ kovee daemon stop --force-test && kovee daemon start
-recovered m-1; stale attempt fenced; current turn resumed
+recovered en-1; stale attempt fenced; current episode resumed
 
-$ kovee mission show m-1 --open
-deliverable cs-1 (base ..., 2 files) in review; causal timeline available
+$ kovee endeavor show en-1 --open
+deliverable cs-1 (base ..., 2 files) awaiting review_record; causal timeline available
 ```
 
 The normal web product renders the same records through complementary lenses:
-**Pulse** for attention, offers, results, conflicts, and gates; **Workbench** for
+**Pulse** for attention, offers, results, conflicts, and pending act decisions;
+**Workbench** for
 the current synthesis, questions, claims, evidence, and commitments; **Stream**
 for familiar chronological conversation; **Branch compare** for exact deltas and
 merge proposals; and **Ensemble** for the dynamic graph of commitments, spend,
-wait conditions, and context seen. Assistant registry, artifact review, mission
-governance, provenance, and knowledge/admission remain focused views. A graph
+wait conditions, and context seen. Assistant registry, artifact review, endeavor
+governance, provenance, and engram admission remain focused views. A graph
 canvas is optional and is never the only usable interface.
 
 K1 ships spaces, contributions, relations, and the Stream/Workbench lenses. K2
 adds branches, reusable context recipes and attention-driven assemblies,
-commitments, promotion, gates, aspects, crash recovery, and review; a complete source-qualified causal trail is
-the K2 exit criterion.
+commitments, promotion, act decisions, pledge episodes, crash recovery, and
+review; a complete source-qualified causal trail is the K2 exit criterion.
 The K1 acceptance assistant is deterministic and does not call a model. A local
 model-backed assistant requires the optional K2 `model_broker_v1` bundle; its
 developer profile is auditable but not an egress-confinement claim. Enforced
@@ -456,24 +469,32 @@ model egress is a K4 capability.
 
 ### 6.3 Promote a space frontier to governed work
 
-1. A principal calls `mission_promotion_prepare` for an exact authorized
-   Space/branch frontier, ContextAssembly, collaboration bundle, members, gates,
-   budget, and workspace terms; Kovee infers none of this from prose.
+1. A principal calls `endeavor_promotion_prepare` for an exact authorized
+   Space/branch frontier, ContextAssembly, collaboration bundle, budget, and
+   workspace terms; Kovee infers none of this from prose. The Society and its
+   Participants already exist — promotion never enrolls members.
 2. After reviewing that digest-bound subject, the principal calls
-   `mission_promotion_start`. The Kovee Sage adapter acquires the durable branch
-   slot and executes only the stored Sage `mission_submit` command through the
-   delegated principal binding. Sage creates the mission and coordinator
-   session; the space link does not make Kovee authoritative for mission state.
-3. A Kovee runtime provider runs the coordinator turn under a Sage lease. It
-   proposes a plan through the Sage Session Protocol.
-4. Sage raises a digest-bound `plan` gate. Kovee renders the gate inbox and exact
-   plan diff; the decision is sent to Sage under the authenticated principal.
-5. Approved aspects run concurrently as Sage sessions backed by Kovee
-   invocations or attached harnesses. Kovee presence never overrides Sage state.
-6. Deliverables enter Sage review. Kovee renders patches and artifacts against
-   the recorded base digest.
-7. Apply, outbound disclosure, budget changes, promotion, and close use their
-   explicit Sage gates. Comments alone do not decide them.
+   `endeavor_promotion_start`. The Kovee byom adapter acquires the durable branch
+   slot and executes only the stored `kovee_endeavor_form` command through the
+   delegated principal binding. That one governance-surface command atomically
+   commits the source principal's Position, the Decision, and the Endeavor,
+   filling exactly one computed human seat; the space link does not make Kovee
+   authoritative for Endeavor state.
+3. Work decomposition is a lens, not a plan record: a Participant opens a Call
+   and performers propose Pledges. Kovee renders the board; Byom owns the seats.
+4. Consequential steps are **acts**, not gates. Byom server-prepares an ActIntent
+   subject with its PreparationTrace; Kovee renders the inbox and exact diff; the
+   eligible human fills its own seat with `act_intent_position` against the
+   current subject digest under a fresh challenge, and `act_intent_finalize`
+   commits deterministically. `endeavor_finalize` is formation, never a decision.
+5. Accepted Pledges run concurrently as fenced Byom Episodes backed by Kovee
+   invocations or attached harnesses. Kovee presence never overrides Byom state.
+6. Deliverables are submitted with `delivery_submit` against the exact Episode
+   fence and accepted with `review_record`. Kovee renders patches and artifacts
+   against the recorded base digest.
+7. Apply, outbound disclosure, budget changes, and closure are act classes with
+   their own prepared subjects and eligible seats. Comments alone do not decide
+   them.
 
 ### 6.4 Local assistant-to-assistant work
 
@@ -509,12 +530,12 @@ running work.
   recipient admits it before an assistant wakes.
 - Between realms under the same installation, the same offer/admission boundary
   carries only inert content or solicitation. It creates no obligation or work;
-  governed cross-realm work additionally uses Sage delegation. A project belongs
+  governed cross-realm work additionally uses a Byom Mandate chain. A project belongs
   to exactly one realm in v0.1; there are no cross-realm joint projects or
   implicit guest memberships.
-- Between independently administered installations, Sage creates the outbound
-  intent and gate, and Akson carries a signed contract. Raw NATS traffic never
-  crosses this boundary.
+- Between independently administered installations, Byom authorizes the outbound
+  act and Kovee's narrow `byom_akson_dispatch_v1` driver stages it, while Akson
+  carries a signed contract. Raw NATS traffic never crosses this boundary.
 
 ### 6.6 Human intervention
 
@@ -522,11 +543,11 @@ When the owning state machine permits it, an authorized principal may intervene
 without converting prose, graph position, or model ranking into authority.
 Contributing, challenging, pinning, selecting an offer, and reviewing a local
 commitment are Kovee collaboration;
-mission pause/resume, budget change, gate decision, deliverable review, and
-knowledge admission are Sage operations. Kovee invocations expose graceful
+endeavor hold/release, budget change, act decision, deliverable review, and
+engram admission are Byom operations. Kovee invocations expose graceful
 cancel and privileged force-cancel, not a generic “pause.” Reassignment never
 mutates pinned terms: it cancels/supersedes the commitment and creates a new
-offer/realization, or asks Sage to create a new aspect generation/delegation.
+offer/realization, or asks Byom for a new Pledge revision or Mandate derivation.
 Every typed action records the authenticated principal, current revision, and
 causal request. The UI enables only actions valid for that owner and state.
 
@@ -541,8 +562,8 @@ causal request. The UI enables only actions valid for that owner and state.
 │ Kovee API and realtime gateway                                          │
 │ authentication · authorization · rate limits · command/query routing    │
 ├───────────────────────────────┬─────────────────────────────────────────┤
-│ Space semantics               │ Sage application adapter                │
-│ contributions · branches     │ Sage protocol · gates · mission views   │
+│ Space semantics               │ Byom governance adapter                 │
+│ contributions · branches     │ BPP · act inbox · endeavor views        │
 │ local commitments            │                                          │
 ├───────────────────────────────┼─────────────────────────────────────────┤
 │ Lenses and context compiler   │ Runtime control                         │
@@ -565,7 +586,7 @@ causal request. The UI enables only actions valid for that owner and state.
 
 The boxes below are ownership modules, not a mandate for one microservice per
 box. Through K4 the reference topology is a modular `koveed` control/API process,
-separate confined worker processes, separate `saged` and optional `aksond`, and
+separate confined worker processes, separate `byomd` and optional `aksond`, and
 the selected SQL/object-store/delivery dependencies. A module may split into an
 independent service only for measured scale, regional placement, or isolation;
 its protocol, workload identity, transaction boundary, and state ownership must
@@ -591,7 +612,7 @@ then remain explicit. Co-location never permits cross-module table writes.
 - Assigns dense Contribution order per Space and BranchEntry order per branch; the shared
   transaction/ledger kernel assigns Kovee project sequences for every owner.
 - Compiles accepted assistant commitments into pinned runtime realizations but
-  never compiles Kovee records into Sage authority without a Sage command.
+  never compiles Kovee records into Byom authority without a BPP command.
 
 **Lenses and context compiler**
 
@@ -608,15 +629,27 @@ then remain explicit. Co-location never permits cross-module table writes.
 - Never adds ambient space history, hidden instructions, current object
   revisions, or inaccessible relation endpoints to an assembly.
 
-**Sage application adapter**
+**Byom governance adapter** (`kovee-byom`)
 
-- Exposes Sage commands and views through the unified Kovee gateway without
-  changing their semantics.
-- Converts Sage ledger entries into read-only Kovee projections carrying the
+- Speaks the Byom Participation Protocol over byomd's per-surface sockets —
+  governance, candidate, participant, projection, and runtime — without changing
+  their semantics. The sixth BPP surface, admin, belongs to the byomd operator
+  and Kovee never calls it.
+- Exposes those commands and views through the unified Kovee gateway. BPP
+  envelopes are never nested inside KCP ones and the two problem namespaces stay
+  distinct (`https://byom.dev/problems/*` versus `urn:kovee:error:*`).
+- Converts Byom journal entries into read-only Kovee projections carrying the
   source cursor, revision, and digest.
-- Implements the Kovee worker as a Sage harness provider/session client.
-- Never decides a gate, forges a Sage session actor, or writes Sage tables from
-  a UI projection.
+- Implements the Kovee worker as a Byom Manifestation — a hosted episodic
+  participant or an attached harness.
+- Owns the C2 host records (`KoveeRealmByomBinding`, `KoveeSocietyMapping`,
+  `KoveeGovernanceOwnerBinding`, `ByomEpisodeBinding`, `PlacementBinding`,
+  `EndeavorFormationIntent/Slot/Attempt`, the `byom_subordinate` reservation
+  bridge) and the `byom_akson_dispatch_v1` driver.
+- Never fills a Byom seat, forges a Participant actor, authors Society state, or
+  writes Byom tables from a UI projection. Kovee is never the genesis governance
+  actor: a Society is established through native `society_prepare`/
+  `society_bootstrap` under the bootstrap human's own governance channel.
 
 **Runtime control**
 
@@ -656,20 +689,20 @@ then remain explicit. Co-location never permits cross-module table writes.
 | Realm, principal binding, project membership | Kovee identity/collaboration service |
 | Space/access/participant, contribution/relation, branch/merge, lens, local Need/Offer/Formation/TermsAssent/Commitment, handoff | Kovee space semantics |
 | Context recipe/assembly, attention contract/candidate/activation/triage/use account | Kovee attention/context compiler |
-| CollaborationContextBundle, MissionPromotionIntent/Slot, ExternalLink, SageTurnBinding, WorkspaceProviderManifest/AllocationBinding | Kovee Sage integration/runtime adapter; referenced Sage mission, workspace allocation, and apply result remain Sage-owned |
+| CollaborationContextBundle, EndeavorFormationIntent/Slot/Attempt, ExternalLink, KoveeRealmByomBinding, KoveeSocietyMapping, KoveeGovernanceOwnerBinding, ByomEpisodeBinding, PlacementBinding, WorkspaceProviderManifest/AllocationBinding | Kovee byom integration/runtime adapter; the referenced Endeavor, ResourceAllocation/WorkspaceAllocation, and act outcome remain Byom-owned |
 | Assistant definition/revision/deployment, invocation, attempt, work realization, Kovee runtime budget/usage, EnforcementEvidence | Kovee runtime control/supervisor |
 | Kovee authorization policy, action intent/decision, policy ceiling, effect/receipt, model-provider binding, model/tool/connector profile | Kovee effect/policy/egress service |
-| ProviderContextManifest | Kovee egress broker; source ContextAssembly/Sage Briefing remains source-owned |
+| ProviderContextManifest | Kovee egress broker; the source ContextAssembly is Kovee-owned and the referenced Byom ContextManifest remains Byom-owned |
 | Artifact metadata, upload session, grant/use | Kovee artifact service |
 | Kovee event/project-sequence allocation, idempotency, outbox/inbox | Shared Kovee transaction/ledger kernel |
-| Mission, aspect, Sage session/turn/lease, validation, Sage standing policy, Sage mission budget, directory, engram | Sage implementation (`saged` in the reference product) |
+| Society, Charter, Participant/Manifestation, Assembly, Endeavor, Call, Pledge, Mandate/StandingMandate, ActIntent/Decision, Activity/Episode/EpisodeLease, ResourceAllocation, Byom budget account, engram | Byom implementation (`byomd` in the reference product) |
 | Peer identity/binding, contract, signed remote outcome/evidence | Akson (`aksond`) |
 | Artifact bytes | Content-addressed object store; metadata/access remain with Kovee artifact service |
 | NATS message | No domain ownership; it is a delivery copy |
 | Search/embedding/lens/context candidate projection | No authority; every result is reauthorized and Kovee-owned indexes are rebuildable; external views require a source-authorized snapshot and boundary cursor |
 
 No record has two writers. A projection MUST expose its source owner, source
-revision, source cursor, and staleness. If a Sage or Akson projection disagrees
+revision, source cursor, and staleness. If a Byom or Akson projection disagrees
 with its source, the source wins and the projection is invalidated. It is rebuilt
 only if that source supplies an authorized full snapshot plus boundary cursor;
 otherwise Kovee reports rebuild unavailable or replays a separately retained,
@@ -684,31 +717,33 @@ cannot reserve a project sequence retroactively. A module with an independent
 database instead exposes its own source cursor and requires a protocol revision
 before dropping or redefining dense Kovee project order.
 
-### 7.3 Sage integration forms
+### 7.3 Byom integration forms
 
-Initial integration runs the current SQLite-backed `saged` as a separate service.
-Kovee MAY later embed a conformant alternate Sage implementation in the same Rust
-process/PostgreSQL cluster, but doing so requires a Sage storage/hosting ADR and
-the full Sage conformance suite; unmodified `saged` cannot simply use Kovee's
-tables. In either form:
+Initial integration runs `byomd` as a separate service with its own store, one
+dedicated instance per realm. Kovee MAY later embed a conformant alternate Byom
+implementation in the same Rust process/PostgreSQL cluster, but doing so requires
+a Byom storage/hosting ADR and the full BPP conformance suite; an unmodified
+`byomd` cannot simply use Kovee's tables. In either form:
 
-- Sage's protocol and state machines remain the semantic source of truth.
+- BPP and Byom's state machines remain the semantic source of truth.
 - A future embedded module owns separate tables/migrations and commits its own
-  state, ledger entries, and outbox in one SQL transaction.
+  state, journal entries, and outbox in one SQL transaction.
 - A separate service publishes from its own transactional outbox and Kovee
-  consumes by durable Sage cursor. There is no cross-service dual write.
-- Kovee clients use the Sage protocol through an authenticated network binding;
-  they never read Sage tables.
-- Sage events can be replayed into Kovee projections within source retention.
-  Full rebuild additionally requires a normative authorized snapshot and boundary
-  cursor; this is a prerequisite rather than an assumed current Sage feature.
+  consumes by durable Byom cursor (`events_read`/`events_wait`). There is no
+  cross-service dual write.
+- Kovee clients reach Byom through the adapter over an authenticated per-surface
+  binding; they never read Byom tables.
+- Byom events can be replayed into Kovee projections within source retention.
+  Full rebuild additionally requires an authorized snapshot (`snapshot_get`) plus
+  boundary cursor, with `cursor_recover` and `recovery_checkpoint_show` covering
+  expired cursors, endpoint incarnation, and recovery epoch.
 
 ### 7.4 Language split
 
 “Python” is an authoring decision, not a requirement that the correctness kernel
 import Python modules.
 
-- The reference Kovee control plane is Rust, matching Sage's implementation and
+- The reference Kovee control plane is Rust, matching Byom's implementation and
   allowing shared protocol/conformance discipline.
 - The first assistant SDK and worker runtime are Python.
 - A TypeScript client SDK serves web and connector authors.
@@ -784,8 +819,9 @@ epoch, project status/revision, target resource revision, membership, space
 access/participant binding, branch status/frontier, contribution/relation
 endpoint visibility, lens scope, attention revision/acceptance, context-item
 visibility, commitment terms/acceptance, classification/retention policy,
-remaining-use grant, Kovee policy set, realm authority binding, and
-external Sage visibility proof. The operation defines its required categories;
+remaining-use grant, Kovee policy set, realm governance binding, and
+external Byom visibility proof (Byom's own visibility closure on every projected
+read). The operation defines its required categories;
 an implementation cannot omit a category merely because it is inconvenient to
 load. An absent required dependency fails closed.
 
@@ -824,9 +860,10 @@ versioned actions such as `space.read`, `contribution.append`,
 `commitment.review`,
 `assistant.deploy`, and `handoff.offer`; roles expand to declared action sets.
 
-Sage mission membership and approval rules remain Sage records. A Kovee project
-owner is not automatically a Sage mission approver. The UI must show both scopes
-when they differ.
+Byom Participant admission and Society decision rules remain Byom records. A
+Kovee project owner is not automatically eligible for a Byom human-authority
+seat, and no Kovee role manufactures Participant membership. The UI must show
+both scopes when they differ.
 
 Authorization is deny-by-default and checks, in order:
 
@@ -851,10 +888,11 @@ policies MAY require step-up
 authentication. Decisions record the authentication reference without storing
 reusable authentication secrets.
 
-Sage gates use Sage's approval rules, digests, vetoes, separation of duties, and
-standing rules. Kovee may render and route them, but the final decision is
-committed by Sage. For a Kovee-owned effect, Kovee uses the same exact-intent
-pattern defined in section 16.
+Byom act decisions use Byom's decision rules, subject digests, seat eligibility,
+separation of duties, Mandates, and StandingMandateRevisions. Kovee may render
+and route them — it prepares nothing and fills no seat — but the position and the
+deterministic finalization are committed by Byom. For a Kovee-owned effect, Kovee
+uses the same exact-intent pattern defined in section 16.
 
 ### 9.5 Kovee policy revisions
 
@@ -1071,11 +1109,38 @@ JoinRequest {
   requested_role, state, decided_by?, revision
 }
 
-RealmAuthorityBinding {
+KoveeRealmByomBinding {
+  binding_ref, realm_ref, binding_revision, binding_epoch,
+  predecessor_binding_ref?, predecessor_binding_digest?,
+  binding_lineage_ref?, binding_lineage_digest?,
+  byom_endpoint_ref, endpoint_incarnation,
+  compatibility_bundle,
+  delegated_principal_audience, external_authorization_audience,
+  historical_recovery_mode: disabled|exact_formation_intent_only,
+  recovery_authorization_policy_ref, recovery_authorization_policy_digest,
+  status: pending|active|void,
+  dependency_digest, digest
+}
+
+KoveeSocietyMapping {
+  realm_ref, society_ref, society_recovery_epoch,
+  allowed_project_and_space_selectors[],
+  classification_binding_ref,
+  governance_owner_binding_ref, governance_owner_binding_digest,
+  status: pending|active|void, revision, digest
+}
+
+KoveeGovernanceOwnerBinding {
+  realm_ref, exact_scope_selector, exact_scope_digest,
+  revision, binding_epoch,
+  governance_owner: sage|byom|none,
+  owner_endpoint_ref?, owner_binding_ref?, cutover_ref?,
+  status: active|frozen, digest
+}
+
+RealmAksonBinding {
   binding_id, realm_id, revision, status,
-  sage_endpoint_ref, sage_protocol_range,
-  sage_principal_mapping_ref, authority_binding_epoch,
-  akson_endpoint_ref?, akson_binding_epoch?,
+  akson_endpoint_ref, akson_binding_epoch,
   isolation_mode: dedicated|verified-multitenant
 }
 ```
@@ -1106,13 +1171,28 @@ recipient constraint and atomically creates the membership. Open invitations,
 role widening, reuse, and acceptance after expiry are forbidden in v0.1. The
 first installation owner is created by an audited one-use bootstrap action.
 
-Every realm has zero or one active Sage authority binding in v0.1 and at most one
-active Akson binding. Without Sage, the negotiated `governed_work` feature is
-absent and mission operations are unavailable; open-space mode still works. A
-project can link only to missions and peer operations under its realm's current
-binding. Endpoint credentials are secret-manager references, not fields in this
-portable record. Changing an endpoint or principal mapping increments the
-authority-binding epoch and invalidates derived channels and permits.
+Every realm has zero or one active Byom governance binding in v0.1 and at most
+one active Akson binding. Without Byom, the negotiated `governed_work` feature is
+absent and Endeavor operations are unavailable; open-space mode still works. A
+project can link only to Endeavors and peer operations under its realm's current
+binding. Endpoint credentials are secret-manager references, not fields in these
+portable records. Changing the endpoint, its incarnation, or the Society mapping
+increments the binding epoch and invalidates derived channels and permits.
+
+The three records are one saga, not three independent settings.
+`KoveeRealmByomBinding` and `KoveeSocietyMapping` are created inert (`pending`),
+and the `KoveeGovernanceOwnerBinding` is then compare-and-swapped from `none` to
+`byom` at an exact expected revision; only that CAS activates them. Overlapping
+`exact_scope_selector` scopes are rejected, an exact retry returns the identical
+binding, and a failure before activation rolls back rather than leaving a
+half-owned realm. Only `none` and `byom` are ever written. The enum carries one
+further arm, `sage`, purely so the wire schema stays byte-compatible with the
+frozen `byom_governed_work_v1` shapes; it names a discarded predecessor design,
+no code path writes it, no milestone exercises it, and the cutover machine that
+would have consumed it is deliberately unbuilt. Byom is this stack's governance
+owner from day one (kovee amendment A1, family-contract amendment A2). Kovee is
+never the genesis governance actor — the Society must already be `active` when
+the binding is created, which the adapter proves with a `society_show` read.
 
 `security_epoch` changes only when the issuer/subject binding, status, assurance
 policy, or another security-relevant property changes. Login timestamps are
@@ -1337,7 +1417,7 @@ Graph queries have installation limits for depth, fan-out, returned nodes,
 cycles, cost, and wall time. Semantic cycles may exist, but no scheduler follows
 them as executable control flow. Every read, relation traversal, search result,
 replay, and live delivery rechecks space membership, object visibility,
-classification, linked Sage/Akson source authorization, and the caller's exact
+classification, linked Byom/Akson source authorization, and the caller's exact
 operation.
 
 A lens is a declarative, schema-bounded presentation over authorized canonical
@@ -1398,7 +1478,7 @@ new proposal.
 Model-generated comparison or synthesis records its producing invocation,
 context, model/algorithm version, and output digest and remains untrusted data.
 A merge cannot establish truth, erase a dissenting branch, resolve a policy
-conflict, accept a commitment, change a Sage plan, decide a gate, apply a
+conflict, accept a commitment, revise a Pledge, decide a governed act, apply a
 workspace, or disclose data. Authority-bearing conflicts never use
 last-writer-wins, vote-by-text-volume, or model judgment. Origin branches and
 unresolved challenges remain inspectable subject to retention and authorization.
@@ -1527,7 +1607,7 @@ InvocationInputManifest {
   disclosure_rules_digest,
   deadline, cancellation_policy, resource_limits,
   budget_reservation_set_ref?, ancestry[],
-  sage_turn_binding_ref?, sage_turn_binding_digest?,
+  byom_episode_binding_ref?, byom_episode_binding_digest?,
   authorization_dependency_set_ref, authority_digest,
   created_at, digest
 }
@@ -1552,7 +1632,8 @@ queued -> claimed -> running
 
 An attempt state may end `yielded`, `lost`, or `superseded` while its invocation continues.
 `succeeded` means the runtime accepted the exact fenced result; it does not mean
-a Sage aspect or mission is accepted. That is Sage's separate review transition.
+a Byom Pledge or Endeavor is accepted. That is Byom's separate `delivery_submit`/
+`review_record` transition.
 
 ### 10.7 Needs, offers, commitments, and work realization
 
@@ -1689,7 +1770,7 @@ WorkRealization {
   target_policy_digest, target_security_profile,
   context_assembly_ref, context_assembly_digest,
   disclosure_manifest_ref?, disclosure_digest?,
-  sage_turn_binding_ref?, sage_turn_binding_digest?,
+  byom_episode_binding_ref?, byom_episode_binding_digest?,
   correlation_ref, causation_ref, ancestry[], depth,
   deadline, budget_reservation_set_ref?, cancellation_policy,
   state: prepared|queued|claimed|running|delivered|failed|timed_out|canceled|superseded|ambiguous,
@@ -1700,8 +1781,9 @@ WorkRealization {
 A Need says what useful contribution is missing without assigning a worker. An
 Offer is a candidate performer's immutable proposal: exact deployment/principal,
 approach, deliverables, evidence, cost, timing, dependencies, and disclosure.
-Discovery may use manifest capabilities, current capacity, and Sage directory
-evidence where authorized, but ranking never assigns work. Solicitations and
+Discovery may use manifest capabilities, current capacity, and Byom participant
+evidence (`participant_show`, `engram_search`) where authorized, but ranking
+never assigns work. Solicitations and
 offers are rate-limited attention traffic, not ambient broadcast.
 
 Acceptance binds both sides to one terms digest, but no caller may authenticate
@@ -1713,7 +1795,7 @@ exact active standing-policy use covering compute, data classes, deadline,
 budget, and output destination; a current worker may fill only its own requester
 slot when its fenced InvocationCapability expressly allows bounded child work,
 and that assent is bounded by the parent deadline, budget, disclosure, ancestry,
-and Sage fence when present. The assent binds the proposal revision and
+and Byom fence when present. The assent binds the proposal revision and
 subject digest, its role/party/slot, the exact local terms digest, the
 party-visible disclosed-subject digest, and current authorization dependencies.
 It is inert until the full set is atomically consumed. Model output, assistant
@@ -1735,19 +1817,23 @@ is canceled/fenced and any later output is retained only as late evidence agains
 the old terms. An amendment cannot undo a disclosure or effect already committed,
 and it cannot relabel old evidence as satisfying the new digest.
 
-Kovee commitments are explicitly `local_non_governed`. If a Need changes a Sage
-mission's decomposition, plan, budget, deliverable, or delegation, it becomes
-work only through the corresponding Sage aspect/plan/gate operation; Kovee shows
-a source-qualified projection rather than a duplicate commitment. Remote terms
-become effective only through Sage delegation plus an Akson signed contract and
-endpoint-local consent.
+Kovee commitments are explicitly `local_non_governed`. If a Need changes an
+Endeavor's decomposition, budget, deliverable, or delegation, it becomes work
+only through the corresponding Byom operation — `call_open`, `pledge_propose`,
+`act_intent_prepare/position/finalize`, or a Mandate derivation; Kovee shows a
+source-qualified projection rather than a duplicate commitment. Remote terms
+become effective only through a Byom Mandate chain and act decision plus an Akson
+signed contract and endpoint-local consent.
 
 V0.1 local commitments request bounded contributions or draft artifacts inside
-one Kovee space. They cannot allocate an independent Sage workspace, own a
-mission deliverable, authorize an effect, apply a change set, alter governed
-knowledge, or claim organizational/cross-sovereign obligation. Their review can
-mark only the local terms fulfilled. It never accepts or completes a Sage aspect,
-even when the same contribution is later admitted to a mission.
+one Kovee space. The closed set a hosted episode may make intra-turn is named by
+`allowed_local_commitments` on its `ByomEpisodeBinding`; anything outside it goes
+through `call_open`/`pledge_propose`/`act_intent_*`. They cannot allocate an
+independent Byom workspace, own an Endeavor deliverable, authorize an effect,
+apply a change set, alter admitted engrams, or claim organizational/
+cross-sovereign obligation. Their review can mark only the local terms fulfilled.
+It never accepts or completes a Byom Pledge, even when the same contribution is
+later admitted to an Endeavor.
 
 A FormationProposal selects compatible offers for one or more Needs, including
 dependencies and reviewers, and deterministically derives the prospective
@@ -1820,7 +1906,7 @@ disclosure ceiling, or cancellation scope. Default maximum depth is 8. A target
 already in ancestry is a cycle and is rejected; detached work retains origin
 ancestry and needs independent authorization/budget. Parent cancellation
 propagates by default. A timed-out/late result is retained but cannot reactivate
-the parent, fulfill changed terms, or satisfy a Sage aspect.
+the parent, fulfill changed terms, or satisfy a Byom Pledge.
 
 ### 10.8 Attention and context assembly
 
@@ -2046,9 +2132,11 @@ Automation lineage records ordered attention-contract ids, causal depth, and cum
 invocation/effect counts. Repeated lineage, default depth over 16, rate/budget
 breach, poison delivery, or circuit-breaker failure suppresses/suspends and
 alerts rather than creating a wake storm. Attention may invoke only Kovee-local
-work. It may notify the Sage adapter of admitted change, but Sage alone decides
-mission wake and creates the next turn; peer attention requires Sage/Akson
-delegation and local admission.
+work. It may notify the byom adapter of admitted change, but wake ownership is
+inverted: a Participant (or an ActivationPolicy it adopted, recorded as
+provenance) authors the `WakeIntent`, and the Byom kernel admits it and allocates
+resources. Kovee attention only notifies — it never wakes governed work. Peer
+attention requires a Byom Mandate chain and local admission.
 
 ### 10.9 Presence and worker instance
 
@@ -2068,8 +2156,8 @@ PresenceSignal {
 
 Presence MAY be carried over Core NATS because loss is acceptable. Durable
 records retain only coarse last-seen information where policy permits. UI
-activity rollups combine current presence with authoritative invocation and Sage
-states and must label stale or unknown data. There is no durable assistant state
+activity rollups combine current presence with authoritative invocation and Byom
+Episode/Pledge states and must label stale or unknown data. There is no durable assistant state
 called `done`; recent completion is a timeline event.
 
 ### 10.10 Artifact
@@ -2266,8 +2354,8 @@ SpaceAdmissionRecord {
     SameInstallationHandoff {handoff_id}
     | VerifiedPeerOutcome {
         akson_verification_ref, akson_verification_digest,
-        sage_admission_ref, sage_admission_digest,
-        original_delegation_intent_ref, original_intent_digest
+        byom_effect_outcome_admission_ref, byom_effect_outcome_admission_digest,
+        original_act_intent_ref, original_intent_digest
       },
   recipient_project_id, recipient_space_id,
   verified_digest, decision: admit|decline,
@@ -2295,15 +2383,15 @@ SpaceAdmissionRecord: prepared -> active
 
 A `SolicitationBundle` is inert disclosed data. Accepting or admitting it creates
 no obligation or execution. A destination may independently open a local Need,
-while governed work crossing a realm uses Sage delegation plus exact Kovee
+while governed work crossing a realm uses a Byom Mandate chain plus exact Kovee
 handoff/admission; crossing an independent installation additionally requires
 Akson consent and carriage. Kovee never claims cross-owner atomic commitment
 formation.
 
 Acceptance acknowledges the offer; admission determines which exact content can
 enter a space, become attention-eligible, or become available for explicit
-admission to a Sage briefing. The two may be one UI action but remain separate
-records. Revocation prevents new uses; it cannot erase an already committed
+admission to a Byom ContextManifest. The two may be one UI action but remain
+separate records. Revocation prevents new uses; it cannot erase an already committed
 disclosure.
 `space_admission_decide` records the authenticated admission decision before any
 cross-boundary copy. `state:prepared` therefore already has a required
@@ -2393,13 +2481,16 @@ recipient acceptance decision binds the exact destination and transfer subject;
 changing either prepares a new transfer rather than reusing consent.
 
 The `VerifiedPeerOutcome` branch is valid only when Akson has verified the exact
-outcome/evidence and Sage has admitted it against the original delegation intent
-and current aspect generation. Kovee verifies both source records directly and
-includes them in its authorization dependency set. A generic peer ref, signed
-bytes without Sage admission, or a Kovee principal decision alone cannot admit a
-peer result, expose it to a model, or wake an invocation.
+outcome/evidence and Byom has admitted it through `effect_outcome_admit` against
+the original ActIntent and the current Pledge/Episode generation. Kovee verifies
+both source records directly and includes them in its authorization dependency
+set. A generic peer ref, signed bytes without Byom admission, or a Kovee principal
+decision alone cannot admit a peer result, expose it to a model, or wake an
+invocation. A late outcome is verified but cannot satisfy an advanced generation;
+an ambiguous or late-judged one goes to `effect_reconcile`, which produces an
+`EffectGovernanceDisposition` — the admission head locks first.
 
-### 10.12 Sage and Akson links
+### 10.12 Byom and Akson links
 
 Kovee links to foreign bounded contexts without copying their identity:
 
@@ -2407,7 +2498,7 @@ Kovee links to foreign bounded contexts without copying their identity:
 ExternalLink {
   link_id, revision, local_resource_ref, local_branch_id?,
   promotion_ref?, supersedes_link_ref?,
-  owner_protocol: sage|akson,
+  owner_protocol: byom|akson,
   owner_endpoint_ref, owner_object_ref,
   owner_revision?, owner_cursor?, owner_digest?,
   link_kind, status: active|superseded|revoked,
@@ -2415,23 +2506,24 @@ ExternalLink {
 }
 ```
 
-A link is correlation, not authority. A Kovee contribution linked to `gate:v-77`
-cannot decide it; an Akson task link cannot prove an outcome without the Akson
-verification record.
-For `link_kind:mission`, a partial unique constraint permits one active link per
-`(local_branch_id, owner_protocol:sage)`. Promotion/link reconciliation locks
+A link is correlation, not authority. A Kovee contribution linked to
+`act_intent:ai-77` cannot decide it; an Akson task link cannot prove an outcome
+without the Akson verification record.
+For `link_kind:endeavor`, a partial unique constraint permits one active link per
+`(local_branch_id, owner_protocol:byom)`. Promotion/link reconciliation locks
 that active-link key and compare-and-swaps the exact expected prior link. The
 same promotion id returns the same link; replacing one requires an explicitly
 confirmed `supersedes_link_ref` and atomically marks the prior link superseded
 while creating the new active link. Historical rows remain immutable. Revoking
-a local link changes no Sage mission state.
+a local link changes no Byom Endeavor state.
 
 ## 11. Kovee Collaboration Protocol
 
 The Kovee Collaboration Protocol (KCP) is the normative, transport-independent
 surface for Kovee-owned resources. Initial protocol version is `0.1`. It does
-not absorb the Sage Session Protocol or Akson A2A profile; the gateway exposes
-those bounded contexts through their own negotiated versions.
+not absorb the Byom Participation Protocol or the Akson A2A profile; the gateway
+exposes those bounded contexts through their own negotiated versions, and a BPP
+envelope is never nested inside a KCP one.
 
 ### 11.1 Negotiation
 
@@ -2558,12 +2650,12 @@ Ordering guarantees:
 - `stream_sequence` is dense and monotonic within one aggregate stream.
 - `project_sequence` is dense and monotonic for all Kovee-owned events committed
   in one project. The reference SQL implementation serializes assignment under
-  the project head row; aborted transactions consume no sequence. Sage and Akson
+  the project head row; aborted transactions consume no sequence. Byom and Akson
   events keep their own source sequences and do not consume this counter.
 - A multi-event transaction assigns consecutive project sequences.
 - There is no global event order across projects or owners. Causation and
   correlation express cross-stream relationships.
-- Sage and Akson retain their own cursors; a composite timeline merges them with
+- Byom and Akson retain their own cursors; a composite timeline merges them with
   source labels and causal links rather than inventing a false total order.
 
 The public cursor is an opaque, authenticated encoding of source stream,
@@ -2641,10 +2733,10 @@ to four closed operations; it is not a runtime wildcard.
 | `standing_policy_v1` | K2 | `policy_propose/show/list/adopt/revoke`, `policy_ceiling_account_show`, `policy_ceiling_reservation_show` |
 | `attention_coordination_v1` | K2 | `context_recipe_create/update/show/list/revoke`, `attention_contract_prepare/offer/accept/decline/narrow/widen/suspend/resume/revoke/show/list`, `attention_candidate_show/list/dismiss/activate`, `attention_use_account_show`, bounded `attention_replay_prepare/start/show/cancel` |
 | `local_commitment_v1` | K2 | `need_create/open/show/list/update/withdraw/review`, `offer_create/show/list/update/decline/withdraw`, `formation_prepare/show/assent/assent_withdraw/accept/reject/withdraw`, `commitment_show/list/cancel`, `commitment_amendment_propose/assent/assent_withdraw/accept/reject/withdraw`, `commitment_delivery_submit/show/withdraw`, `commitment_review` |
-| `governed_work_binding_v1` | K2 | `personal_governed_work_enable/show/disable`, `collaboration_context_bundle_prepare/show`, `mission_promotion_prepare/start/show/cancel/reconcile`, `sage_turn_binding_show`, `workspace_provider_manifest_show/list`, `workspace_allocation_binding_show` |
+| `governed_work_binding_v1` | K2 | `governance_enable/show/disable`, `collaboration_context_bundle_prepare/show`, `endeavor_promotion_prepare/start/show/cancel/reconcile`, `byom_episode_binding_show`, `workspace_provider_manifest_show/list`, `workspace_allocation_binding_show` |
 | `model_broker_v1` | K2 | `model_provider_binding_create/show/list/update/disable`, `model_profile_create/show/list/update/disable`, `model_usage_show`, `provider_context_manifest_show` |
 | `team_identity_v1` | K3 | `invitation_create/show/list/accept/decline/revoke`, `join_request_create/show/list/decide`, `membership_add/show/list/update/revoke`, `principal_binding_show/link_prepare/link_complete/revoke`, `artifact_grant_create/show/revoke`, `artifact_access_session_create/show` |
-| `installation_admin_v1` | K3 | `realm_create/update/suspend`, `project_suspend/restore/archive`, `principal_recovery_prepare/complete`, `service_identity_show/rotate/revoke`, `realm_authority_binding_prepare/show/list/activate/rotate/disable`, `audit_export` |
+| `installation_admin_v1` | K3 | `realm_create/update/suspend`, `project_suspend/restore/archive`, `principal_recovery_prepare/complete`, `service_identity_show/rotate/revoke`, `realm_governance_binding_prepare/show/list/activate/rotate/disable`, `realm_akson_binding_prepare/show/list/activate/rotate/disable`, `audit_export` |
 | `team_realtime_v1` | K3 | `realtime_resume`, `presence_list` |
 | `space_handoff_v1` | K3 | `classification_mapping_propose/show/adopt/revoke`, `handoff_prepare/offer/show/list/accept/decline/revoke/cancel`, `handoff_transfer_show/reconcile`, `space_admission_show/decide/revoke` |
 | `secure_effects_v1` | K4 | `tool_profile_create/show/list/update/disable`, `connector_profile_create/show/list/update/disable` |
@@ -2682,16 +2774,30 @@ durable_runtime_v1 + standing_policy_v1 + model_broker_v1
 ```
 
 The graph does not make governed work depend on the model broker.
-An installation advertises the transitive prerequisites with a feature. Sage and
+An installation advertises the transitive prerequisites with a feature. Byom and
 Akson protocol-matrix entries additionally name the KCP bundles they require.
 
-`personal_governed_work_enable` is a deliberately narrow bootstrap: it is
-available only to the authenticated owner of personal mode, starts or selects a
-daemon-managed local `saged`, creates the realm's first binding, and records an
-audit event. It cannot bind an arbitrary endpoint, map another principal, or be
-used in team mode. Those operations remain in `installation_admin_v1`.
+`governance_enable` is a deliberately narrow bootstrap. Its authority row is
+frozen field-complete in the `byom_governed_work_v1` bundle: the surface is KCP
+admin (personal mode, the owner principal over the UID-checked local socket; team
+mode, the realm `owner` role over the authenticated gateway); the allowed actor is
+a human realm-owner principal only — never a service identity, session, assistant,
+or connector; the authorization dependency set is the realm revision, the target
+`society_ref` plus Society recovery epoch, the byomd endpoint identity and
+incarnation, the expected absent-or-identical `KoveeRealmByomBinding`, and the
+`KoveeSocietyMapping` revision; the subject digest the confirming human sees
+covers exactly the (realm, `society_ref`, recovery epoch, byom endpoint, mapping
+revision, owner transition `none->byom`) tuple; assurance is a fresh step-up
+challenge in team mode and explicit confirmation in personal mode, with
+`governance_disable` always step-up; the fence is a binding-epoch CAS at the
+expected revision, rejecting overlap and returning the identical binding on
+retry; and service authority is recovery-only — a service may *query* saga state,
+never create or activate a binding. In personal mode it may start or select a
+daemon-managed local `byomd`, but it cannot bind an arbitrary endpoint, map
+another principal, or establish the Society. Endpoint and principal-mapping
+administration remains in `installation_admin_v1`.
 
-Sage K2/K5 and Akson K6 capabilities appear as separate entries in the protocol
+Byom K2/K5 and Akson K6 capabilities appear as separate entries in the protocol
 matrix, not KCP operations. Operations from an unadvertised feature return
 `unknown-op`; clients never infer availability from product version alone.
 
@@ -2700,9 +2806,9 @@ surfaces. A principal administrator does not impersonate an agent attempt merely
 because the operator surface “dominates” it. Overrides are explicit commands
 such as `invocation_force_cancel`, require a reason, and emit an audit event.
 
-Sage operations remain Sage operations. The Kovee gateway may route
-`sage.mission_submit`, for example, but its request and result schemas come from
-the negotiated Sage protocol rather than this table.
+BPP operations remain BPP operations. The Kovee gateway may route
+`byom.kovee_endeavor_form`, for example, but its request and result schemas come
+from the negotiated Byom protocol rather than this table.
 
 #### 11.6.1 Normative authority matrix
 
@@ -2728,24 +2834,24 @@ operation missing an entry is not callable. The initial families are:
 | assistant definition/revision/deployment/alias mutations | operator / principal | exact author/deploy action; identity, realm/project, membership, target/config/policy revisions | none | step-up for production activation/rollback | no |
 | policy proposal | external client / principal; fenced worker or service identity only with an exact proposal capability | exact inert policy subject, realm/project scope, current policy-set digest, provenance and proposer identity; creates no active authority | current attempt fence for worker proposals | current login or workload identity | no |
 | policy adoption/revocation; model-provider binding and model/tool/connector profile create/update/disable | operator / authenticated principal only | exact policy/binding/profile revision and digest, realm/project scope, credential-binding metadata, destination/classification restrictions, and affected deployment dependencies | none | current risk-required step-up for adoption, production activation, or disable | no |
-| Formation or Commitment-amendment assent/assent-withdraw | external client / exact authenticated party principal; worker surface / current fenced attempt only for its own requester slot under an explicit bounded-child-work capability; narrow policy service for an exact assistant party slot | exact proposal revision/subject, party role/ref/slot, terms and disclosed-subject digests, decision/policy use or requester capability, and complete current dependency set; worker assent additionally binds its InvocationCapability, parent WorkRealization/SageTurnBinding if any, and inherited budget/deadline/disclosure ceilings | current Kovee attempt fence and Sage fence when requester work is Sage-bound; neither worker nor policy service may fill another human/assistant slot | current assurance, workload identity, and capability/policy required by the terms | no |
+| Formation or Commitment-amendment assent/assent-withdraw | external client / exact authenticated party principal; worker surface / current fenced attempt only for its own requester slot under an explicit bounded-child-work capability; narrow policy service for an exact assistant party slot | exact proposal revision/subject, party role/ref/slot, terms and disclosed-subject digests, decision/policy use or requester capability, and complete current dependency set; worker assent additionally binds its InvocationCapability, parent WorkRealization/ByomEpisodeBinding if any, and inherited budget/deadline/disclosure ceilings | current Kovee attempt fence and Byom fence when requester work is Byom-bound; neither worker nor policy service may fill another human/assistant slot | current assurance, workload identity, and capability/policy required by the terms | no |
 | Formation or Commitment-amendment final acceptance | external client / authenticated coordinator principal or owning Kovee commitment service | exact proposal revision/subject and complete locked set of one active assent per derived requester/performer slot; finalizer supplies no party assent | none | current login or workload identity | no |
 | attention accept/decline/resume/widen/candidate-activate/replay-start; merge acceptance; Commitment/Need review; participant activation | operator / authenticated principal, or narrow policy service consuming an exact active standing-policy/contract receipt | exact prepared subject digest, current target acceptance, space/branch/frontier/terms revisions, use account, budget/disclosure union, and complete dependency set | none; never model prose or a worker self-decision | current assurance required by policy | no |
 | Commitment delivery submit/withdraw | external client / authenticated principal performer, or worker SDK / current attempt of the exact WorkRealization child invocation | current Commitment revision/terms digest, performer binding, required WorkRealization+child invocation for assistant delivery, outcome/evidence schema, space/context visibility, and delivery subject digest | current bound attempt fence for worker delivery | current login or exact worker capability | no |
 | direct invocation | external client / authenticated principal/operator only | exact manual/deployment-test create action; full target deployment/revision, ContextAssembly/input manifest, budget, disclosure, policy and authorization dependencies; it cannot name a worker as requester or create a Commitment | none | current login; production test may require step-up | no |
-| Invocation, Commitment, and WorkRealization cancel | external client / authenticated creator or authorized principal; worker SDK only for its exact child invocation/Commitment/WorkRealization under an explicit parent capability | exact current invocation/commitment/realization revisions, terms, ancestry and cancellation scope; worker cancellation binds the parent attempt and inherited ceilings | current attempt fence for worker-originated child cancellation, plus Sage fence when bound | current login or worker capability | no |
-| effect prepare | external client / authenticated principal, or worker SDK / current attempt where its capability permits the exact effect kind | exact canonical subject/revision/digest, profile binding, preconditions, disclosure, budget, policy set and authorization dependencies; preparation grants no execution | current Kovee fence and Sage fence for worker-originated Sage-bound effects | current login or worker capability | no |
+| Invocation, Commitment, and WorkRealization cancel | external client / authenticated creator or authorized principal; worker SDK only for its exact child invocation/Commitment/WorkRealization under an explicit parent capability | exact current invocation/commitment/realization revisions, terms, ancestry and cancellation scope; worker cancellation binds the parent attempt and inherited ceilings | current attempt fence for worker-originated child cancellation, plus Byom fence when bound | current login or worker capability | no |
+| effect prepare | external client / authenticated principal, or worker SDK / current attempt where its capability permits the exact effect kind | exact canonical subject/revision/digest, profile binding, preconditions, disclosure, budget, policy set and authorization dependencies; preparation grants no execution | current Kovee fence and Byom fence for worker-originated Byom-bound effects | current login or worker capability | no |
 | artifact access-session create | external client / authenticated grant recipient principal or mapped service | exact active ArtifactGrant revision, grantee binding, artifact/version/digest, purpose/action, use key, expiry/max-use counter, current source visibility and authorization dependencies | none; session capability is audience/action/TTL-bound | current login or workload identity | no |
-| checkpoint/contribution/semantic-relation/model/tool/`application_event_emit` worker operations | worker surface / invocation attempt only | exact operation and space/object scope listed in the invocation capability; invocation manifest, deployment/config, attempt, branch/context, budget, policy and authorization dependencies | current Kovee fence and Sage fence when bound | workload identity plus invocation capability | no |
+| checkpoint/contribution/semantic-relation/model/tool/`application_event_emit` worker operations | worker surface / invocation attempt only | exact operation and space/object scope listed in the invocation capability; invocation manifest, deployment/config, attempt, branch/context, budget, policy and authorization dependencies | current Kovee fence and Byom fence when bound | workload identity plus invocation capability | no |
 | `structural_relation_record`, `structural_relation_dispose` (internal registry only) | owning Kovee service only | transactionally observed structural fact and visible exact endpoints; kind/class are service-derived and absent from external schemas | owning transaction fence/revision | workload identity | no |
 | force-cancel, realm/binding, project-status, identity/membership, invitation/join, space-access-grant administration, classification mapping, artifact grant, handoff offer/admission decisions, effect authorization/reconciliation | operator / principal only | exact administrative/governance action; complete identity, realm/project/space, membership/role, target revision, policy/grant/binding dependencies and prepared subject digest; this family excludes access-widening confirms and handoff-transfer reconciliation | none; cannot impersonate a worker | current step-up observation at risk-required level | no |
-| `personal_governed_work_enable`, `personal_governed_work_disable` | external client / authenticated personal-installation owner only | exact local daemon/binding bootstrap or disable subject, installation recovery epoch, personal realm, owner principal mapping, and current binding revision; arbitrary endpoints and team mode are forbidden | none | current owner login; step-up for disable | no |
+| `governance_enable`, `governance_disable` | KCP admin / human realm-owner principal only (personal: owner over the UID-checked local socket; team: realm `owner` role over the authenticated gateway) — never a service identity, session, assistant, or connector | realm revision, target `society_ref` + Society recovery epoch, byomd endpoint identity/incarnation, expected absent-or-identical `KoveeRealmByomBinding`, `KoveeSocietyMapping` revision, and the exact enable subject digest the confirming human sees; a service may only *query* saga state, never create or activate a binding | binding-epoch CAS at the expected revision; overlapping scope rejected; retry returns the identical binding | fresh step-up in team mode, explicit confirmation in personal mode; `governance_disable` always step-up | no |
 | handoff transfer reconcile | Kovee handoff service, or authorized operator/principal | exact persisted transfer/offer/destination preparation/source-use ids, digests, dependency sets, and stable reconciliation key; may only recover the existing transfer outcome | transfer revision | workload identity or risk-required current login | no |
-| collaboration-context-bundle and mission-promotion prepare/start/cancel | external client / authenticated principal | exact Space frontier/assembly, destination Sage binding, MissionBootstrap/command digest, principal mapping, mission membership proposal, gate/budget/workspace terms, and current Kovee/Sage authorization dependencies; cancel only while prepared | none; Sage command derives its own authority credential | Sage-required current assurance | no |
-| mission-promotion reconcile | Kovee Sage-integration service, or authenticated mapped principal | exact stored promotion id, Sage endpoint, principal, command digest and idempotency key; service may only query/recover an existing Sage result and finish its link, while only a fresh principal request may resubmit the unchanged stored command when Sage reports no result | integration intent revision; never releases the branch slot | workload identity for read-only recovery, or Sage-required current principal assurance for resubmission | no |
+| collaboration-context-bundle and endeavor-promotion prepare/start/cancel | external client / authenticated principal | exact Space frontier/assembly, destination `KoveeRealmByomBinding` + `KoveeSocietyMapping`, `kovee_endeavor_form` command digest, bound Participant, rendered Society decision rules, and budget/workspace terms, plus current Kovee/Byom authorization dependencies; cancel only while `prepared` and no slot was ever acquired | none; the BPP command derives its own `DelegatedPrincipalCredential` | Byom-required current assurance (fresh attempt proof over the stable command/idempotency domain) | no |
+| endeavor-promotion reconcile | narrow Kovee recovery workload on the byom projection surface, or authenticated mapped principal | exact stored formation intent id, byom endpoint, bound Participant, canonical command digest and IdempotencyDomain; the workload may only run the read-only five-fact `external_command_result_query` and finish its link, while only a fresh principal request may resubmit the unchanged stored command when byom reports `absent`; `external_command_terminalize` is the same-source human's terminal claim and never executes | formation intent revision paired with the slot generation; never releases the branch slot on a timeout | workload mTLS for read-only recovery, or Byom-required current principal assurance for resubmission | no |
 | effect execution, model/tool/connector egress | broker surface / effect-driver service only | unconsumed local execution permit or persisted external-authority consumption plus current restriction dependency set, budget and disclosure | current bound attempt fences before egress | workload identity | no |
-| Sage commands | Sage route / principal mapping, or Sage provider route / bound attempt | Sage operation/action and source authorization; every composed/projected read additionally intersects current Kovee project/space/object visibility, classification/retention, and exact external source proof | Sage fence and Kovee fence where provider-bound | Sage-required principal observation or provider workload identity | no |
-| Akson stage/dispatch/consent | no KCP or generic operator/worker surface; narrow driver / Sage delegation service only | exact Sage delegation intent plus Akson-owned binding and consent/consumption proof | source-required delegation generation/fence | dedicated workload identity | no |
+| BPP operations | byom governance/participant/candidate surface / bound Participant or seated human principal, or byom runtime surface / byomd-minted subject-scoped workload channel | the BPP operation's own registry row governs actor, closure, fence, and assurance; every composed/projected read additionally intersects current Kovee project/space/object visibility, classification/retention, and byom's D-closure source proof | the Byom fence the row demands, plus the Kovee fence on every runtime mutation (dual fences) | Byom-required principal observation with fresh challenge, or attested workload identity | no |
+| Akson stage/dispatch/consent | no KCP or generic operator/worker surface; Kovee's narrow `byom_akson_dispatch_v1` driver only | the current finalized Byom ActIntent, its consumed `ExecutionConsumptionReceipt`, and the Akson-owned binding plus consent reference; Byom's delegation engine authorizes and never calls, Kovee's driver calls and never decides | source-required Mandate generation/fence | dedicated workload identity | no |
 
 Here `*_show`, `*_list`, and the named families are specification shorthand for
 an explicit generated row per operation; they are not runtime wildcard matches.
@@ -2857,34 +2963,40 @@ numeric, Unicode, and concatenation-substitution vectors.
 
 ### 11.10 Protocol composition at the gateway
 
-KCP, the Sage Session Protocol, and Akson's local protocol remain separately
-named and versioned. A client discovers a protocol matrix:
+KCP, the Byom Participation Protocol, and Akson's local protocol remain
+separately named and versioned. A client discovers a protocol matrix:
 
 ```text
 ProtocolMatrix {
   kovee: {versions[], features[]},
-  sage?: {versions[], features[], authority_endpoint_ref},
+  byom?: {versions[], features[], authority_endpoint_ref, surfaces[]},
   akson_projection?: {versions[], features[], source_endpoint_ref}
 }
 ```
 
 The HTTP binding uses an unambiguous protocol route/media type and version for
-every request. A Sage command keeps its Sage envelope, operation name,
-idempotency scope, digest rules, result, and `urn:sage:error:*` problems; it is
-not nested inside a KCP mutation whose semantics could disagree. The gateway
-authenticates the network client, maps the Kovee principal to an explicit
-revisioned Sage principal binding, and sends the command through a Sage network
-binding. No binding means the command is forbidden.
+every request. A BPP command keeps byom's own `{version, op, meta?}` envelope
+with its arguments at the top level, its operation name, its IdempotencyDomain,
+its digest rules, its result, and its `https://byom.dev/problems/*` problems; it
+is never nested inside a KCP mutation whose semantics could disagree, and its
+problems are never renamed into `urn:kovee:error:*` kinds. The gateway
+authenticates the network client, resolves the realm's current
+`KoveeRealmByomBinding` and `KoveeSocietyMapping`, mints a short-lived
+`DelegatedPrincipalCredential` bound to the acting human's admitted Participant,
+and sends the command to the correct byomd surface socket. No binding means the
+command is forbidden.
 
 Kovee-owned follow-up state, such as linking an exact space frontier/context
-assembly to a newly created mission, is a recoverable saga rather than a
+assembly to a newly formed Endeavor, is a recoverable saga rather than a
 distributed transaction:
 
-1. Record a Kovee integration intent with correlation and idempotency keys.
-2. Execute the idempotent Sage command and persist its exact result/reference.
+1. Record a Kovee `EndeavorFormationIntent` with correlation and idempotency
+   keys, and an append-only `EndeavorFormationAttempt` per send.
+2. Execute the idempotent `kovee_endeavor_form` command and persist its exact
+   signed result/reference.
 3. Commit the Kovee `ExternalLink` under its own command transaction.
 4. If step 3 is interrupted, reconciliation repeats only the link commit; it
-   never submits a second mission.
+   never forms a second Endeavor.
 
 Composite reads return source-qualified objects and cursors. They may be exposed
 in one UI response, but no composite envelope rewrites source ids, revisions,
@@ -2903,7 +3015,7 @@ leases, budgets, idempotency, or effects.
 The reference schema has, at minimum, tables for:
 
 ```text
-realms                 realm_authority_bindings principals
+realms                 realm_akson_bindings    principals
 principal_auth_bindings authentication_observations service_identities
 invocation_capabilities
 enrollment_invitations join_requests           projects
@@ -2928,8 +3040,8 @@ needs                  need_reviews           offers
 formation_proposals    terms_assents
 collaboration_commitments commitment_amendments commitment_deliveries
 commitment_reviews     work_realizations
-collaboration_context_bundles mission_promotion_intents mission_promotion_slots
-external_links
+collaboration_context_bundles endeavor_formation_intents endeavor_formation_slots
+endeavor_formation_attempts external_links
 handoff_offers         handoff_transfers       handoff_uses
 space_admission_records
 classification_mapping_revisions
@@ -2941,7 +3053,10 @@ decision_uses          execution_permits       effects
 model_provider_bindings model_profiles          tool_profiles
 connector_profiles
 enforcement_evidence   provider_context_manifests
-sage_turn_bindings
+kovee_realm_byom_bindings kovee_society_mappings
+kovee_governance_owner_bindings
+byom_episode_bindings  placement_bindings
+byom_subordinate_reservations
 workspace_provider_manifests workspace_allocation_bindings
 external_authorization_consumptions
 effect_attempts        effect_receipts         budget_accounts
@@ -2951,7 +3066,7 @@ idempotency_results    outbox                 consumer_inbox
 audit_records          schema_registry        migration_history
 ```
 
-Sage and Akson own additional schemas through their own migrations. Table
+Byom and Akson own additional schemas through their own migrations. Table
 co-location in one PostgreSQL cluster does not weaken ownership or authorize
 cross-module writes.
 
@@ -2971,10 +3086,14 @@ Required uniqueness includes:
 - `(consumer_name, delivery_id)` for internal broker-delivery deduplication.
 - `(commitment_id, commitment_revision)` for a realization's deterministic
   creation key and `UNIQUE(child_invocation_id)` when present.
-- One active `(local_branch_id, owner_protocol:sage, link_kind:mission)`
+- One active `(local_branch_id, owner_protocol:byom, link_kind:endeavor)`
   ExternalLink; replacement compare-and-swaps and supersedes the exact prior id.
-- One non-released MissionPromotionSlot per local branch; it is never
+- One non-released EndeavorFormationSlot per local branch; it is never
   timeout-released after external submission.
+- `(realm_ref, exact_scope_selector)` for KoveeGovernanceOwnerBinding, with
+  overlapping governed scopes rejected.
+- `(episode_ref, byom_attempt_ref, kovee_invocation_ref)` for a
+  ByomEpisodeBinding's idempotent create key.
 - `(decision_id, use_key)` and `(decision_id, use_ordinal)`.
 - The artifact upload/version, grant-use/idempotency, and policy-ceiling
   uniqueness constraints declared in sections 10.10 and 9.5.
@@ -3028,7 +3147,7 @@ Kovee v0.1 guarantees:
 
 It does not guarantee:
 
-- A total order across projects, Sage, and Akson.
+- A total order across projects, Byom, and Akson.
 - Exactly-once agent computation.
 - Exactly-once effects in an external system that has neither idempotency nor a
   reconciliation API.
@@ -3226,7 +3345,7 @@ creates the `local_non_governed` Commitment, reservation, and WorkRealization
 atomically. These are not one end-to-end transaction, and the caller never
 manufactures the helper's assent. If either assent or any current dependency is
 missing, the call returns the open/pending Need/Offer/Formation workflow for
-review instead of silently assigning an agent. It cannot create Sage mission
+review instead of silently assigning an agent. It cannot create Byom Endeavor
 work, remote work, a workspace, or effect authority.
 
 ### 14.2 Manifest
@@ -3303,9 +3422,11 @@ invocation.
 | `confined` | Isolated process/container, bounded filesystem, no broker/DB credentials | Agent cannot directly access Kovee authority surfaces |
 | `secure` | Confined plus default-deny network, brokered models/tools/connectors, no ambient secrets, immutable package | Declared egress and capabilities are enforced by the supervisor boundary |
 
-The names and meanings align with Sage. A Sage session can claim “holds no
-authority” only when both its harness and underlying Kovee worker satisfy the
-required profile. Declaring `secure` in a manifest is insufficient. A worker's
+The names and meanings align with Byom's Manifestation profiles. A Byom
+Manifestation can claim “holds no authority” only when both its harness and
+underlying Kovee worker satisfy the required profile; byom sees the
+`ManifestationRevision` plus Kovee's enforcement evidence, never the manifest's
+self-assertion. Declaring `secure` in a manifest is insufficient. A worker's
 compatibility advertisement is only an eligibility hint; enforcement evidence
 comes from the trusted supervisor/orchestrator or a verified platform-attestation
 mechanism outside assistant code. The scheduler refuses missing or mismatched
@@ -3318,7 +3439,8 @@ evidence.
 An invocation is created only by an authenticated direct command, an admitted
 `AttentionActivation`, a `WorkRealization` from an accepted assistant
 Commitment, an explicit
-deployment test, or a Sage turn request. Admission of peer material never wakes
+deployment test, or a Byom `episode_request` for a hosted Manifestation.
+Admission of peer material never wakes
 work by itself; a later local attention activation may do so. Its input manifest
 binds:
 
@@ -3403,9 +3525,9 @@ authoritative nonterminal invocations and repairs only under a fenced scheduler
 sweep; a worker heartbeat never owns the slot.
 
 Changing policy affects new invocations only. Parallel runs may not share a
-mutable Python object or filesystem allocation. Sage aspect concurrency remains
-governed by Sage leases, even when each turn is implemented by a Kovee
-invocation.
+mutable Python object or filesystem allocation. Byom Pledge/Episode concurrency
+remains governed by Byom's EpisodeLease and generation fences, even when each
+Episode is implemented by a Kovee invocation.
 
 ### 15.4 Retry and cancellation
 
@@ -3447,12 +3569,14 @@ SDK durably marks the parent `waiting_commitment`, checkpoints any explicitly su
 attempt as `yielded`, and releases its worker allocation. When the child becomes
 terminal, the scheduler starts a new fenced attempt of the same invocation; code
 replay reaches the same `operation_key`, receives the existing child result, and
-continues. Waiting on a human/gate in a Sage-bound turn instead yields a typed
-Sage turn result so Sage, not Kovee, owns the next logical wake.
+continues. Waiting on a human or a pending act decision inside a Byom-bound
+Episode instead yields a typed `episode_yield` result: the next wake is authored
+by a Participant `wake_intent_submit` and admitted by the Byom kernel, never
+chosen by Kovee.
 
-A Sage session continuation remains Sage's portable logical state between turns
-and may be included in a Kovee turn manifest. It is distinct from an intra-turn
-Kovee checkpoint.
+A Byom `Continuation` remains Byom's portable logical state between Episodes and
+may be included in a Kovee invocation manifest — it can even resume across
+Manifestations. It is distinct from an intra-Episode Kovee checkpoint.
 
 Streaming tokens/chunks are advisory presentation signals with bounded sequence,
 size, and TTL. They may be lossy and are never the final collaboration record.
@@ -3464,9 +3588,10 @@ a privileged “assistant answer” message.
 
 ### 15.6 Budgets and fairness
 
-The records in this section are Kovee runtime budgets. Sage separately owns
-mission budget accounts and their top-level reservations; section 17.4 defines
-the subordinate bridge without copying ownership. A Kovee `BudgetAccount`
+The records in this section are Kovee runtime budgets. Byom separately owns the
+governed budget accounts and their top-level reservations, which its kernel
+creates at `resource_allocate`; section 17.4 defines the subordinate bridge
+without copying ownership. A Kovee `BudgetAccount`
 declares one unit—provider currency, tokens, wall time, CPU time, or another
 registered dimension—and stores `ceiling`, `outstanding_reserved`, and
 `committed`, and `uncertain`, with
@@ -3483,7 +3608,7 @@ BudgetAccount {
 }
 
 BudgetReservationSet {
-  reservation_set_id, owner_protocol: kovee|sage_subordinate,
+  reservation_set_id, owner_protocol: kovee|byom_subordinate,
   parent_reservation_set_ref?, external_authority_ref?,
   dimensions[]: {
     dimension_key, account_ref, parent_dimension_ref?, unit,
@@ -3495,7 +3620,7 @@ BudgetReservationSet {
 }
 
 UsageRecord {
-  usage_id, revision, owner_protocol: kovee|sage_subordinate,
+  usage_id, revision, owner_protocol: kovee|byom_subordinate,
   realm_id, project_id?, space_id?,
   invocation_id?, attempt_id?, fence_epoch?,
   commitment_ref?, work_realization_ref?, effect_ref?,
@@ -3510,9 +3635,11 @@ UsageRecord {
 
 Every dimension names its own account; a multi-unit set never relies on one
 ambiguous `owner_account_ref`. For a local set, `account_ref` is a Kovee account.
-For `sage_subordinate`, it is a source-qualified Sage reservation-dimension ref
-and `external_authority_ref` identifies the exact Sage set/digest; Kovee changes
-only its subordinate ledger and settles through Sage's operation.
+For `byom_subordinate`, it is a source-qualified Byom reservation-dimension ref
+and `external_authority_ref` identifies the exact Byom set/digest; Kovee changes
+only its subordinate ledger and settles through Byom's operation. A subordinate
+set may narrow or deny but never reshape or parallel-charge: its dimension and
+unit equal the parent's, and its amount never exceeds the parent's worst case.
 
 All local dimensions are reserved in one transaction or none are. Usage in one unit
 cannot be silently converted to another; exchange rates, if allowed, are an
@@ -3548,8 +3675,12 @@ accounting; brokers and workers submit bounded observations but cannot edit
 settlement. `usage_show` queries authorized records, while `model_usage_show` is
 the filtered `source_kind:model` view rather than a second model-usage object. A
 delivery's `usage_digest` is the canonical digest of its sorted exact
-UsageRecord refs/digests. Sage-subordinate records additionally bind and settle
-against the parent Sage reservation as section 17.4 requires.
+UsageRecord refs/digests. Byom-subordinate records additionally bind and settle
+against the parent Byom reservation as section 17.4 requires. A worker's
+`usage_report` to byom is **evidence only**; settlement commits from a trusted
+broker meter or an independently verified provider receipt, and disagreement or a
+stale lease blocks further spend until a governance reconciliation seat releases
+it.
 
 Pools define maximum running work globally and per realm/project/assistant deployment,
 provider rate limits, queue limits, and a deterministic fairness algorithm. The
@@ -3621,7 +3752,7 @@ Effect {
 
 ExternalAuthorizationConsumption {
   consumption_id, effect_id,
-  owner_protocol: sage|akson,
+  owner_protocol: byom|akson,
   phase: pre_egress|atomic_with_egress,
   owner_endpoint_ref, owner_intent_ref, owner_decision_ref,
   execution_key, owner_receipt_ref, owner_receipt_digest,
@@ -3680,9 +3811,9 @@ identity to that row. Both uniqueness constraints are required; an ordinal alone
 is not an idempotency key. Any policy-ceiling reservation moves its use,
 concurrency, and quantity counters in this same transaction.
 
-A Sage-owned decision—or another external approval that authorizes a later
-Kovee broker call—cannot be consumed atomically in Kovee's SQL transaction. It
-therefore uses this mandatory one-shot saga before egress:
+A Byom-owned decision—a finalized `ActIntent`—or another external approval that
+authorizes a later Kovee broker call cannot be consumed atomically in Kovee's SQL
+transaction. It therefore uses this mandatory one-shot saga before egress:
 
 1. Kovee commits the prepared `Effect`, stable external idempotency key, exact
    subject/disclosure/restriction digests, and a deterministic `execution_key`.
@@ -3703,17 +3834,25 @@ The pre-existing `Effect` makes every consumed owner permit recoverable by key.
 The owner receipt binds its protocol/endpoint, intent and decision digests,
 execution key, subject/disclosure digests, broker/driver audience, expiry, and
 `max_uses:1`; a receipt for another driver or service identity is unusable.
-Sage must expose the idempotent `execution_permit_consume` operation described
-above. Akson is different: its one-shot consent is consumed atomically by the
-dispatch effect itself, so that call is an `EffectAttempt` and its idempotent
+Byom exposes exactly this operation: `execution_permit_consume` on its runtime
+surface, callable only by the trusted host effect service over a byomd-minted
+workload channel whose subject **is** the exact `ActIntent`, so a permit token for
+one act cannot consume another act's authority. It demands both fences, is keyed
+one-shot, and returns the identical kernel-issued `ExecutionConsumptionReceipt` on
+retry. `phase` is a Kovee field on Kovee's consumption row, never a member of
+byom's receipt. Akson is different: its one-shot consent is consumed atomically by
+the dispatch effect itself, so that call is an `EffectAttempt` and its idempotent
 dispatch receipt is recorded as `phase:atomic_with_egress`, not fabricated as a
-pre-egress ticket. Akson dispatch first requires the persisted Sage consumption
-for the delegation intent. A generic Kovee worker can invoke neither owner
-surface.
+pre-egress ticket. Akson dispatch first requires the persisted Byom consumption
+for the delegation act, and it is Kovee's narrow `byom_akson_dispatch_v1` driver
+that makes the call — Byom's delegation engine authorizes and never calls out. Its
+outcome is recorded in the Kovee-owned `ByomAksonDispatchOutcomeReceipt` head, a
+closed union. A generic Kovee worker can invoke neither owner surface.
 Cancellation or a newly stricter platform rule may safely leave a consumed
-permit unused, but it cannot unconsume or replace it; another external attempt
-requires the semantic owner to prepare a new authority intent. Kovee never treats
-signature verification of an old receipt as a substitute for the consume call.
+permit unused, but it cannot unconsume or replace it; `act_intent_cancel` cannot
+claim effect rollback, and another external attempt requires the semantic owner to
+prepare a new authority intent. Kovee never treats signature verification of an
+old receipt as a substitute for the consume call.
 
 Once the broker has atomically consumed the permit and marked the effect
 `executing`, it owns recording the external outcome even if the requesting worker
@@ -3730,21 +3869,32 @@ operator command. “No receipt observed” is not proof of failure.
 
 An effect has exactly one semantic authorization owner:
 
-- For a Sage-bound turn and a Sage gate kind (`model_egress`, `share`,
-  `outbound`, `apply`, `budget`, or another Sage-owned action), Sage prepares the
-  subject and owns the human decision. Kovee obtains and persists Sage's
-  one-shot consumption receipt for that exact digest/execution key, then applies
-  its platform restrictions; a local `DecisionUse` cannot consume Sage
-  authority. Kovee MUST NOT ask the human to approve the same disclosure a
-  second time.
+- For a Byom-bound Episode and a Byom act class (`model_egress`, `share`,
+  `outbound`, `apply`, `budget`, or another act in the closed subject taxonomy),
+  Byom server-prepares the `ActIntent` subject with its field-complete
+  `PreparationTrace`, the eligible human or resource owner fills only its own
+  prepared seat with `act_intent_position` against that exact digest, and
+  `act_intent_finalize` commits deterministically without authoring a seat. Kovee
+  obtains and persists Byom's one-shot consumption receipt for that exact
+  digest/execution key, then applies its platform restrictions; a local
+  `DecisionUse` cannot consume Byom authority. Kovee MUST NOT ask the human to
+  approve the same disclosure a second time.
 - For a standalone Kovee space/runtime effect, Kovee's policy/decision service
   owns authorization. A relation, attention activation, Commitment, delivery,
   or review never supplies that authorization; it requires its own exact intent
   and decision/standing-policy use.
-- For Akson dispatch, Sage authorizes the mission intent and Akson's own authority
-  surface issues the required transport consent. These are different boundaries
-  shown together as one compound risk card, not two services claiming the same
-  decision.
+- For Akson dispatch, Byom authorizes the outbound act under its Mandate chain and
+  Akson's own authority surface issues the required transport consent. These are
+  different boundaries shown together as one compound risk card, not two services
+  claiming the same decision.
+
+Post-egress ownership is separate again. The source facts of an external outcome
+enter Byom through `effect_outcome_admit`, called by a narrow trusted
+effect-admission adapter that carries no judgmental field; that admission head
+locks first. Only an ambiguous or late-judged outcome goes on to
+`effect_reconcile` at a governance reconciliation seat, which produces an
+`EffectGovernanceDisposition`. Both records stay in the authorization closure and
+budget settlement remains conservative while the outcome is ambiguous.
 
 Lower layers may always deny because a fence, classification, budget, provider,
 or infrastructure policy is stricter. They can never broaden the owning
@@ -3833,9 +3983,9 @@ EnforcementEvidence {
 ProviderContextManifest {
   provider_context_id, revision: 1,
   invocation_id, attempt_id, kovee_fence_epoch,
-  sage_turn_binding_ref?, sage_fence_epoch?,
+  byom_episode_binding_ref?, byom_fence_epoch?,
   context_assembly_ref?, context_assembly_digest?,
-  sage_briefing_ref?, sage_briefing_digest?,
+  byom_context_manifest_ref?, byom_context_manifest_digest?,
   collaboration_context_bundle_ref?, bundle_digest?,
   ordered_segments[]: {
     kind: collaboration_item|system_instruction|assistant_instruction|
@@ -3864,9 +4014,12 @@ assistant code—and `enforcement_evidence_show` returns the exact record used f
 the run's security claim.
 
 The egress broker owns and persists `ProviderContextManifest`. It is the complete
-ordered chain from an ordinary ContextAssembly or Sage BriefingManifest through
-all non-user-visible instructions, tool schemas, wrappers, and transformations
-to the final provider-request byte digest. An absent segment, changed order, or
+ordered chain from the source context — an ordinary Kovee `ContextAssembly`, and
+for governed work the Byom `ContextManifest` that names it — through all
+non-user-visible instructions, tool schemas, wrappers, and transformations to the
+final provider-request byte digest. There is no separate briefing object: Byom's
+`ContextManifest` is rechecked at materialization, and the context refs live on
+`ByomEpisodeBinding`. An absent segment, changed order, or
 digest mismatch blocks egress; the manifest is audit data, not a bearer grant.
 `provider_context_manifest_show` returns that exact chain to an authorized
 principal/operator, subject to current classification and source visibility; it
@@ -3874,19 +4027,21 @@ never returns provider credentials or hidden content the caller cannot read.
 
 Agent code calls a logical model profile. The broker:
 
-1. Verifies the current Kovee invocation lease/fence and, for a Sage-bound turn,
-   the current Sage lease/fence.
+1. Verifies the current Kovee invocation lease/fence and, for a Byom-bound
+   Episode, the current Byom generation/fence epoch. Both must be current: one
+   fence is not "mostly current", it is fenced.
 2. For ordinary Kovee work, reauthorizes every item in the bound
-   `ContextAssembly`; for a Sage-bound turn, accepts only Sage's exact
-   `BriefingManifest` and the Kovee assembly explicitly referenced by an admitted
-   `CollaborationContextBundle`. It adds assistant/system instructions, tool
-   schemas, and deterministic adapter transformations into a recorded
-   `ProviderContextManifest` chain. The chain binds the source assembly or Sage
-   briefing digest, every transformation/instruction revision, and the final
-   `provider-request-bytes` `TypedByteDigest`; no convenience context is appended.
-3. Calculates the disclosure manifest. A Sage-bound call uses Sage as
-   `authorization_provider`, and the Sage decision/standing-rule receipt must
-   bind the identical final digest and be consumed by the section 16.1 owner
+   `ContextAssembly`; for a Byom-bound Episode, accepts only the items named by
+   Byom's exact `ContextManifest` and the Kovee assembly explicitly referenced by
+   an admitted `CollaborationContextBundle`. It adds assistant/system
+   instructions, tool schemas, and deterministic adapter transformations into a
+   recorded `ProviderContextManifest` chain. The chain binds the source assembly
+   and Byom context-manifest digests, every transformation/instruction revision,
+   and the final `provider-request-bytes` `TypedByteDigest`; no convenience
+   context is appended.
+3. Calculates the disclosure manifest. A Byom-bound call uses Byom as
+   `authorization_provider`, and the Byom act decision or StandingMandate receipt
+   must bind the identical final digest and be consumed by the section 16.1 owner
    saga. Kovee policy may restrict but not substitute.
 4. Atomically consumes the resulting execution permit, reserves tokens/cost, and
    enforces model/provider/region/retention policy immediately before egress.
@@ -3914,124 +4069,179 @@ password, or connector webhook secret.
 
 Read-like tools can still disclose data or cause cost and therefore have policy.
 Write-like tools always prepare an intent before execution. Shell access is not
-a generic secure tool; workspace commands require a bounded Sage workspace
-allocation or declared confined execution profile.
+a generic secure tool; workspace commands require a bounded Byom
+`WorkspaceAllocation` or a declared confined execution profile.
 
-For a Sage-bound action the same authorization-owner and dual-fence rules apply
-to tools and connectors. Akson stage, consent, and dispatch are not registered as
-generic Kovee tools; only the Sage delegation engine may invoke their narrow
-driver described in section 18.2.
+For a Byom-bound action the same authorization-owner and dual-fence rules apply to
+tools and connectors. Akson stage, consent, and dispatch are not registered as
+generic Kovee tools; only the narrow `byom_akson_dispatch_v1` driver described in
+section 18.2 may invoke them, and only against a current finalized Byom act plus
+its consumed receipt.
 
-## 17. Sage integration specification
+## 17. Byom integration specification
 
-### 17.1 Realm-to-authority topology
+Byom is the governance owner of this stack from day one. Kovee never had a
+predecessor governance layer wired in, and it is never the genesis governance
+actor. This section specifies Kovee's side of the seam; the normative authority
+map is the family contract's operation × authority matrix, which binds every
+Kovee requirement to an exact BPP operation, a named kernel transition, a
+Kovee-owned contract record, or an already-identical constraint in both designs.
+
+### 17.1 Realm-to-Society topology
 
 A Kovee realm maps, when `governed_work` is enabled, through at most one active
-`RealmAuthorityBinding` to a Sage authority endpoint and, when federation is
-enabled, one Akson endpoint. In v0.1 this is an isolation rule, not merely routing
-metadata:
+`KoveeRealmByomBinding` plus its `KoveeSocietyMapping` to one Byom Society at one
+`byomd` endpoint, and — when federation is enabled — one Akson endpoint. In v0.1
+this is an isolation rule, not merely routing metadata:
 
-- Personal mode with governed work binds its one realm to one local `saged` and
-  optional `aksond`; open-space mode has no authority binding.
-- Team mode uses a dedicated Sage authority process/schema/security identity per
-  realm. A shared Sage service is permitted only after its protocol and
-  conformance suite enforce realm-scoped principals, object access, event replay,
-  and non-enumeration; the current same-UID/operator-sees-all draft does not.
+- Personal mode with governed work binds its one realm to one local `byomd` and
+  optional `aksond`; open-space mode has no governance binding.
+- Team mode uses a dedicated `byomd` process, store, and security identity per
+  realm. A shared multi-tenant Byom service is permitted only after a
+  realm-scoped profile exists and is proven; there is no such profile today.
 - Team federation likewise uses a dedicated Akson sovereign endpoint per realm
   unless Akson itself defines and proves a multi-tenant authority profile. Kovee
   cannot simulate this separation with NATS or UI filtering.
-- A principal mapping is explicit and revisioned. A Kovee project role never
-  manufactures Sage mission membership, and a Kovee service identity never
-  becomes a human Sage approver.
-- A project and all its Sage mission links use the realm's binding. Moving work
-  to another realm is a disclosed handoff/delegation, not a routing-field edit.
+- The principal mapping is explicit and revisioned. A Kovee project role never
+  manufactures Byom Participant membership, and a Kovee service identity never
+  fills a human-authority seat. Human seats exist only where BPP's registry says
+  they do: Society bootstrap and hold/release, charter and control-domain and
+  procedure positions, governance finalization, and the human-authority arm of
+  mandate and act-intent positions.
+- A project and all its Endeavor links use the realm's binding. Moving work to
+  another realm is a disclosed handoff/delegation, not a routing-field edit.
 
-The team-mode Sage network binding authenticates principals in one of two
-declared profiles: Sage validates the realm's OIDC assertion itself, or it
-validates a short-lived delegated-principal credential from the realm's
-configured Kovee identity issuer:
+Byom exposes six surfaces, each its own socket with its own admissible actors:
+**governance**, **candidate**, **participant**, **projection**, **runtime**, and
+**admin**. Kovee speaks the first five. The admin surface belongs to the
+infrastructure administrator under a separate identity and authors no Society
+state, so Kovee never calls it. Every surface answers `hello`, `protocol_info`,
+and `feature_info` to a bounded pre-auth client; unlisted `(operation, surface)`
+pairings are forbidden by absence rather than by a filter.
+
+The team-mode governance binding authenticates principals in one of two declared
+profiles: `byomd` validates the realm's OIDC assertion itself, or it validates a
+short-lived delegated-principal credential minted by the realm's configured Kovee
+identity issuer and presented as transport-preamble channel material — never as a
+member of a closed request schema:
 
 ```text
 DelegatedPrincipalCredential {
-  issuer, audience: sage_endpoint_ref,
-  gateway_workload_identity_ref,
-  kovee_principal_ref, sage_principal_binding_ref,
-  realm_id, authentication_observation_ref, assurance_level,
-  authorization_dependency_set_ref, authority_digest,
-  sage_command_digest, issued_at, expires_at, nonce
+  credential_id, issuer_ref, nonce,
+  sender_constraint,
+  source_principal_ref, source_actor_binding_digest,
+  bound_participant_ref, participant_binding_epoch,
+  society_ref, society_recovery_epoch, endpoint_incarnation,
+  realm_byom_binding_ref, realm_byom_binding_revision,
+  realm_byom_binding_epoch, realm_byom_binding_digest,
+  audience, surface, allowed_operations[],
+  delegated_principal_subject_digest,
+  authentication_observation_ref, authentication_observation_digest,
+  assurance_level, issued_at, expires_at, digest
 }
 ```
 
-The credential is audience-, gateway-workload-, realm-, command-, and
-authorization-bound, short-lived, and minted only for a currently authenticated
-user request; it is not a generic Kovee service credential. Sage atomically
-consumes `(issuer, nonce)` with the exact workload identity and command digest.
-A retry of that same tuple returns the stored Sage command result; reuse for a
-different channel, command, or actor is rejected. Sage derives the effective
-principal from the validated channel credential. Projection consumers use a
-different realm-scoped, read-only identity that cannot decide gates or mutate
-sessions.
+The credential is audience-, surface-, sender-, realm-, binding-, and
+operation-bound, short-lived, and minted only for a currently authenticated user
+request acting for its own admitted Participant; it is not a generic Kovee
+service credential. Byom atomically consumes `(issuer_ref, nonce)` with the exact
+sender constraint and command digest. A retry of that same tuple returns the
+stored command result; reuse for a different channel, command, or actor is
+rejected. Byom derives the effective actor from the validated channel — the
+request body never selects it. Projection consumers use a different realm-scoped,
+read-only identity that can decide no act and mutate no Episode, and the recovery
+workload's projection token is narrower still: read-only, and unable to submit to
+a superseded incarnation.
 
-The gateway validates the realm binding before every Sage command, projection
-read, and provider launch. Endpoint or mapping rotation increments the binding
-epoch, closes channels, invalidates cached authorization, and requires
-reconciliation of in-flight turns. This prevents a broad Sage operator surface
-or same-UID socket from becoming a cross-realm escape hatch.
+The gateway validates the binding before every BPP command, projection read, and
+provider launch, presenting the four-member pin `byomd` rechecks on every use —
+binding ref, revision, epoch, and digest. Endpoint re-incarnation, Society
+recovery-epoch change, or mapping rotation increments the binding epoch, closes
+derived channels, invalidates cached authorization and permits, and requires
+reconciliation of in-flight Episodes. This prevents a broad operator surface or a
+same-UID socket from becoming a cross-realm escape hatch.
+
+Kovee may supply `byomd` with an inert host-binding document — the wire
+projections of its two binding records, its delegated-principal issuer refs, the
+recovery pin, and the endpoint root id. That document is *configuration*: `byomd`
+re-validates every field on every use, and no Kovee operation can author Society
+state through it.
 
 ### 17.2 Ownership mapping
 
-| Kovee concept | Sage relationship |
+| Kovee concept | Byom relationship |
 |---|---|
-| Realm/project | Administrative identity, ownership, policy, and deployment container; does not replace mission membership or workspace allocation |
-| Space | Kovee collaboration/visibility unit. An exact branch frontier may be linked to a mission, but a Space is never a Mission |
-| Contribution/relation | Attributed collaborative assertion or work product. It enters a Sage briefing, gate, or deliverable only after exact Sage admission; a relation never proves truth or authority |
-| Branch/merge | Preserves competing local reasoning. Merge acceptance is local inclusion only; changing a governed plan still requires Sage replan/gate transitions |
-| ContextAssembly | Ordinary Kovee selection manifest. Sage may admit an exact assembly through a `CollaborationContextBundle`; Kovee cannot append later convenience context |
-| AttentionContract | May notify/invoke Kovee-local assistants. For mission state it may only notify the adapter; Sage alone admits the event and creates a turn |
-| Need/Offer/Formation | Non-authoritative local coordination proposal. Mission decomposition becomes work only through Sage Aspect/plan operations |
-| CollaborationCommitment/WorkRealization | Bounded local contribution/draft-artifact work only; never a duplicate Sage commitment, session, workspace, or deliverable acceptance |
-| Assistant definition/revision | A code-defined provider implementation or participant; not a logical Sage session |
-| Invocation | One runtime execution; a Sage turn may be backed by one invocation |
-| Attempt/fence | Protects Kovee runtime writes; a Sage turn additionally carries its Sage aspect lease proof |
-| Kovee effect intent | Protects Kovee-owned effects; Sage gates protect Sage actions |
-| Presence | UI liveness only; Sage session/aspect state remains authoritative |
-| Application event | Advisory unless translated by an authorized Sage command |
-| Artifact | Byte storage for Sage refs; Sage records decide mission visibility and acceptance |
+| Realm/project | Administrative identity, ownership, policy, and deployment container; does not replace Participant admission or workspace allocation |
+| Space | Kovee collaboration/visibility unit. An exact branch frontier may be linked to an Endeavor, but a Space is never an Endeavor |
+| Contribution/relation | Attributed collaborative assertion or work product. It enters a Byom ContextManifest, act subject, or deliverable only after exact Byom admission; a relation never proves truth or authority |
+| Branch/merge | Preserves competing local reasoning. Merge acceptance is local inclusion only; changing governed work still requires a Pledge revision or an act decision |
+| ContextAssembly | Ordinary Kovee selection manifest. Byom may admit an exact assembly through a `CollaborationContextBundle` and name it in a `ContextManifest` rechecked at materialization; Kovee cannot append later convenience context |
+| AttentionContract | May notify/invoke Kovee-local assistants. For governed state it may only notify the adapter; a Participant authors the `WakeIntent` and the Byom kernel admits it |
+| Need/Offer/Formation | Non-authoritative local coordination proposal. Governed decomposition becomes work only through `call_open` and `pledge_propose/position/finalize` |
+| CollaborationCommitment/WorkRealization | Bounded local contribution/draft-artifact work only, inside the closed `allowed_local_commitments` set; never a duplicate Pledge, Activity, workspace, or deliverable acceptance |
+| Assistant definition/revision | A code-defined provider implementation or a Byom `Manifestation` of a Participant; not the Participant itself |
+| Invocation | One runtime execution; a Byom Episode attempt may be backed by one invocation |
+| Attempt/fence | Protects Kovee runtime writes; a Byom-bound Episode additionally carries its Byom generation and fence epoch, and every runtime mutation presents **both** |
+| Kovee effect intent | Protects Kovee-owned effects; Byom acts protect governed actions |
+| Presence | UI liveness only; Byom Activity/Episode state remains authoritative |
+| Application event | Advisory unless translated by an authorized BPP command |
+| Artifact | Byte storage for Byom refs; Byom records decide governed visibility and acceptance |
 
-Kovee and Sage lease proofs MUST be kept distinct but correlated. A Sage-backed
+There is no plan object and no aspect record. Work structure is a lens over
+Calls and Pledges: what was an aspect is a Pledge, what was an aspect generation
+is a pledge revision plus activity/episode generation fences, and what was a plan
+gate is a server-prepared act subject decided by an eligible seat.
+
+Kovee and Byom fence proofs MUST be kept distinct but correlated. A Byom-backed
 invocation input includes:
 
 ```text
-SageTurnBinding {
-  binding_id, revision: 1, realm_id, project_id,
-  kovee_invocation_id,
-  sage_endpoint_ref, mission_id, aspect_id, aspect_generation,
-  session_id, turn_run_id,
-  sage_attempt_id, sage_fence_epoch,
-  briefing_ref, briefing_digest,
-  continuation_ref?, workspace_allocation_ref?,
-  sage_budget_reservation_set_ref, sage_budget_digest,
-  allowed_local_commitments?, sage_wake_cursor,
-  authorization_dependency_set_ref, authority_digest,
-  created_at, digest
+ByomEpisodeBinding {
+  byom_endpoint_ref, endpoint_incarnation,
+  society_ref, recovery_epoch,
+  participant_ref, participant_binding_epoch,
+  manifestation_ref, activity_stream_ref,
+  episode_ref, generation,
+  byom_attempt_ref, byom_fence_epoch,
+  kovee_invocation_ref, kovee_invocation_fence,
+  mandate_use_refs[], context_source_digest,
+  byom_budget_reservation_ref, byom_budget_reservation_digest,
+  external_budget_bridge_ref,
+  kovee_subordinate_reservation_ref, kovee_subordinate_reservation_digest,
+  dependency_digest, digest,
+  stable_binding_key,
+  allowed_local_commitments[],
+  context_manifest_ref, context_manifest_digest,
+  kovee_context_assembly_ref?, kovee_context_assembly_digest?,
+  provider_context_manifest_ref?, provider_context_manifest_digest?,
+  state: bound|fenced|released
 }
 ```
 
-Kovee persists each `SageTurnBinding` as an immutable, source-qualified binding
-record referenced by the InvocationInputManifest and any permitted child
-WorkRealization. It does not copy or advance Sage session/lease state; every use
-loads the named Sage records and revalidates their current fence/dependencies.
-`sage_turn_binding_show` exposes the binding and source refs/digests under the
-intersection of current Kovee visibility and Sage source authorization.
+Kovee persists each `ByomEpisodeBinding` as an immutable, source-qualified
+binding record referenced by the InvocationInputManifest and any permitted child
+WorkRealization. Its create key is
+`UNIQUE(episode_ref, byom_attempt_ref, kovee_invocation_ref)`, and an exact retry
+returns the identical row. Each optional context pair is all-or-none: a ref
+without its digest is a malformed row, not a half-known context. It does not copy
+or advance Byom Activity/Episode state; every use loads the named Byom records and
+revalidates their current fence and dependencies. Either fence advancing moves the
+binding to `fenced`, which is terminal for every further mutation — a successor
+attempt gets a new binding row. `byom_episode_binding_show` exposes the binding
+and source refs/digests under the intersection of current Kovee visibility and
+Byom source authorization.
 
-The Kovee runtime must hold a current Kovee attempt to contact the supervisor,
-and every Sage mutation must also present the current Sage lease proof required
-by the Sage protocol. Losing either fence stops the turn. Kovee success submits
-the provider result; it does not automatically accept the Sage deliverable.
+The Kovee runtime must hold a current Kovee attempt to contact the supervisor, and
+every Byom mutation must also present the current Byom fence the operation's
+registry row demands. Presenting one current fence and one stale one is not
+"mostly current", it is fenced. Losing either fence stops the Episode. Kovee
+success submits the provider result; it does not accept the Byom deliverable.
 
-### 17.3 Space-frontier-to-mission promotion
+### 17.3 Space-frontier-to-Endeavor formation
 
-Promotion is an explicit cross-context saga over two immutable inputs:
+Promotion is an explicit cross-context saga over an immutable input. The Society
+and its Participants already exist through Byom onboarding, so formation enrolls
+nobody:
 
 ```text
 CollaborationContextBundle {
@@ -4043,283 +4253,356 @@ CollaborationContextBundle {
   created_at, digest
 }
 
-MissionBootstrap {
-  goal_contribution_ref, statement, statement_digest,
-  members[]: {sage_principal_binding_ref, role},
-  approval_rule,
-  context_bundle_ref, context_bundle_digest,
-  workspace_mode: none|provider,
-  workspace_provider_ref?, source_ref?, base_ref?, base_tree_digest?,
-  gate_policy_ref?, budget_ceiling_set?,
-  requested_by_principal, idempotency_key
-}
-
-MissionPromotionIntent {
-  promotion_id, realm_id, project_id, space_id, branch_id,
+EndeavorFormationIntent {
+  formation_id, realm_id, project_id, space_id, branch_id,
   frontier_ref, frontier_digest,
   context_bundle_ref, context_bundle_digest,
-  sage_endpoint_ref, sage_command_idempotency_key,
+  byom_endpoint_ref, society_ref, society_recovery_epoch,
+  bound_participant_ref, participant_binding_epoch,
+  canonical_command_digest, idempotency_domain_digest,
+  computed_slot_snapshot_digest,
   expected_active_link_ref?, supersedes_link_ref?,
-  promotion_slot_ref?, promotion_slot_generation?,
-  mission_bootstrap, mission_bootstrap_digest,
+  formation_slot_ref?, formation_slot_generation?,
   requested_by_principal, authentication_observation_ref,
   authorization_dependency_set_ref, authority_digest,
-  sage_result_ref?, sage_result_digest?, external_link_ref?,
-  state: prepared|submitting|awaiting_principal|sage_committed|linked|ambiguous|canceled,
+  byom_result_ref?, byom_result_digest?, external_link_ref?,
+  state: prepared|submitting|remote_unknown|awaiting_principal
+        |byom_committed|linking|linked|ambiguous|canceled,
   revision, created_at, terminal_at?
 }
 
-MissionPromotionSlot {
-  slot_id, local_branch_id, holder_promotion_id,
+EndeavorFormationSlot {
+  slot_id, local_branch_id, holder_formation_id,
   expected_active_link_ref?, generation,
-  state: held|sage_committed|linking|released,
+  state: held|submitting|remote_unknown|awaiting_principal
+        |byom_committed|linking|ambiguous|released,
   revision, acquired_at, released_at?,
   UNIQUE(local_branch_id) WHERE state != released
 }
+
+EndeavorFormationAttempt {
+  attempt_id, formation_id, attempt_ordinal,
+  attempt_nonce, attempt_recovery_binding_digest,
+  attempt_authentication_proof,
+  sent_at?, reply_digest?, reply_signature?,
+  state: prepared|sent|reply_received|transport_unknown
+        |reconciled|canceled
+}
 ```
 
+The intent and the slot are one machine: every row compare-and-swaps both under
+the slot generation, and the slot state is the intent state's pair, never an
+independent decision. The attempt machine is separate and append-only — resolving
+an intent never rewrites an earlier attempt's send or authentication evidence.
+
 The promotion screen shows and requires confirmation of the exact goal
-contribution, branch/frontier, immutable ContextAssembly and included/omitted
-items, classifications, mission members, approvers, gate policy, budget, and
-either an exact workspace provider/source/base binding or `workspace_mode:none`
-for non-code work, plus any active mission link that would be superseded. Kovee reauthorizes every assembly item for the submitting
-principal and mission destination; stale, erased, or inaccessible inputs fail
-explicitly rather than being replaced by newer revisions.
-It does not enroll every project member in the mission. The submitter is not
-silently made sole approver: the bootstrap explicitly names at least one owner
-and an approval rule with bound principals, even when the UI recommends the
-submitter for both under personal policy.
+contribution, branch/frontier, immutable ContextAssembly with its included and
+omitted items, classifications, the Society's rendered standing decision rules
+and the sole computed human seat, budget, and either an exact workspace
+provider/source/base binding or `workspace_mode:none` for non-code work, plus any
+active Endeavor link that would be superseded. Every displayed truth is
+server-recomputed: the caller supplies refs and the service derives the digests,
+so a confirmation screen cannot show one subject while the command carries
+another. Kovee reauthorizes every assembly item for the submitting principal and
+the Endeavor destination; stale, erased, or inaccessible inputs fail explicitly
+rather than being replaced by newer revisions. The submitter is not silently made
+sole approver — the Society's own decision rules determine that, and Kovee only
+renders them.
 
-Sage's idempotent `mission_submit` creates the mission, initial
-`MissionMember`/approval records, and admitted context-bundle reference. Kovee
-then commits its `ExternalLink` as section 11.10 specifies. New contributions,
-relations, or branch changes after the frontier never enter the mission or a
-model briefing merely because the space remains linked; a principal/session
-must prepare and admit a new exact assembly and bundle. One branch has at most
-one active authoritative mission link, while historical links remain auditable.
+Byom's idempotent `kovee_endeavor_form` is a single governance-surface command
+that atomically commits the source principal's Position, the resulting Decision,
+and the Endeavor, filling exactly the one computed human seat and admitting the
+context-bundle reference. It requires an active Society, the pinned bindings, and
+the ContextBundle, and it authenticates a source-qualified human over the exact
+Kovee delegated-principal channel acting for its own admitted Participant. When
+`formation_requires_participation` demands more than one seat, formation falls
+back to `endeavor_propose` / `endeavor_position` / `endeavor_finalize`. Kovee then
+commits its `ExternalLink` as section 11.10 specifies. New contributions,
+relations, or branch changes after the frontier never enter the Endeavor or a
+model context merely because the space remains linked; a principal or Participant
+must prepare and admit a new exact assembly and bundle. One branch has at most one
+active authoritative Endeavor link, while historical links remain auditable.
 
-The advertised `mission_promotion_prepare` command transaction creates the
-bundle and `MissionPromotionIntent(state:prepared)` with the exact Sage command
-digest but does not contact Sage. `mission_promotion_start` reauthorizes the
-principal and intent and, in one transaction, acquires the branch's durable
-`MissionPromotionSlot` and changes `prepared -> submitting` before any external
-submission. `mission_promotion_cancel` succeeds only from `prepared` when no slot
-has ever been acquired. Another non-released slot
-blocks start, link replacement, and link revocation for that branch. It then uses the delegated-principal binding in section 17.1 to
-execute that one idempotent Sage `mission_submit`, persists its unmodified result,
-and commits the link through the section 11.10 saga. Reconciliation never submits
-a different mission. Thus the one-line CLI is an explicit public workflow, not
-a hidden dual-protocol mutation or a distributed transaction.
+`endeavor_promotion_prepare` creates the bundle and
+`EndeavorFormationIntent(state:prepared)` with the exact canonical command digest
+but does not contact Byom. `endeavor_promotion_start` reauthorizes the principal
+and intent and, in one transaction, acquires the branch's durable
+`EndeavorFormationSlot` and changes `prepared -> submitting` before any external
+submission. `endeavor_promotion_cancel` succeeds only from `prepared` when no slot
+has ever been acquired. Another non-released slot blocks start, link replacement,
+and link revocation for that branch. The command itself is sent under a
+per-attempt authentication proof over the canonical command digest, the
+IdempotencyDomain digest, a fresh attempt nonce, the attempt recovery binding, and
+the server-derived actor binding — so a replaced command, nonce, recovery binding,
+or actor binding cannot ride an old proof. Thus the one-line CLI is an explicit
+public workflow, not a hidden dual-protocol mutation or a distributed transaction.
 
-After the durable `submitting` transition, the service reconciler may use only a
-realm-scoped read-only Sage command-result query for the stored principal,
-command digest, and idempotency key. If Sage has the result, it persists that
-result and finishes the link. If Sage authoritatively has no result—such as a
-crash before the first call—the intent becomes `awaiting_principal` and retains
-its slot. Only a freshly authenticated mapped principal may call reconcile,
-mint a new short-lived delegated credential, and resubmit the exact stored bytes
-and idempotency key; the service cannot impersonate that principal. An unknown
-query outcome remains `ambiguous`. `submitting`, `awaiting_principal`, and
-`ambiguous` intents cannot be canceled or have their slots released on a
-timeout. The slot moves to `sage_committed` before link reconciliation and is released
-only after that exact result is linked. It has no timeout-based release: a crash
-or lost reply retains the slot and forces recovery by the same promotion id, so
-two prepared intents cannot create two Sage missions and leave one orphaned.
+After the durable `submitting` transition, the service reconciler may use only the
+read-only `external_command_result_query` on the projection surface, keyed by the
+stored Participant, canonical command digest, and IdempotencyDomain. It returns
+one of five facts, and each drives exactly one transition:
 
-For a Sage turn, every model-visible Kovee item is referenced by an admitted
-`CollaborationContextBundle` in Sage's `BriefingManifest`. A separate
-`ProviderContextManifest` records the Kovee assistant instructions, system
-prompt, tool schemas, adapter wrappers, and their digests. Sage's `TurnRun` and
-`model_egress` intent bind these manifests, and the broker additionally digests
-the final provider request after deterministic adapter transformations. Kovee
-must not append linked space content or hidden instructions outside this
-recorded chain.
+| Fact | Meaning | Effect |
+|---|---|---|
+| `committed` | a signed `KoveeEndeavorFormResult` envelope | verified against its own bytes, then persisted and linked |
+| `absent` | a complete query of the live domain found neither result nor tombstone | `awaiting_principal`; it proves nothing about later arrival, so the slot is retained |
+| `historically_fenced_absent` | an externally witnessed `RestoreLineage` proof found no row and every predecessor domain is permanently fenced | releases the slot |
+| `non_reexecuting_tombstone` | Byom's durable terminal claim over the exact IdempotencyDomain | `canceled`; releases the slot |
+| `unknown` | in flight, incomplete retention, unavailable, or unverifiable | `ambiguous`; nothing is released |
 
-### 17.4 Provider lifecycle mapping
+The `committed` fact is verified, never trusted: Kovee re-derives the envelope's
+digest from its exact bytes and refuses a mismatch. Only a freshly authenticated
+mapped principal may resubmit, minting a new short-lived delegated credential and
+sending the unchanged stored command under the same IdempotencyDomain; the service
+cannot impersonate that principal. `external_command_terminalize` is the same
+source human's terminal claim over a historical domain — it locks the idempotency
+and journal heads and never executes; answering `not_terminalizable` with one
+closed blocking state is a Byom no-op. Exactly four things release a slot: a
+pre-send cancel, a verified tombstone, a verified `historically_fenced_absent`,
+and a committed `ExternalLink`. Timeout, absence, authentication expiry, binding
+rotation, an unverified historical lookup, and `ambiguous` never do. The slot moves
+to `byom_committed` before link reconciliation and is released only after that
+exact result is linked, so a crash or lost reply forces recovery by the same
+formation id and two prepared intents cannot form two Endeavors and orphan one.
 
-Sage owns logical session cadence; Kovee owns process placement and retries
-inside one requested turn. The adapter first registers a versioned provider
-manifest containing provider/worker protocol ranges, supported KCP and Sage
-versions, assistant revisions, input/output schemas, checkpoint/cancellation/
-yield capabilities, enforced security profiles, resource limits, and diagnostics
-and usage schemas. Sage selects only a negotiated capability set and records the
-provider id/version on `TurnRun`.
+For a Byom-bound Episode, every model-visible Kovee item is referenced by an
+admitted `CollaborationContextBundle` and named in Byom's `ContextManifest`, which
+is rechecked at materialization. A separate `ProviderContextManifest` records the
+Kovee assistant instructions, system prompt, tool schemas, adapter wrappers, and
+their digests. The Episode's act subjects bind these manifests, and the broker
+additionally digests the final provider request after deterministic adapter
+transformations. Kovee must not append linked space content or hidden instructions
+outside this recorded chain.
+
+### 17.4 Episode lifecycle mapping
+
+Byom owns Activity and Episode cadence; Kovee owns process placement and retries
+inside one requested Episode attempt. The adapter first registers a versioned
+provider manifest containing provider/worker protocol ranges, supported KCP and
+BPP versions, assistant revisions, input/output schemas,
+checkpoint/cancellation/yield capabilities, enforced security profiles, resource
+limits, and diagnostics and usage schemas. That manifest is Kovee-owned; Byom sees
+the `ManifestationRevision` and Kovee's enforcement evidence, and admits a
+Manifestation only through `manifestation_admit`.
+
+Activation has four stages, four records, and four owners — and Kovee owns exactly
+one of them:
+
+```text
+1  WakeIntent            the Participant's (or an adopted ActivationPolicy's,
+                         recorded as provenance ordinal)  -> wake_intent_submit
+2  ActivationAdmission   the Byom kernel (activation_admit)   \  reached through
+3  ResourceAllocation    the Byom kernel (resource_allocate)  /  episode_request
+4  PlacementBinding      KOVEE, then Byom's narrow runtime adapter records the
+                         matching admission                   -> placement_admit
+   then episode_claim -> episode_start -> checkpoint_commit ->
+        usage_report -> episode_yield | episode_complete | episode_fail
+```
+
+`episode_request` comes **before** placement, because `placement_admit` needs the
+`ResourceAllocation` that `episode_request` creates and publishes. Nothing skips a
+stage: `byomd` refuses an Episode claim whose placement was not admitted. Kovee
+attention only notifies; it never wakes governed work.
 
 The exact execution mapping is:
 
-- One committed Sage `TurnRun` maps to exactly one logical Kovee `Invocation`,
-  created with idempotency key
-  `(sage_endpoint_ref, turn_run_id, provider_contract_version)`.
-- Multiple Kovee attempts may retry that invocation only while the Sage aspect
-  lease, turn deadline, and Kovee invocation remain current. They do not create a
-  new Sage turn, extend its budget/deadline, or select a different assistant
-  revision.
-- A Kovee checkpoint resumes a crashed attempt within that turn. A Sage
-  continuation is the portable session state passed between completed turns and
-  possibly different harness providers. Native Python/harness transcript state
-  is optional in both cases.
+- One committed Byom Episode attempt maps to exactly one logical Kovee
+  `Invocation`, created with idempotency key
+  `(byom_endpoint_ref, episode_ref, generation, provider_contract_version)`.
+- Multiple Kovee attempts may retry that invocation only while the Byom Episode
+  lease, deadline, and Kovee invocation remain current. They do not create a new
+  Episode, extend its budget/deadline, or select a different assistant revision.
+  `episode_claim` compare-and-swaps the lease head and advances the Byom fence, so
+  a stale worker is fenced rather than racing.
+- A Kovee checkpoint resumes a crashed attempt within one Episode. A Byom
+  `Continuation`, written with `continuation_write` under a `ContinuationHead` CAS,
+  is the portable state passed between Episodes and can resume across
+  Manifestations. Native Python/harness transcript state is optional in both cases.
 - Kovee's `waiting_resource` during an active provider attempt is an execution
-  detail. A logical `waiting_gate|peer|aspect` is returned as a typed Sage turn
-  result/yield; Sage durably ends the turn and alone decides which admitted event
-  creates the next `TurnRun`.
-- A Kovee `AttentionContract` may notify the Sage adapter that admitted source
-  state changed, but no Kovee candidate or activation wakes a Sage model. The
-  adapter records or forwards the exact source event; Sage's scheduler applies
-  its own admission and wake policy and creates any next `TurnRun`.
-- Sage cancellation/deadline loss cancels the Kovee invocation and revokes its
-  effect permits. Kovee platform failure becomes a typed provider result. If the
-  final provider result cannot be known, both records expose interruption or
-  ambiguity rather than inventing success.
-- Kovee commits the immutable provider result first, then submits its digest to
-  Sage idempotently with both fence proofs. If Sage has fenced the turn, the
-  result is retained as an orphan diagnostic and cannot become a deliverable.
+  detail. A logical wait on a human, an act decision, or a peer is returned as a
+  typed `episode_yield`. The next wake is authored by a Participant `WakeIntent`
+  and admitted by the kernel; Kovee neither schedules nor infers it.
+- A Kovee `AttentionContract` may notify the byom adapter that admitted source
+  state changed, but no Kovee candidate or activation wakes a governed model. The
+  adapter records or forwards the exact source event.
+- Byom cancellation through `activity_hold`/`activity_close`, or an
+  `episode_fail`, cancels the Kovee invocation and revokes its effect permits; a
+  fence advance revokes outstanding permits by itself. Where the outcome cannot be
+  known, both records expose interruption or ambiguity rather than inventing
+  success or claiming a rollback.
+- Kovee commits the immutable provider result first, then submits it with
+  `delivery_submit` against the exact Episode fence. If Byom has fenced the
+  Episode, the result is retained as an orphan diagnostic and cannot become a
+  deliverable. Acceptance is a separate `review_record`.
 
-The effective deadline is the earlier of the two systems' recorded deadlines,
-and the effective budget/security profile is their restrictive intersection.
-Only Sage can schedule the next logical turn; only Kovee can assign a worker
-attempt within the current invocation.
+The effective deadline is the earlier of the two systems' recorded deadlines, and
+the effective security/resource profile is their restrictive intersection. Only
+Byom can admit the next Episode; only Kovee can assign a worker attempt within the
+current invocation.
 
-For budgets, Sage's mission account is authoritative. Before launching a turn,
-Sage atomically reserves a maximum in every applicable unit and places the exact
-reservation-set ref/digest in `SageTurnBinding`. Kovee creates one subordinate
-`BudgetReservationSet {owner_protocol:sage_subordinate}` idempotently against
-that set, maps every dimension to its exact Sage parent-dimension ref, never
-allocates above it, and may apply a lower realm/platform ceiling. Kovee-only
-budget accounts are not debited for the same mission usage. Model, tool,
-child-work, CPU, and wall-time usage
-settle against the subordinate set; Kovee reports one usage digest to Sage, and
-Sage commits settlement idempotently before releasing the remainder. A lost
-reply repeats the same settlement, not the charge. Disagreement or a stale Sage
-lease blocks more spend and enters reconciliation; Kovee can lower priority or
-capacity but cannot raise Sage's budget, deadline, or mission priority.
+Every runtime-surface call authenticates through a `byomd`-minted, subject-scoped
+workload channel that Kovee cannot derive: the worker channel is bound to one
+exact episode and generation; the meter channel is the only one whose
+`usage_report` may settle; the placement channel is bound to one exact
+`ResourceAllocation` and carries only `placement_admit`; and the permit channel's
+subject is one exact `ActIntent`. A token file disappears when its subject leaves
+its live states, so a missing token is a state answer, not a configuration one.
+Presenting the wrong channel class is refused at both ends.
 
-`ctx.request_work` inside a Sage-bound invocation is denied unless
-`allowed_local_commitments` explicitly grants a same-realm target selector, data
-classes, count/depth, deadline, subordinate budget, and exact outcome schema. An
-allowed commitment/realization is an intra-turn helper result only: its deadline
-and cancellation are bounded by the current turn, it creates no Sage aspect,
-cannot own a deliverable/workspace, and provides no plan or acceptance authority.
-It binds the exact `SageTurnBinding` and both current Kovee and Sage fence proofs;
-loss of either fence cancels/fences the child. Mission-derived input, purpose, or
-budget keeps Sage as the authorization owner for every model/tool/disclosure
-effect—the local Kovee terms can restrict that authority but never convert it
-into a standalone Kovee decision.
-Its Need, Offer, policy-use, Commitment, delivery, and usage refs enter the turn
-record and any later provider-context manifest. Work that changes mission
-decomposition, needs an independent session/workspace, survives the turn,
-reaches a peer, or produces a mission deliverable must use Sage's typed
-aspect/delegation operation and applicable gate—not Kovee local commitments.
+For budgets, Byom's account is authoritative. The kernel reserves a maximum in
+every applicable dimension at `resource_allocate` and the reservation refs appear
+on `ByomEpisodeBinding`. Kovee creates one subordinate
+`BudgetReservationSet {owner_protocol:byom_subordinate}` idempotently against that
+reservation through the `byom_subordinate` bridge saga, maps every dimension to
+its exact Byom parent-dimension ref, never allocates above the parent worst case,
+and may apply a lower realm/platform ceiling. A subordinate set may narrow or
+deny; it may never reshape a dimension or charge in parallel. Kovee-only budget
+accounts are not debited for the same governed usage. Model, tool, child-work,
+CPU, and wall-time usage settle against the subordinate set. A worker's
+`usage_report` is **evidence only**: settlement commits from a trusted broker
+meter or an independently verified provider receipt. A lost reply repeats the same
+settlement, not the charge. Disagreement or a stale lease blocks further spend and
+leaves the bridge `uncertain` with the Byom parent still reserved; only a
+governance reconciliation seat — never a timeout — releases it. Kovee can lower
+priority or capacity but cannot raise Byom's budget, deadline, or priority.
 
-### 17.5 Sage protocol prerequisites
+`ctx.request_work` inside a Byom-bound invocation is denied unless
+`allowed_local_commitments` explicitly names the commitment class, and the terms
+stay within a same-realm target selector, data classes, count/depth, deadline,
+subordinate budget, and exact outcome schema. An allowed commitment/realization is
+an intra-Episode helper result only: its deadline and cancellation are bounded by
+the current Episode, it creates no Pledge, cannot own a deliverable or workspace,
+and provides no decomposition or acceptance authority. It binds the exact
+`ByomEpisodeBinding` and both current fences; loss of either fence cancels and
+fences the child. Governed input, purpose, or budget keeps Byom as the
+authorization owner for every model/tool/disclosure effect — the local Kovee terms
+can restrict that authority but never convert it into a standalone Kovee decision.
+Its Need, Offer, policy-use, Commitment, delivery, and usage refs enter the Episode
+record and any later provider-context manifest. Work that changes governed
+decomposition, needs an independent Activity or workspace, survives the Episode,
+reaches a peer, or produces a governed deliverable must use `call_open`,
+`pledge_propose`, or `act_intent_prepare/position/finalize` — not Kovee local
+commitments.
 
-Sage is currently a draft design. Before Kovee claims compatible governed work,
-the integration must resolve these protocol gaps rather than hiding them in an
-adapter:
+### 17.5 Protocol prerequisites, discharged
 
-- The one-shot UDS binding cannot require `hello` as the first request on the
-  same connection; use persistent framing or an explicit per-request version.
-- Multi-human decisions need authenticated principal identities beyond one Unix
-  UID and must not let a generic operator silently impersonate a session.
-- Lease-protected mutations need an explicit
-  `{attempt_id, generation, fence_epoch}` proof.
-- Gate approval must bind a server-prepared intent/object, not a caller-supplied
-  unattached digest.
-- Sage-owned effects need an idempotent one-shot `execution_permit_consume`
-  operation keyed by the Kovee logical effect execution key. It must atomically
-  recheck and consume the exact decision and return the same immutable receipt
-  on retry; a signed but unconsumed decision receipt is insufficient for egress.
-- The operation set needs typed plan proposal, aspect accept/reject/retry/cancel,
-  briefing, continuation, turn completion/yield, workspace/artifact, admission,
-  apply/share/model/budget intent, and mission-close transitions.
-- `mission_submit` needs one atomic bootstrap accepting initial members and
-  approval rule, admitted collaboration-context ref/digest, explicit
-  workspace-none or provider/source/base binding, gate policy, and
-  multi-dimensional budget ceiling. Partial mission creation is forbidden.
-- Reconciliation needs a realm-scoped, read-only command-result query keyed by
-  principal, command digest, and idempotency key. It may reveal only whether the
-  exact command committed and its stored result; it cannot submit a command or
-  grant principal authority.
-- Idempotency storage must retain the replayable result, and irreversible-effect
-  keys must outlive the effect.
-- Snapshot and event cursors need epochs, retention, and expired-cursor recovery.
-- MCP and harness-provider bindings need normative schemas and conformance.
+An earlier generation of this design carried a list of protocol gaps to be
+resolved before Kovee could claim compatible governed work. Every one of them is
+now discharged by a named BPP operation, kernel transition, or Kovee-owned
+contract, and the family contract's matrix — not this list — is the normative
+record:
 
-Kovee may contribute these changes to Sage's normative protocol. It MUST NOT
-invent incompatible private meanings while marketing Sage compatibility.
+| Prerequisite | Discharge |
+|---|---|
+| One-shot socket framing that cannot require `hello` first on the same connection | Per-surface sockets; the version travels in every request, or persistent framing follows an explicit `hello` |
+| Multi-human principals with no silent impersonation | Six surfaces; human seats bind source-qualified humans with fresh challenges, and the admin surface never crosses into Society authorship |
+| Explicit lease proofs for lease-protected mutations | `EpisodeLeaseHead` CAS plus fence epochs; every runtime mutation presents both the Byom and the host fence |
+| Decisions bound to a server-prepared subject, never a caller-supplied unattached digest | Server-prepared subjects with a field-complete `PreparationTrace`; a position fills only the authenticated actor's own seat |
+| An idempotent one-shot `execution_permit_consume` | Exactly that operation, on the runtime surface, over a permit channel whose subject is the act |
+| A typed operation set covering the whole governed lifecycle | The endeavor, call/pledge, activity, runtime, knowledge, and recovery operation families |
+| One atomic formation command | `kovee_endeavor_form` against a pre-existing Society; Society genesis is native and never Kovee's |
+| Read-only command-result reconciliation that cannot submit or grant | `external_command_result_query`, five facts, read-only |
+| Durable idempotency whose irreversible keys outlive the effect | `IdempotencyDomain` plus `idempotency_result`, with declared retention |
+| Cursor/snapshot epochs and expired-cursor recovery | `cursor_recover` and `recovery_checkpoint_show`, with endpoint incarnation and recovery epoch |
+| Normative MCP and harness schemas | The candidate and participant MCP profiles, plus the `attached_harness` `ManifestationRevision` |
 
-### 17.6 Gate inbox
+Kovee may contribute further changes through Byom's own spec process. It MUST NOT
+invent incompatible private meanings while advertising Byom compatibility, and it
+MUST NOT advertise a capability whose BPP operations do not yet exist — ranked
+routing over published profile claims is the current example.
 
-Kovee renders a Sage validation with:
+### 17.6 Act inbox
 
-- Gate kind and mission/aspect context.
-- Exact subject digest and human-readable diff from the prior revision.
+Kovee renders a pending Byom act decision with:
+
+- The act class and its Endeavor/Pledge context.
+- The exact prepared subject digest and a human-readable diff from the prior
+  revision.
+- The eligible seat this principal may fill, and the seats it may not.
 - Recipient and binding for disclosures/delegations.
 - Disclosure manifest: items, sizes, classes, transformations, destination.
-- Budget and concurrency effects.
-- Preconditions, expiry, policy/standing-rule match, and separation-of-duties
-  requirements.
+- The governing Mandate chain or StandingMandateRevision, and budget and
+  concurrency effects.
+- Preconditions, expiry, and separation-of-duties requirements.
 - Causal events and evidence refs.
 
-The decision command is sent to Sage and includes the subject digest the
-principal reviewed. A stale revision or changed digest is re-rendered and cannot
-reuse the old confirmation.
+`act_intent_position` is sent to Byom and includes the subject digest the
+principal reviewed, filling only that principal's own prepared seat under a fresh
+challenge. A stale revision or changed digest is re-rendered and cannot reuse the
+old confirmation. Finalization is a separate deterministic
+`act_intent_finalize` that authors no seat.
 
 Immediately before rendering a decision control and again before submitting it,
-the gateway reloads the current validation and authorization directly from Sage;
-a cached projection cannot be the decision subject.
+the gateway reloads the current intent and authorization directly from Byom; a
+cached projection can never be the decision subject.
 
 ### 17.7 Read projections and timeline
 
-Kovee consumes Sage `events_read` by durable cursor. A projection row stores the
-Sage endpoint id, object ref/revision, event id/cursor, payload digest, and
-source visibility scope/revision, and projection time. A full rebuild is possible
-only when Sage supplies an authorized snapshot plus boundary cursor; otherwise
-the view is rebuilt only within the declared coverage of Kovee's governed
-integration journal and is marked incomplete outside it.
+Kovee consumes Byom `events_read`/`events_wait` by durable, opaque cursor. A
+projection row stores the Byom endpoint id and incarnation, object ref/revision,
+event id/cursor, payload digest, source visibility scope/revision, and projection
+time. A full rebuild is possible only when Byom supplies an authorized
+`snapshot_get` plus boundary cursor; otherwise the view is rebuilt only within the
+declared coverage of Kovee's governed integration journal and is marked incomplete
+outside it. An expired cursor recovers through `cursor_recover`, and
+`recovery_checkpoint_show` reports the incarnation and recovery epoch a projection
+is valid against.
 
-Every projected read, replay, live event, search result, gate view, and artifact
+Every projected read, replay, live event, search result, act view, and artifact
 fetch must pass the intersection of current Kovee project/space/object access and
-current Sage mission/engram visibility. Project membership alone grants no
-mission read access; Sage membership alone grants no Kovee space access.
-Visibility/membership events invalidate affected projection grants immediately,
-and inability to recheck the source fails closed rather than serving a stale
-payload.
+Byom's own visibility closure on that read. Project membership alone grants no
+governed read access; Participant standing alone grants no Kovee space access.
+Visibility and membership events invalidate affected projection grants
+immediately, and inability to recheck the source fails closed rather than serving
+a stale payload.
 
 The user-facing timeline merges:
 
 - Kovee contribution/relation/attention/commitment/runtime events.
-- Sage mission/gate/session ledger events.
+- Byom society/endeavor/pledge/act/episode journal events.
 - Akson delegation/delivery/verification events.
 
 It preserves each source sequence and causation links. Wall-clock sorting is a
-view and MUST NOT be represented as a cross-system consensus order.
+view and MUST NOT be represented as a cross-system consensus order. This merged
+timeline is a later product capability, not a first-milestone deliverable.
 
-### 17.8 Directory and assistant registry
+### 17.8 Participant evidence and the assistant registry
 
-The Kovee assistant registry describes deployable code and current placement.
-The Sage directory describes advisory contacts, skills, interests, provenance,
-and observed outcomes. A Kovee manifest's `skills` are self-asserted routing
-metadata; copying them into Sage never upgrades them to observed evidence. Akson
-binding changes invalidate or suspend associated Sage trust as Sage specifies.
+The Kovee assistant registry describes deployable code and current placement. Byom
+supplies evidence about participants, not a ranked directory: `participant_show`
+and `engram_search` are what exist today, and routing is evidence rather than
+authority. A Kovee manifest's `skills` are self-asserted routing metadata; copying
+them into Byom never upgrades them to observed evidence. Typed profile-claim
+publish, read, and search operations are a tracked Byom design obligation; until
+they exist, Kovee advertises no ranked-routing claim beyond what those two reads
+support, and ranked routing UI is a later milestone. A change to an Akson binding
+suspends the associated Byom trust through the federation surface's binding epochs
+and capability matrix.
 
 ### 17.9 Engrams
 
-Sage remains authoritative for portable engram revisions, local admission,
-attestations, disclosure, policy conflicts, and briefing selection. Kovee may:
+Byom remains authoritative for portable engram revisions, local admission,
+attestations, disclosure, policy conflicts, and context selection. Admission is
+quarantine-first. Kovee may:
 
-- Store engram bytes as artifacts while preserving Sage's canonical digest.
-- Render and edit proposed engrams through Sage commands.
-- Show quarantine/admission and provenance.
-- Index admitted, authorized views for search and rebuild them only from a Sage
+- Store engram bytes as artifacts while preserving Byom's canonical digest.
+- Render and edit proposed engrams through `engram_propose`.
+- Show quarantine, admission, attestation, hold, and retirement state with
+  provenance.
+- Index admitted, authorized views for search and rebuild them only from a Byom
   snapshot/cursor or the governed integration journal within its known coverage.
 
 Kovee MUST NOT treat a chat memory, embedding, or peer-supplied Markdown as an
-admitted engram or binding policy.
+admitted engram or as binding policy.
 
 ### 17.10 Workspace provider
 
-Sage owns workspace allocation and apply semantics; Kovee supplies a versioned
-`WorkspaceProvider` infrastructure driver. Its contract covers:
+Byom owns workspace allocation and apply semantics: the logical
+`WorkspaceAllocation` is authored by the kernel at `resource_allocate`, admitted
+through `placement_admit`, and bounded by the Episode lifecycle. There is
+deliberately no workspace-named BPP operation. Kovee supplies a versioned
+`WorkspaceProvider` infrastructure driver and owns the physical materialization
+ledger:
 
 ```text
 WorkspaceProviderManifest {
@@ -4332,8 +4615,8 @@ WorkspaceProviderManifest {
 
 WorkspaceAllocationBinding {
   binding_id, revision,
-  sage_workspace_allocation_ref,
-  sage_workspace_allocation_revision, sage_workspace_allocation_digest,
+  byom_workspace_allocation_ref,
+  byom_workspace_allocation_revision, byom_workspace_allocation_digest,
   source_ref, base_ref, base_tree_digest,
   kovee_invocation_id, attempt_id, fence_epoch,
   provider_ref, provider_revision, provider_digest,
@@ -4343,84 +4626,107 @@ WorkspaceAllocationBinding {
 }
 ```
 
-These two records are owned and persisted by the Kovee Sage integration/runtime
-adapter. The manifest describes the local driver; the binding is Kovee's fenced
-materialization and cleanup ledger. Neither record allocates a Sage workspace,
-authorizes apply, or changes Sage state.
+These two records are owned and persisted by the Kovee byom integration/runtime
+adapter with typed KCP transitions. The manifest describes the local driver; the
+binding is Kovee's fenced materialization and cleanup ledger. Neither record
+allocates a Byom workspace, authorizes apply, or changes Byom state.
 
-The Sage turn request authorizes an exact allocation. The driver snapshots or
+The admitted allocation authorizes an exact workspace. The driver snapshots or
 verifies the immutable base, creates an isolated per-attempt materialization on
 the selected worker, exposes only declared paths/capabilities, and records the
 binding above. A retry gets a fresh materialization from the same base plus a
 committed compatible checkpoint/change-set; concurrent attempts never share a
 mutable directory.
 
-On yield/completion the driver extracts a bounded change-set, binds it to the
-base tree digest, stores it as an artifact, and returns the digest to Sage for
+On yield or completion the driver extracts a bounded change-set, binds it to the
+base tree digest, stores it as an artifact, and returns the digest to Byom for
 review. Cleanup is idempotent and retention-policy driven; failure leaves a
 sealed, expiring allocation rather than granting another worker access. Applying
-the change-set is never a workspace-provider convenience: Sage prepares an
-`apply` intent against the current target/base/change-set digests, its gate owns
-authorization, and the effect driver refuses a moved target or stale fence.
+the change-set is never a workspace-provider convenience: it is an act. Byom
+server-prepares an `apply` ActIntent against the current target/base/change-set
+digests, an eligible seat positions on it, `act_intent_finalize` commits, the host
+effect service consumes the one-shot `execution_permit_consume`, and the effect
+driver refuses a moved target or a stale fence.
 
 ## 18. Akson federation
 
 ### 18.1 Boundary
 
-Kovee's NATS fabric ends at its installation. Cross-installation work uses Sage's
-delegation record and Akson's paired, signed, consent-gated transport. Machine
-location inside a Kovee worker fleet is topology, not peer identity; an Akson peer
-is sovereign and can independently refuse, verify, hold, approve bounded
-execution, and disclose. Higher-layer admission remains Sage/Kovee policy.
+Kovee's NATS fabric ends at its installation. Cross-installation work uses Byom's
+Mandate chain and act decision plus Akson's paired, signed, consent-gated
+transport. Machine location inside a Kovee worker fleet is topology, not peer
+identity; an Akson peer is sovereign and can independently refuse, verify, hold,
+approve bounded execution, and disclose. Higher-layer admission remains
+Byom/Kovee policy.
 
 The outbound flow is:
 
 ```text
-Kovee/Sage session proposes exact remote work
-  -> Sage prepares disclosure + delegation intent
-  -> Sage outbound/share gate
-  -> Akson inert contract stage
-  -> local Akson consent for exact staged digest
-  -> Akson dispatch
+a Kovee/Byom Episode proposes exact remote work
+  -> Byom prepares the disclosure and derives the Mandate
+  -> Byom server-prepares the outbound ActIntent; an eligible seat positions;
+     act_intent_finalize commits
+  -> the host effect service consumes the one-shot execution_permit_consume
+  -> KOVEE's byom_akson_dispatch_v1 driver stages an inert Akson contract
+     (Byom's delegation engine authorizes and never calls out)
+  -> local Akson consent for the exact staged digest
+  -> Akson dispatch, atomic with consent consumption
   -> remote Akson verifies and holds inert
   -> remote authority approves bounded execution
-  -> remote Sage/Kovee admits before any higher-layer model wake, if used
+  -> remote Byom/Kovee admits before any higher-layer model wake, if used
   -> signed outcome/evidence returns
   -> local Akson verifies
-  -> Sage admits against the original intent
+  -> Byom admits it with effect_outcome_admit against the original ActIntent
   -> result enters review
 ```
+
+The dispatch outcome is recorded in Kovee's `ByomAksonDispatchOutcomeReceipt`
+head, a closed union, alongside the Byom `ExecutionConsumptionReceipt` and the
+Kovee `ExternalAuthorizationConsumption{phase: atomic_with_egress}` row.
 
 Kovee consumes projections at each step and can notify people, but it never
 short-circuits either endpoint's authority.
 
 ### 18.2 Required Akson surface
 
-Sage's requested least-privilege coordination surface and one-shot consent
-receipts remain a dependency. Until Akson exposes verified peer/card reads, inert
+A least-privilege Akson coordination surface with one-shot consent receipts
+remains a dependency. Until Akson exposes verified peer/card reads, inert
 idempotent staging, receipt-consuming dispatch, and durable coordination events,
-Kovee MUST NOT connect Sage to Akson's broad admin socket or claim automated
+Kovee MUST NOT connect to Akson's broad admin socket or claim automated
 federation.
 
 `kovee-akson` is not an independent federation writer. It exposes a read-only
-projection consumer plus a narrow infrastructure driver callable only by Sage's
-delegation engine with a current Sage-owned delegation intent and the Akson-owned
-consent reference. It has no public KCP stage/dispatch operation and cannot
-create a contract, consume consent, or dispatch from a generic Kovee effect.
+projection consumer plus the narrow `byom_akson_dispatch_v1` infrastructure
+driver, callable only with a current finalized Byom ActIntent, its consumed
+`ExecutionConsumptionReceipt`, and the Akson-owned consent reference. Byom's
+delegation engine *authorizes*; this driver *calls*, and Kovee is its sole caller.
+It has no public KCP stage/dispatch operation and cannot create a contract,
+consume consent, or dispatch from a generic Kovee effect.
 
-Inbound peer work executing a full Sage/Kovee assistant remains blocked until
-Akson's confined agent-worker policy is normative. The safe v0.1 federation claim
-is requester-side delegation plus verified/admitted outcomes, not an unattended
-cross-organization shared swarm.
+Inbound peer work executing a full Byom/Kovee assistant remains blocked until
+Akson's confined agent-worker policy is normative. The default remote-performer
+path is the Akson-confined worker. A weaker, honestly labelled **manual developer
+profile** also exists: the remote performer forms its own finalized local Pledge,
+executes through its own attached harness, discloses through its own outbound
+act and permit chain, and returns the result as an Akson manual fulfillment — a
+signed manifest over exact output bytes, with **no execution evidence claimed**
+and evidence slots left empty unless genuinely supplied. No inbound object authors
+the performer-side Standing, Pledge, WakeIntent, or execution authority, and the
+capability matrix records which profile a given peer exchange used. The safe v0.1
+federation claim is requester-side delegation plus verified/admitted outcomes, not
+an unattended cross-organization shared swarm.
 
 ### 18.3 Cancellation, expiry, and late results
 
 Remote cancellation is advisory once dispatch occurred unless the Akson contract
-defines a stronger operation. Sage records a cancel intent and remote status; it
-does not claim execution stopped without verified evidence. Expired, superseded,
-or late outcomes are retained and verified but cannot satisfy a changed aspect
-generation. They enter explicit review/quarantine and may inform directory
-evidence only under Sage policy.
+defines a stronger operation. `act_intent_cancel` records the cancellation and the
+remote status; it cannot claim effect rollback or that execution stopped without
+verified evidence. Expired, superseded, or late outcomes are retained and verified
+but cannot satisfy an advanced Pledge or Episode generation. They enter explicit
+review or quarantine through `effect_outcome_admit`, and an ambiguous or
+late-judged one goes to `effect_reconcile` for an
+`EffectGovernanceDisposition`; they may inform participant evidence only under Byom
+policy.
 
 ## 19. Offline clients and edge workers
 
@@ -4444,7 +4750,7 @@ abandons the draft; Kovee does not silently use last-write-wins or pretend that
 commit time supplied the intended causality. Mutable metadata with a stale
 `expected_revision` likewise requires user resolution.
 
-Gate decisions, policy adoption/revocation, membership or role changes, budget
+Act positions, policy adoption/revocation, membership or role changes, budget
 changes, deployment activation, effect authorization/reconciliation, handoff
 acceptance, admission, and any disclosure command are never automatically
 replayed. A client may preserve them as local drafts, but after reconnect it must
@@ -4523,11 +4829,11 @@ payloads, peer content, artifacts, skills, and engrams are data. They cannot:
 
 - Select the authenticated actor.
 - Grant a capability or project membership.
-- Decide a gate or approve an effect.
+- Decide a governed act or approve an effect.
 - Increase a budget or deadline.
 - Widen a disclosure manifest.
 - Change an assistant/security policy.
-- Mark a commitment fulfilled, a Sage deliverable accepted, or evidence verified.
+- Mark a commitment fulfilled, a Byom deliverable accepted, or evidence verified.
 - Wake an assistant across an admission boundary.
 
 The secure worker's lack of ambient authority is the enforcement; a system
@@ -4573,7 +4879,7 @@ revision that covers every source label; the destination approves it and may map
 only to a label at least as restrictive under its own policy. A lowering needs
 the explicit declassification effect below. Missing, stale, incomparable, or
 peer-supplied unknown mappings fail closed. Remote Akson labels remain untrusted
-metadata until local Sage/Kovee admission applies a destination mapping.
+metadata until local Byom/Kovee admission applies a destination mapping.
 Revocation blocks new disclosures/admissions; it cannot relabel or erase a copy
 already admitted under the recorded mapping revision.
 
@@ -4640,7 +4946,7 @@ Health distinguishes:
 - Object-store read/write/finalize ability.
 - Worker capacity per runtime/security profile/region.
 - Model/tool provider degradation.
-- Sage and Akson integration cursor lag.
+- Byom and Akson integration cursor lag.
 
 An API node that cannot reach authoritative SQL is not ready for mutations. A
 NATS outage may leave collaboration writes ready but marks asynchronous execution
@@ -4699,14 +5005,14 @@ Restore drills are part of release readiness, not documentation-only work.
 | Old worker returns after replacement | Every mutation/effect fails `stale-lease`. |
 | Worker commits output and its reply/ack is lost | SDK retry with the same operation key returns the committed output; no second contribution/delivery/effect is created. |
 | Target assistant is offline | The created WorkRealization remains queued until its bounded deadline, cancellation, or capacity recovery; the Commitment does not imply execution occurred. |
-| Delivery arrives after timeout or supersession | It is retained as late evidence and does not resume the parent, satisfy changed terms, or satisfy Sage work. |
+| Delivery arrives after timeout or supersession | It is retained as late evidence and does not resume the parent, satisfy changed terms, or satisfy Byom work. |
 | Branch head changes during merge acceptance | Compare-and-swap fails with a stale proposal; no partial adoption or model-chosen conflict resolution occurs. |
 | Attention source is delivered repeatedly | One candidate/activation key absorbs duplicates; rate, lineage, and circuit breakers prevent a wake storm. |
 | Attention target or authorization changes before wake | Activation fails closed; a prior candidate or assembly is not a bearer grant. |
 | Context input is erased, reclassified, or revoked | Materialization of the immutable assembly fails. A separately requested new assembly may record a policy-permitted omission under a new digest; neither path substitutes a current revision or leaks existence. |
 | Formation acceptance crashes | Exact commitments, reservations, and assistant realizations exist all together or not at all inside one Kovee boundary. |
 | Amendment races a running or delivered realization | Exact revision locking chooses one transition; accepted new terms fence/supersede old execution, whose late output remains attributable but cannot satisfy the new digest. |
-| Two promotions start on one branch | The durable branch promotion slot admits one; the other cannot call Sage. Slot acquisition and `prepared -> submitting` are atomic; after that point cancel/release is forbidden. The service can recover an existing Sage result; if none exists, the slot remains `awaiting_principal` until a freshly authenticated principal resubmits only the stored command/key. |
+| Two promotions start on one branch | The durable `EndeavorFormationSlot` admits one; the other cannot call Byom. Slot acquisition and `prepared -> submitting` are atomic; after that point cancel/release is forbidden. The recovery workload can recover an existing committed result through the read-only five-fact query; a verified `absent` leaves the slot held at `awaiting_principal` until a freshly authenticated principal resubmits only the stored command under the same IdempotencyDomain. |
 | Poison delivery | Bounded retries, quarantine, terminal diagnostic where applicable, operator alert; consumer continues. |
 | SQL primary is unavailable | No mutation is accepted; broker consumers do not ack authoritative work. |
 | Artifact upload is partial or digest-mismatched | Finalize fails; no visible resource may reference it as available. |
@@ -4714,11 +5020,11 @@ Restore drills are part of release readiness, not documentation-only work.
 | Membership is revoked with a live socket/token | The authorization dependency changes; live stream closes/rechecks; future command, replay, and fetch fail. |
 | Assistant is redeployed | Existing invocations stay pinned; new invocations use the recorded rollout decision. |
 | Non-idempotent provider/tool outcome is unknown | Effect becomes `ambiguous`; no blind retry; reconciliation is explicit. |
-| Sage consumes a one-shot permit and Kovee loses the reply | The pre-existing effect's execution key recovers the same Sage receipt; no second use or driver call is created. |
+| Byom consumes a one-shot permit and Kovee loses the reply | The pre-existing effect's execution key recovers the same kernel-issued `ExecutionConsumptionReceipt`; no second use or driver call is created. |
 | Home-region partition | Writes route to the authoritative side or fail; no multi-master merge or split-brain effect permit. |
 | Clock skew on a worker | Server time controls lease, expiry, deadline, and policy decisions. |
-| Sage/Akson projection is stale | UI labels source cursor/lag; commands go to the source; projection never authorizes. |
-| Cross-installation material arrives | It remains inert until Akson verification and local Sage/Kovee admission. |
+| Byom/Akson projection is stale | UI labels source cursor/lag; commands go to the source; projection never authorizes. |
+| Cross-installation material arrives | It remains inert until Akson verification and local Byom/Kovee admission. |
 | Cross-realm handoff partitions after destination prepare | Destination copies remain inert; transfer-id reconciliation commits the one source use and then activates once, or remains ambiguous without a second disclosure. |
 | Restore occurs with in-flight work | Recovery epoch fences old credentials/leases; effects are reconciled before retry. |
 
@@ -4753,10 +5059,10 @@ GET  /v1/commitments/{id}
 POST /v1/commitments/{id}:review
 GET  /v1/work-realizations/{id}
 POST /v1/collaboration-context-bundles:prepare
-POST /v1/mission-promotions:prepare
-POST /v1/mission-promotions/{id}:start
-POST /v1/mission-promotions/{id}:cancel
-POST /v1/mission-promotions/{id}:reconcile
+POST /v1/endeavor-promotions:prepare
+POST /v1/endeavor-promotions/{id}:start
+POST /v1/endeavor-promotions/{id}:cancel
+POST /v1/endeavor-promotions/{id}:reconcile
 GET  /v1/events?source=&project_id=&after=&limit=
 WS   /v1/realtime
 POST /v1/assistants
@@ -4780,8 +5086,9 @@ content types, retry guidance, CORS/CSRF, and streaming frames.
 Personal mode exposes a `0600` Unix socket in a `0700` runtime directory and MAY
 also bind a loopback HTTP server for the web UI. The UDS binding uses persistent
 length-delimited or newline-delimited I-JSON after `hello`, or includes an
-explicit negotiated version on each one-shot request. It must not repeat Sage's
-impossible “hello first, one request per connection” combination.
+explicit negotiated version on each one-shot request. It must not repeat the
+impossible “hello first, one request per connection” combination that an earlier
+draft protocol required; BPP resolved the same problem the same way.
 
 Unix peer credentials bind the local principal only in personal mode. They do
 not distinguish multiple humans or provide team-mode governance identity.
@@ -4799,8 +5106,8 @@ only:
 - Usage and diagnostics reporting.
 
 It excludes realm/project administration, membership, assistant deployment,
-human decisions, Sage operator operations, Akson administration, raw SQL, and raw
-NATS. Enumeration of a forbidden operation on this surface is a conformance
+human decisions, Byom governance or admin operations, Akson administration, raw
+SQL, and raw NATS. Enumeration of a forbidden operation on this surface is a conformance
 failure.
 
 ### 23.4 Connectors
@@ -4842,7 +5149,7 @@ kovee/
     kovee-effects       policy revisions/ceilings, intents, decisions, model/tool/connector brokers
     kovee-artifacts     content-addressed storage and validation
     kovee-bus           in-process and NATS private bindings
-    kovee-sage          Sage protocol/provider/projection adapter
+    kovee-byom          BPP protocol/provider/projection adapter
     kovee-akson         least-privilege federation adapter
     koveed              reference API/control daemon
     kovee-cli           thin operator/client CLI
@@ -4888,7 +5195,7 @@ message/state/fencing suite.
 ### 25.2 Invariant suites
 
 Release tests MUST prove every invariant made reachable by the installation's
-advertised bundles, worker profiles, Sage/Akson matrix entries, and deployment
+advertised bundles, worker profiles, Byom/Akson matrix entries, and deployment
 topology. A phase cannot claim its exit criterion until the corresponding cases
 below pass; unsupported later features are omitted rather than skipped as
 passing. The applicable suites prove:
@@ -4922,7 +5229,7 @@ passing. The applicable suites prove:
     verification, classification mapping, and local space admission.
 14. Kovee can rebuild every Kovee-owned projection and NATS stream from its
     authoritative records without projections acquiring write authority;
-    Sage/Akson rebuild tests run only when the source advertises the required
+    Byom/Akson rebuild tests run only when the source advertises the required
     snapshot/boundary capability or within the integration journal's coverage.
 15. A backup restore preserves ids, digests, idempotency, effect ambiguity, and
     fencing while invalidating pre-restore credentials.
@@ -4933,9 +5240,10 @@ passing. The applicable suites prove:
     unverified bytes, and concurrent grant-use creation never exceeds
     `max_uses` or returns two sessions for one stable use key.
 18. Concurrent policy-ceiling and budget reservations preserve every account
-    equation; ambiguous usage is not released. A crash after Sage consumes a
+    equation; ambiguous usage is not released. A crash after Byom consumes a
     permit but before Kovee records it recovers the same receipt and never asks
-    Sage for another use.
+    Byom for another use, and a subordinate reservation never exceeds its parent
+    dimension.
 19. Crash/partition injection at every cross-realm handoff saga step produces at
     most one source use and one destination copy set; destination objects cannot
     wake work before both receipts, and an uncertain transfer is never released
@@ -4958,10 +5266,13 @@ passing. The applicable suites prove:
     one caller, coordinator, worker, duplicate slot, partial set, or model prose
     cannot impersonate another party. Runtime delivery cannot satisfy a
     Commitment, accepted amendments fence/supersede old realizations under fresh
-    terms, and no Kovee review can accept Sage work.
+    terms, and no Kovee review can accept Byom work.
 25. Kovee attention, merge, Commitment, delivery, effect, or projection cannot
-    create a Sage turn, alter a plan, decide a gate, allocate a workspace, accept
-    a deliverable, apply a change set, or bypass Akson consent.
+    author a WakeIntent, admit an activation, revise a Pledge, position on or
+    finalize an act, allocate a workspace, accept a deliverable, apply a change
+    set, or bypass Akson consent. Kovee is never the genesis governance actor: a
+    `governance_enable` attempt against an absent or non-active Society fails, and
+    every runtime mutation missing either fence is refused.
 
 ### 25.3 Chaos and scale
 
@@ -4982,13 +5293,14 @@ model from day one.
 
 ### K0 — specification and threat model
 
-- Ratify this boundary with Sage and Akson owners.
+- Ratify this boundary with the Byom and Akson owners.
 - Write `core_v1`, `shared_space_v1`, and
   `developer_assistant_v1` schemas, the minimal worker protocol, limits, errors,
   digest vectors, threat model, authorization actions, data classifications, and
   conformance harness. Each later feature bundle becomes normative before its
   implementation phase starts.
-- Amend Sage protocol gaps required by section 17.5 rather than hiding them.
+- Resolve the section 17.5 protocol prerequisites in Byom's own spec process
+  rather than hiding them in an adapter.
 
 Exit: two clients negotiate and pass envelope/digest/error/surface tests; the
 state-ownership and threat-model reviews have no unresolved critical issue.
@@ -5016,8 +5328,9 @@ with no duplication.
   WorkRealizations; model-independent standing policies/ceiling ledgers;
   invocation state, leases/fencing, checkpoints, budgets, cancellations, and
   effect intents.
-- `governed_work_binding_v1` and the audited personal/local `saged` bootstrap used
-  by `kovee mission enable --sage local`.
+- `governed_work_binding_v1` and the audited personal/local `byomd` bootstrap used
+  by `kovee governance enable --byom local`, which binds an already-active Society
+  and never establishes one.
 - A minimal confined supervisor and `WorkspaceProvider` for an
   installation-supplied scripted worker, plus its crash matrix. This slice
   demonstrates enforced workspace boundaries and denial of Kovee authority
@@ -5026,16 +5339,19 @@ with no duplication.
 - Optional `model_broker_v1` for local development. Calls through it are
   disclosed, metered, and audited, but a same-UID `developer` assistant can
   bypass it; only K4 makes broker-only egress an enforced claim.
-- The first Sage adapter/provider: explicitly promote one exact Space branch
-  frontier and ContextAssembly to a local mission, run a coordinator, approve
-  one exact plan gate, execute two fenced aspects, and submit a base-bound
-  deliverable for review. Knowledge, directories, peers, and production model
-  egress remain later phases.
+- The first byom adapter/provider: explicitly promote one exact Space branch
+  frontier and ContextAssembly to one local Endeavor through
+  `kovee_endeavor_form`, decide one governed act (server-prepared subject →
+  eligible human `act_intent_position` at the current digest under a fresh
+  challenge → deterministic `act_intent_finalize`), run two fenced Pledge
+  episodes, and submit a base-bound deliverable through
+  `delivery_submit`/`review_record`. Engrams, participant evidence, peers, and
+  production model egress remain later phases.
 
 Exit: dual-claim and stale-fence tests pass; recursive work is bounded; mixed
 worker restart resumes from a portable checkpoint; ambiguous effect path is
-demonstrated; the frontier-to-mission wedge survives a daemon or worker kill
-without duplicate mission submission, lost gate state, or false acceptance.
+demonstrated; the frontier-to-Endeavor wedge survives a daemon or worker kill
+without duplicate Endeavor formation, lost act state, or false acceptance.
 
 ### K3 — team collaboration
 
@@ -5060,28 +5376,30 @@ frontend or assistant has bus/database credentials.
 Exit: hostile assistant tests fail to reach undeclared resources; actual-profile
 attestation is recorded; provider/tool crash and reconciliation suites pass.
 
-### K5 — complete Sage product integration
+### K5 — complete Byom product integration
 
-- Harden the Sage provider/network binding from K2; complete gate inbox,
-  mission/aspect views, patch review, causal projections, directory and Engram UI.
-- Preserve Sage ids/digests and use Sage source cursors.
+- Harden the byom provider/network binding from K2; complete the act inbox,
+  endeavor/pledge views, patch review, causal projections, the merged timeline,
+  participant-evidence routing UI, and the Engram UI.
+- Preserve Byom ids, digests, and cursors, and read through Byom source cursors.
 
-Exit: frontier-to-mission workflow survives daemon/worker kills, a plan gate
-is decided by an authenticated principal, two fenced aspects run, and a
-base-bound deliverable reaches patch review without Kovee becoming a second
-authority. Cursor-loss/staleness tests rebuild or explicitly invalidate every
-Sage projection from an authorized source boundary; an authorized directory
-query and Engram quarantine/admission flow preserve their Sage ids, digests,
-classifications, and source cursors.
+Exit: the frontier-to-Endeavor workflow survives daemon/worker kills, a governed
+act is decided by an authenticated principal filling its own eligible seat, two
+fenced Pledge episodes run, and a base-bound deliverable reaches patch review
+without Kovee becoming a second authority. Cursor-loss/staleness tests rebuild or
+explicitly invalidate every Byom projection from an authorized source boundary; an
+authorized participant-evidence query and the Engram quarantine/admission flow
+preserve their Byom ids, digests, classifications, and source cursors.
 
 ### K6 — federation
 
-- Akson coordination surface/consent prerequisite, Sage delegation bridge,
-  disclosure/admission views, verified outcome projection.
+- Akson coordination surface/consent prerequisite, the `byom_akson_dispatch_v1`
+  driver over a frozen exchange surface, disclosure/admission views, verified
+  outcome projection.
 
-Exit: exact outbound intent maps to exact Akson staged digest, neither side wakes
-before admission, duplicates do not redispatch, binding changes suspend trust,
-and a late result cannot satisfy a new aspect generation.
+Exit: the exact outbound ActIntent maps to the exact Akson staged digest, neither
+side wakes before admission, duplicates do not redispatch, binding changes suspend
+trust, and a late result cannot satisfy an advanced Pledge or Episode generation.
 
 ### K7 — HA and operations
 
@@ -5093,17 +5411,19 @@ RPO/RTO and invariant requirements.
 
 ## 27. Migration from the current designs
 
-The repository is early enough to converge without compatibility debt: Sage is
-design-stage and Kovee has no implementation. Migration is therefore conceptual:
+The repository is early enough to converge without compatibility debt. Migration
+is therefore conceptual:
 
-1. Keep **Kovee** as the product/runtime name and **Sage** as the governed-work
-   bounded context and protocol.
-2. Preserve Sage ids, states, digest rules, event shapes, gate policy, and Engram
-   format. Fix protocol gaps through Sage's spec process.
+1. Keep **Kovee** as the product/runtime name and **Byom** as the governed-work
+   bounded context, with **BPP** as its protocol. Byom is the governance owner
+   from day one; there is no predecessor governance layer to migrate from, and
+   the `kovee-byom` adapter is the only governance adapter.
+2. Preserve Byom ids, states, digest rules and classes, event shapes, decision
+   rules, and engram format. Fix protocol gaps through Byom's spec process.
 3. Add Kovee Realm/administrative Project, Space/access/participant,
    Contribution/Relation/Frontier/Lens, Branch/Merge, Context/Attention,
    local Commitment/WorkRealization, assistant/deployment/invocation, artifact,
-   and space-handoff records around Sage rather than renaming Sage objects.
+   and space-handoff records around Byom rather than renaming Byom objects.
 4. Remove the brainstorm's canonical chat/RPC ontology before implementation:
    `Conversation -> Stream SpaceLens`, `Message -> Contribution(kind:utterance)`,
    `WorkRequest -> Need/Offer/Formation/Commitment + WorkRealization`,
@@ -5111,12 +5431,12 @@ design-stage and Kovee has no implementation. Migration is therefore conceptual:
    legacy conversation-snapshot selection -> `ContextAssembly`, and
    `ProjectAdmissionRecord -> SpaceAdmissionRecord`. Existing chat imports map
    messages one-to-one and never infer semantic relations.
-   `CollaborationContextBundle` remains only the Sage admission wrapper around
+   `CollaborationContextBundle` remains only the Byom admission wrapper around
    one exact ContextAssembly; it is not a competing selection model.
-5. Implement the Python runtime as both a Kovee assistant worker and a Sage
-   harness provider/session client.
-6. Keep the `sage` CLI as an expert/compatibility surface. The Kovee UI/CLI
-   composes it through the protocol.
+5. Implement the Python runtime as both a Kovee assistant worker and a Byom
+   Manifestation — a hosted episodic participant or an attached harness.
+6. Keep byom's own CLI as an expert/compatibility surface. The Kovee UI/CLI
+   composes it through the protocol and never bypasses it.
 7. Treat every subject in `kovee-design.md` as a discarded private sketch.
 8. Use SQLite/in-process delivery personally and PostgreSQL/outbox/NATS for team
    mode. Do not introduce a JetStream-KV state phase.
@@ -5126,17 +5446,17 @@ design-stage and Kovee has no implementation. Migration is therefore conceptual:
    describe any external authoring inspiration without making it an architectural
    dependency.
 
-If future Sage data is imported into Kovee, create a default personal realm,
-administrative project, and an explicitly empty Space only when the user asks
-for a collaboration projection. Preserve every Sage id/digest/cursor and add
-nullable correlation links. No importer rewrites engram content, manufactures
-semantic relations, or treats a Sage ledger as a Kovee Stream.
+If existing Byom data is projected into Kovee, create a default personal realm,
+administrative project, and an explicitly empty Space only when the user asks for
+a collaboration projection. Preserve every Byom id/digest/cursor and add nullable
+correlation links. No importer rewrites engram content, manufactures semantic
+relations, or treats a Byom journal as a Kovee Stream.
 
 ## 28. Resolved decisions and honest dependencies
 
 Resolved in this design:
 
-1. Kovee is the collaboration product and distributed assistant runtime; Sage is
+1. Kovee is the collaboration product and distributed assistant runtime; Byom is
    the governed-work kernel; Akson is federation.
 2. Public clients use versioned authenticated APIs, never raw NATS.
 3. SQLite/PostgreSQL is authoritative; NATS/JetStream is internal delivery.
@@ -5154,7 +5474,9 @@ Resolved in this design:
 
 Dependencies that constrain delivery rather than reopen the architecture:
 
-- Sage must complete and conform its protocol operations listed in section 17.5.
+- Byom's tracked design obligations — chiefly the typed profile-claim/evidence
+  publish, read, and search operations behind ranked routing — must land before
+  the capabilities that depend on them are advertised.
 - Akson must land its least-privilege coordination/consent surface before K6.
 - Inbound remote execution remains blocked on Akson's agent-worker baseline.
 - Exact provider retention/region guarantees are installation/realm policy inputs and
@@ -5167,6 +5489,6 @@ broader authority surface or an unconfined worker.
 ## 29. The design in one sentence
 
 **Kovee gives people and agents forkable shared spaces, explicit attention,
-reproducible context, and negotiated local commitments; Sage governs consequential
+reproducible context, and negotiated local commitments; Byom governs consequential
 work, Akson crosses sovereign boundaries, and the classical runtime safely
 delivers what those authoritative records decided.**
