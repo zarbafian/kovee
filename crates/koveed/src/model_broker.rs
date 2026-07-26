@@ -10,16 +10,15 @@
 //!
 //! ```no_run
 //! # use koveed::model_broker::{self, ActAuthorization, CompleteRequest};
-//! # use kovee_effects::HttpsTransport;
+//! # use kovee_effects::Egress;
 //! # fn f(store: &mut kovee_store::Store, runtime: &koveed::episode::Runtime,
 //! #      authorization: &ActAuthorization)
 //! #   -> Result<(), kovee_core::problem::Problem> {
 //! // The daemon's own wire. `complete` accepts nothing else in a production
-//! // build: `&HttpsTransport` converts into the sealed `Egress`, and the
+//! // build: `Egress::live()` is the process's single sealed wire, and the
 //! // recording double exists only under kovee-effects' `testing` feature.
-//! let transport = HttpsTransport::new();
 //! let completion = model_broker::complete(
-//!     store, runtime, &transport,
+//!     store, runtime, Egress::live(),
 //!     &CompleteRequest {
 //!         realm: "realm-personal", project: Some("proj-1"),
 //!         attempt_id: "invatt-1", fence_epoch: 1,
@@ -72,8 +71,8 @@ use kovee_core::family::{tagged_canonical, DigestRef};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::rfc3339_utc;
 use kovee_effects::{
-    authorize, dispatch as dispatch_bytes, plan, ByomSourceFields, CallPlan, Claim,
-    ConsumedReceipt, DisclosureItem, DisclosureManifest, EffectState, Egress, EpisodeFence,
+    dispatch as dispatch_bytes, plan, ByomSourceFields, CallPlan, Claim, ConsumptionAuthority,
+    DisclosureItem, DisclosureManifest, EffectState, Egress, EpisodeFence,
     ExecutionConsumptionReceipt, ExecutionPermit, Expectation, ModelProfile, ModelProviderBinding,
     PlanInput, PlanKeys, ProviderClaims, ProviderContextManifest, ProviderKind, RecordDigestKey,
     RequestLimits, Segment, SegmentKind, SpentLedger, Usage, BROKER_DRIVER_AUDIENCE,
@@ -125,6 +124,14 @@ pub struct ActAuthorization {
     pub act_revision: u64,
     /// byom's authorized act subject digest.
     pub subject_digest: DigestRef,
+    /// The HOST-owned ContextManifest the act's seats assented to (byom
+    /// R3-A01). byom holds only its digest, so the pair travels as
+    /// `portable_public` and byom compares BOTH members against the act
+    /// subject at consumption. It is all-or-none: an empty pair is exactly
+    /// what byom is now designed to refuse, because an act that could
+    /// execute under a context no seat ever saw is the defect A01 named.
+    pub context_manifest_ref: String,
+    pub context_manifest_digest: DigestRef,
     /// byom's kernel-derived one-shot key: the effect's identity.
     pub stable_execution_key: String,
     pub budget_reservation_set_ref: String,
@@ -856,7 +863,8 @@ pub fn prepare(
 
 /// Steps 7-8: byom's `execution_permit_consume` on the `rpm1.` permit
 /// channel, the receipt stored as `ExternalAuthorizationConsumption{phase:
-/// pre_egress}`, and the fail-closed [`authorize`] gate over it.
+/// pre_egress}`, and the fail-closed
+/// [`ConsumptionAuthority::authorize`] gate over it.
 ///
 /// The permit channel's token is byomd's own file, keyed to this exact
 /// ActIntent. Kovee cannot mint one, so it cannot consume another act's
@@ -878,11 +886,26 @@ pub fn consume_permit(
         None => Default::default(),
     };
     let seam = crate::episode::seam_of_binding(store.conn(), request.realm)?;
+    // THE authority (R3-B01): one value, built from this daemon's own
+    // realm-derived secret and its own durable ledger. Every receipt that
+    // exists was admitted by it, every attestation was made by it, and it is
+    // what `dispatch` verifies the permit's seal against. Nothing in this
+    // module can author a receipt or choose a key any more.
+    let key_ref = authority_key_ref();
+    let secret = authority_secret(store.conn())?;
 
     // Recover an already-stored consumption first: a crash after byom
     // consumed but before Kovee stored the reply is repaired by re-asking
     // with the same key, and byom replays the retained receipt.
-    let stored = read_consumption(store.conn(), &authorization.stable_execution_key)?;
+    let stored = {
+        let ledger = ConsumptionLedger { conn: store.conn() };
+        let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
+        read_consumption(
+            store.conn(),
+            &authorization.stable_execution_key,
+            &authority,
+        )?
+    };
     let receipt = match stored {
         Some((_, receipt)) => receipt,
         None => {
@@ -920,6 +943,13 @@ pub fn consume_permit(
                 "host_effect_ref": prepared.effect_id,
                 "host_effect_digest": prepared.plan.host_effect_digest(),
                 "host_effect_credential": credential,
+                // BOTH host manifest bindings, ref and digest, presented to
+                // be compared against the pairs the act's seats assented to
+                // (byom R3-A01). The context pair used never to be sent at
+                // all, so the act could execute under a context no seat had
+                // seen; byom refuses an absent or mismatched pair now.
+                "context_manifest_ref": authorization.context_manifest_ref,
+                "context_digest": authorization.context_manifest_digest,
                 "disclosure_manifest_ref": prepared.plan.disclosure().disclosure_id,
                 "disclosure_digest": prepared.plan.disclosure().digest,
                 "driver_audience": BROKER_DRIVER_AUDIENCE,
@@ -933,16 +963,23 @@ pub fn consume_permit(
                 body["episode_ref"] = json!(b.episode_ref);
             }
             let reply = runtime.call(&token, &body)?;
-            let receipt = ExecutionConsumptionReceipt::from_result(&reply).map_err(|e| {
-                // The reply is byom's own record, not a credential: naming the
-                // member that did not fit is what makes a shape drift
-                // diagnosable instead of mysterious.
-                refuse(
-                    ProblemKind::Unavailable,
-                    "byom's consumption receipt is not the shape Kovee can honor",
-                    format!("{e}; reply was {}", bounded(&reply)),
-                )
-            })?;
+            // `admit` is the ONLY door a receipt comes through, and it stamps
+            // this authority's keyed admission tag over the parsed members.
+            // JSON someone had to hand is not a receipt here.
+            let receipt = {
+                let ledger = ConsumptionLedger { conn: store.conn() };
+                let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
+                authority.admit(&reply).map_err(|e| {
+                    // The reply is byom's own record, not a credential: naming
+                    // the member that did not fit is what makes a shape drift
+                    // diagnosable instead of mysterious.
+                    refuse(
+                        ProblemKind::Unavailable,
+                        "byom's consumption receipt is not the shape Kovee can honor",
+                        format!("{e}; reply was {}", bounded(&reply)),
+                    )
+                })?
+            };
             store_consumption(store, prepared, &receipt, now)?;
             receipt
         }
@@ -958,43 +995,41 @@ pub fn consume_permit(
         }),
         _ => None,
     };
-    // The gate needs an ATTESTED receipt, not a receipt: the attestation is
-    // keyed under a secret derived from the realm object key for this exact
-    // committed consumption row, so a receipt that never went through the
-    // permit channel and this store cannot mint a permit (D-R3-1).
-    let consumption_id = read_consumption(store.conn(), prepared.plan.execution_key())?
+    // The gate needs an ATTESTED receipt, not a receipt. `attest` takes no
+    // key: the secret is the AUTHORITY's, never this call site's — a
+    // caller-chosen key was exactly the forgery R3-B01 demonstrated. It
+    // refuses a receipt this authority did not admit before computing
+    // anything over it, and binds the attestation to this exact committed
+    // consumption row (D-R3-1).
+    let ledger = ConsumptionLedger { conn: store.conn() };
+    let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
+    let consumption_id = read_consumption(store.conn(), prepared.plan.execution_key(), &authority)?
         .map(|(id, _)| id)
         .ok_or_else(internal)?;
-    let secret = consumption_secret(store.conn(), &consumption_id)?;
-    let attested = ConsumedReceipt::attest(
-        &receipt,
-        &consumption_id,
-        RecordDigestKey::Object {
-            key_ref: &consumption_key_ref(&consumption_id),
-            secret: &secret,
-        },
-    )
-    .map_err(permit_problem)?;
+    let attested = authority
+        .attest(&receipt, &consumption_id)
+        .map_err(permit_problem)?;
     // The destination is bound HERE, from the provider binding re-read for
     // this call — never from the plan, which is what R3 changed after
     // authorization (R3-B02). The plan must already name the same origin.
     let (_, bound_binding) = read_profile(store.conn(), request.realm, request.model_profile_ref)?;
-    let permit = authorize(
-        Some(attested),
-        &Expectation {
-            execution_key: prepared.plan.execution_key(),
-            subject_digest: prepared.plan.subject_digest(),
-            disclosure_digest: &prepared.plan.disclosure().digest,
-            driver_audience: BROKER_DRIVER_AUDIENCE,
-            episode,
-            endpoint_incarnation: &seam.endpoint_incarnation,
-            recovery_epoch: seam.recovery_epoch,
-            now: wall(now),
-            already_spent,
-            bound_origin: &bound_binding.endpoint,
-        },
-    )
-    .map_err(permit_problem)?;
+    let permit = authority
+        .authorize(
+            Some(attested),
+            &Expectation {
+                execution_key: prepared.plan.execution_key(),
+                subject_digest: prepared.plan.subject_digest(),
+                disclosure_digest: &prepared.plan.disclosure().digest,
+                driver_audience: BROKER_DRIVER_AUDIENCE,
+                episode,
+                endpoint_incarnation: &seam.endpoint_incarnation,
+                recovery_epoch: seam.recovery_epoch,
+                now: wall(now),
+                already_spent,
+                bound_origin: &bound_binding.endpoint,
+            },
+        )
+        .map_err(permit_problem)?;
     // The local intersection permit, recorded once the gate has passed: it
     // carries every contributing digest AND `owner_unverified_digests`, so an
     // audit can see exactly which of byom's echoes could be re-checked here.
@@ -1050,10 +1085,16 @@ fn host_effect_credential(
     )))
 }
 
-/// The `key_ref` the consumption attestation is keyed under, so an operator
-/// reading a permit's `owner_receipt_provenance` can tell what keys it.
-fn consumption_key_ref(consumption_id: &str) -> String {
-    kovee_effects::object_key_ref("consumption", consumption_id)
+/// The `key_ref` this daemon's [`ConsumptionAuthority`] keys its digests
+/// under, so an operator reading a permit's `owner_receipt_provenance` can
+/// tell which key would have to be destroyed to erase it.
+///
+/// It is one value per daemon, not one per consumption: the authority is the
+/// daemon's, and the consumption row it attests is a MEMBER of the
+/// provenance projection rather than a key selector. A caller that could
+/// choose the key could forge the provenance, which is what R3-B01 did.
+fn authority_key_ref() -> String {
+    kovee_effects::object_key_ref("consumption-authority", "realm")
 }
 
 /// The per-consumption attestation secret: domain-separated from the realm
@@ -1061,11 +1102,11 @@ fn consumption_key_ref(consumption_id: &str) -> String {
 /// already durable — what the attestation adds is that only code holding the
 /// daemon's realm key (never a worker-reachable path) can turn a receipt into
 /// a permit.
-fn consumption_secret(conn: &Connection, consumption_id: &str) -> Result<[u8; 32], Problem> {
+fn authority_secret(conn: &Connection) -> Result<[u8; 32], Problem> {
     let realm_key = kovee_store::realm_object_key_of(conn).map_err(store_problem)?;
     Ok(kovee_core::family::hmac_sha256(
         &realm_key,
-        format!("{CONSUMPTION_ATTESTATION_DOMAIN}:{consumption_id}").as_bytes(),
+        CONSUMPTION_ATTESTATION_DOMAIN.as_bytes(),
     ))
 }
 
@@ -1100,10 +1141,11 @@ impl SpentLedger for ConsumptionLedger<'_> {
 /// The whole chain for one worker call. Every step in order, and each one a
 /// refusal.
 ///
-/// `egress` is not an arbitrary `Transport`: it converts into the sealed
-/// [`Egress`], whose only variants are the daemon's own [`kovee_effects::HttpsTransport`]
-/// and — under kovee-effects' `testing` feature — the recording double. A
-/// production build therefore has exactly one wire to offer here (R3-B02).
+/// `egress` is not an arbitrary transport: `Transport` is crate-private in
+/// kovee-effects now, and the one public egress value is [`Egress`] — either
+/// [`Egress::live`], the process's single TLS wire, or, only under
+/// kovee-effects' `testing` feature, the recording double. A production build
+/// therefore has exactly one wire to offer here (R3-B02).
 #[allow(clippy::too_many_arguments)]
 pub fn complete<'e>(
     store: &mut Store,
@@ -1281,13 +1323,20 @@ pub fn dispatch_effect<'e>(
     //     the one exchange. The permit is moved in: this function cannot
     //     dispatch it again either.
     let outcome = {
+        // `dispatch` verifies the permit's seal against this authority BEFORE
+        // anything else, and claims the single use in the authority's own
+        // ledger: there is no ledger argument to hand it any more, and a
+        // well-formed permit minted anywhere else authorizes nothing here.
         let ledger = ConsumptionLedger { conn: store.conn() };
+        let key_ref = authority_key_ref();
+        let secret = authority_secret(store.conn())?;
+        let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
         dispatch_bytes(
             &prepared.plan,
             permit,
             &egress,
             &credential,
-            &ledger,
+            &authority,
             CALL_TIMEOUT,
         )
     };
@@ -1785,6 +1834,7 @@ pub fn attempt_count(conn: &Connection, effect_id: &str) -> Result<u64, Problem>
 fn read_consumption(
     conn: &Connection,
     execution_key: &str,
+    authority: &ConsumptionAuthority<'_>,
 ) -> Result<Option<(String, ExecutionConsumptionReceipt)>, Problem> {
     let row: Option<(String, String)> = conn
         .query_row(
@@ -1798,10 +1848,11 @@ fn read_consumption(
     match row {
         Some((id, text)) => {
             // The SAME door the live reply uses: Kovee's durable copy of
-            // byom's reply re-enters through `from_result`, because the
-            // receipt type has no public `Deserialize` to go round it.
+            // byom's reply re-enters through `admit`, admission tag and all,
+            // because the receipt type has no public constructor to go round
+            // it. The recovery path is therefore not a second, weaker door.
             let stored: Value = serde_json::from_str(&text).map_err(|_| internal())?;
-            let receipt = ExecutionConsumptionReceipt::from_result(&stored).map_err(|e| {
+            let receipt = authority.admit(&stored).map_err(|e| {
                 refuse(
                     ProblemKind::Internal,
                     "the stored consumption receipt is not the shape Kovee can honor",
@@ -1958,11 +2009,12 @@ fn permit_problem(error: kovee_effects::PermitError) -> Problem {
         E::Expired(_) | E::UnreadableExpiry(_) => ProblemKind::Forbidden,
         E::WrongEndpoint => ProblemKind::StaleRevision,
         E::Malformed(_) => ProblemKind::Unavailable,
-        // A receipt Kovee cannot attest against its own committed consumption
-        // is a receipt it will not authorize. These are internal wiring
-        // faults, not the caller's: the broker refuses rather than dispatching
-        // on an unattested value.
-        E::UnkeyedProvenance | E::Unattestable => ProblemKind::Internal,
+        // A receipt this daemon's own authority did not admit, an
+        // attestation it did not make, or a receipt it cannot canonicalize:
+        // none of them is authority here. These are internal wiring faults,
+        // not the caller's — the broker refuses rather than dispatching on a
+        // value whose provenance it cannot re-derive (R3-B01).
+        E::UnadmittedReceipt | E::ForeignAttestation | E::Unattestable => ProblemKind::Internal,
     };
     Problem::new(kind, "the model call is not authorized to leave").with_detail(error.to_string())
 }

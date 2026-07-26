@@ -532,6 +532,7 @@ dependencies = [
  "kovee-core",
  "kovee-effects",
  "kovee-store",
+ "koveed",
  "libc",
  "rusqlite",
  "serde",

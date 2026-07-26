@@ -36,6 +36,12 @@ thiserror = { workspace = true }
 # kovee-effects' `testing` feature, so the K2 suites can prove "zero sends"
 # while a production build of this daemon has no such wire to offer (R3-B02).
 kovee-effects = { workspace = true, features = ["testing"] }
+# koveed's own `testing` feature, ON for the test targets and only for them
+# (R3-I02). `#[cfg(test)]` covers the lib's unit tests; an integration test in
+# `tests/` links the library as an ordinary dependency, so without this the
+# daemon's recording-egress builder would not exist for the suite that has to
+# exercise it — which is exactly how it came to be dead code.
+koveed = { path = ".", features = ["testing"] }
 sha2 = { workspace = true }
 [features]
 # A test-built daemon can serve its real operations over a no-network wire

@@ -2742,6 +2742,12 @@ pub struct ModelCompleteArgs {
     pub act_intent_digest: crate::family::DigestRef,
     pub act_revision: u64,
     pub subject_digest: crate::family::DigestRef,
+    /// The HOST-owned ContextManifest the act's seats assented to, ref and
+    /// digest (byom R3-A01). byom compares BOTH against its committed act at
+    /// consumption, so an act can no longer execute under a context no seat
+    /// ever saw. All-or-none: byom refuses an empty pair.
+    pub context_manifest_ref: String,
+    pub context_manifest_digest: crate::family::DigestRef,
     pub stable_execution_key: String,
     pub budget_reservation_set_ref: String,
 }
@@ -2755,6 +2761,7 @@ impl ModelCompleteArgs {
         check_identifier("purpose_ref", &parsed.purpose_ref)?;
         check_identifier("classification_ref", &parsed.classification_ref)?;
         check_identifier("act_intent_ref", &parsed.act_intent_ref)?;
+        check_identifier("context_manifest_ref", &parsed.context_manifest_ref)?;
         check_safe("act_revision", parsed.act_revision)?;
         check_identifier("stable_execution_key", &parsed.stable_execution_key)?;
         check_identifier(
@@ -2764,6 +2771,7 @@ impl ModelCompleteArgs {
         check_opt_identifier("stable_binding_key", &parsed.stable_binding_key)?;
         check_digest_ref("act_intent_digest", &parsed.act_intent_digest)?;
         check_digest_ref("subject_digest", &parsed.subject_digest)?;
+        check_digest_ref("context_manifest_digest", &parsed.context_manifest_digest)?;
         if parsed.prompt.is_empty() {
             return Err(invalid("prompt is empty: there is nothing to disclose"));
         }

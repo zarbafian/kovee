@@ -10,6 +10,10 @@
 //! (`$KOVEE_RUNTIME_DIR` overrides the directory); state lives at
 //! `<data-dir>/kovee.db` (default `$XDG_DATA_HOME/kovee`, else
 //! `~/.local/share/kovee`; `$KOVEE_DATA_DIR` overrides).
+//!
+//! A **test build** (`--features testing`) additionally honours
+//! `$KOVEE_TESTING_RECORDING_EGRESS`: see [`recording_egress`]. A production
+//! build does not compile that function at all.
 
 use std::path::PathBuf;
 
@@ -33,6 +37,72 @@ fn data_dir(cli_override: Option<PathBuf>) -> PathBuf {
     match std::env::var_os("HOME") {
         Some(home) => PathBuf::from(home).join(".local/share/kovee"),
         None => PathBuf::from(".kovee"),
+    }
+}
+
+/// The no-network wire a **test-built** daemon serves its real operations
+/// over (R3-I02).
+///
+/// What you write, to run koveed with a stub provider:
+///
+/// ```text
+/// KOVEE_TESTING_RECORDING_EGRESS='{"id":"msg_01","usage":{...}}' koveed
+/// KOVEE_TESTING_RECORDING_EGRESS=@/path/to/reply.json           koveed
+/// ```
+///
+/// The value is the provider reply body the recording transport answers
+/// every send with (a leading `@` reads it from a file). With it set, the
+/// daemon's own `model_complete` **completes** over
+/// [`kovee_effects::RecordingTransport`] instead of the live TLS wire, so a
+/// conformance gate can drive the op koveed actually exposes rather than
+/// linking kovee as a library and choosing a transport itself — which was
+/// the whole of R3-I02.
+///
+/// Production builds do not compile this: the seal is the absence of the
+/// code, not a flag. `cargo build -p koveed` (no `--features testing`) has
+/// no `RecordingTransport` in it and no way to reach one.
+#[cfg(feature = "testing")]
+fn recording_egress() -> Option<kovee_effects::RecordingTransport> {
+    let spec = std::env::var("KOVEE_TESTING_RECORDING_EGRESS")
+        .ok()
+        .filter(|s| !s.is_empty())?;
+    let body = match spec.strip_prefix('@') {
+        Some(path) => match std::fs::read(path) {
+            Ok(body) => body,
+            Err(e) => {
+                eprintln!("koveed: $KOVEE_TESTING_RECORDING_EGRESS {path}: {e}");
+                std::process::exit(1);
+            }
+        },
+        None => spec.into_bytes(),
+    };
+    eprintln!(
+        "koveed: TESTING BUILD — egress is kovee-effects' RecordingTransport (no network), \
+         answering {} byte(s)",
+        body.len()
+    );
+    Some(kovee_effects::RecordingTransport::answering(&body))
+}
+
+/// Production builds have no such wire, so there is nothing to select.
+#[cfg(not(feature = "testing"))]
+fn recording_egress() -> Option<std::convert::Infallible> {
+    None
+}
+
+/// The daemon, with the egress this build is allowed to offer.
+fn open_daemon(
+    store: kovee_store::Store,
+    abort: Option<AbortSpec>,
+    dir: &std::path::Path,
+) -> Daemon {
+    let daemon = Daemon::new(store, abort, dir);
+    match recording_egress() {
+        #[cfg(feature = "testing")]
+        Some(transport) => daemon.with_recording_egress(transport),
+        #[cfg(not(feature = "testing"))]
+        Some(never) => match never {},
+        None => daemon,
     }
 }
 
@@ -63,7 +133,7 @@ fn run() -> Result<(), String> {
         path.display(),
         worker_path.display()
     );
-    let daemon = std::sync::Arc::new(Daemon::new(store, AbortSpec::from_env(), &dir));
+    let daemon = std::sync::Arc::new(open_daemon(store, AbortSpec::from_env(), &dir));
     let worker_daemon = std::sync::Arc::clone(&daemon);
     std::thread::spawn(move || {
         worker_daemon.serve(worker_listener, koveed::Surface::Worker);

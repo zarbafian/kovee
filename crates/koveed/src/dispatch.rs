@@ -18,7 +18,7 @@ use kovee_core::limits;
 use kovee_core::ops::{self, OpKind};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::unix_now;
-use kovee_effects::HttpsTransport;
+use kovee_effects::Egress;
 use kovee_store::{CrashHooks, Store, PERSONAL_REALM_ID};
 
 use crate::episode;
@@ -86,14 +86,16 @@ impl AbortSpec {
 }
 
 /// The daemon: one store behind a mutex, two dispatch surfaces, and ONE
-/// egress transport. The transport lives here — not in the worker path —
-/// because it is the only thing that holds a provider credential, and
-/// `Daemon` never lends it out (§16.3 step 5).
+/// egress. The wire is not a field any more and cannot be: `Transport` and
+/// `HttpsTransport` are crate-private inside kovee-effects, and the single
+/// live wire is a process singleton that never leaves that module (R3-B02).
+/// What the worker path gets is an [`Egress`] value, which does nothing on
+/// its own — only `kovee_effects::dispatch` moves a byte through one, and
+/// only against a permit this daemon's own authority sealed.
 pub struct Daemon {
     store: Mutex<Store>,
     abort: Option<AbortSpec>,
     paths: ArtifactPaths,
-    egress: HttpsTransport,
     /// A no-network wire, selectable **only** under the `testing` feature.
     ///
     /// R3-I02: the I1 gate could not exercise koveed's own
@@ -202,7 +204,6 @@ impl Daemon {
             store: Mutex::new(store),
             abort,
             paths,
-            egress: HttpsTransport::new(),
             #[cfg(any(test, feature = "testing"))]
             recording_egress: None,
         }
@@ -1339,8 +1340,8 @@ impl Daemon {
     }
 
     /// The worker-surface model call. The byom RUNTIME endpoint and the
-    /// daemon's own egress transport are supplied HERE: a worker cannot
-    /// reach either.
+    /// egress are supplied HERE: a worker request can name neither, and the
+    /// live wire is a kovee-effects singleton no caller can reach at all.
     fn model_complete(
         &self,
         cmd: &RawCommand,
@@ -1358,6 +1359,8 @@ impl Daemon {
             act_intent_digest: args.act_intent_digest.clone(),
             act_revision: args.act_revision,
             subject_digest: args.subject_digest.clone(),
+            context_manifest_ref: args.context_manifest_ref.clone(),
+            context_manifest_digest: args.context_manifest_digest.clone(),
             stable_execution_key: args.stable_execution_key.clone(),
             budget_reservation_set_ref: args.budget_reservation_set_ref.clone(),
         };
@@ -1383,11 +1386,11 @@ impl Daemon {
             // itself rather than linking kovee and choosing a transport.
             #[cfg(any(test, feature = "testing"))]
             match &self.recording_egress {
-                Some(r) => kovee_effects::Egress::recording(r),
-                None => kovee_effects::Egress::live(&self.egress),
+                Some(r) => Egress::recording(r),
+                None => Egress::live(),
             },
             #[cfg(not(any(test, feature = "testing")))]
-            &self.egress,
+            Egress::live(),
             &request,
             &authorization,
             now,

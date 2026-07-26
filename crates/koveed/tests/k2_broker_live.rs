@@ -31,9 +31,7 @@ use common::byomd::*;
 use common::tmp;
 use kovee_byom::bpp::Endpoint;
 use kovee_core::family::DigestRef;
-use kovee_effects::{
-    EffectState, HttpsTransport, ProviderClaims, ProviderKind, RequestLimits, Transport,
-};
+use kovee_effects::{EffectState, Egress, ProviderClaims, ProviderKind, RequestLimits};
 use kovee_store::Store;
 use koveed::episode::{self, Notice, Runtime};
 use koveed::model_broker::{self, ActAuthorization, CompleteRequest, Fault};
@@ -42,6 +40,9 @@ use serde_json::{json, Value};
 const REALM: &str = "realm-personal";
 const PROJECT: &str = "proj-broker-live";
 const BROKER: &str = "kovee-model-broker";
+/// The HOST-owned ContextManifest every act in this suite is prepared under.
+/// byom compares the ref AND the digest at consumption (R3-A01).
+const CONTEXT_MANIFEST: &str = "kovee-ctxman-live";
 /// A prompt whose correct answer is one token, so the call is cheap and the
 /// assertion is unambiguous.
 const PROMPT: &str = "Reply with exactly the two characters: OK";
@@ -78,70 +79,19 @@ fn one_real_openai_call_through_the_whole_chain() {
     live_call(ProviderKind::Openai, "k2-broker-live-openai");
 }
 
-/// The transport half on its own, with NO key and no money spent: a real TLS
-/// 1.3 handshake to each provider, a real request, and a real parsed
-/// response. A deliberately invalid credential makes the provider answer
-/// `401`, which is exactly what proves the whole wire worked — handshake,
-/// request framing, response framing, and the driver's error mapping.
-///
-/// Needs only outbound TCP 443, so it is the cheapest way to check that the
-/// live egress path is not broken.
-#[test]
-#[ignore = "needs outbound TCP 443 (no key, no spend)"]
-fn the_live_transport_reaches_both_providers_and_is_refused_without_a_key() {
-    use kovee_effects::{Credential, ModelRequest};
-    let transport = HttpsTransport::new();
-    for kind in [ProviderKind::Anthropic, ProviderKind::Openai] {
-        let driver = kovee_effects::driver_for(kind);
-        let request = driver
-            .build(&ModelRequest {
-                model: match kind {
-                    ProviderKind::Anthropic => kovee_effects::ANTHROPIC_MODEL,
-                    ProviderKind::Openai => kovee_effects::OPENAI_MODEL,
-                },
-                system: None,
-                prompt: PROMPT,
-                max_output_tokens: 8,
-            })
-            .unwrap();
-        let origin = kind.default_origin();
-        let response = transport
-            .send(
-                &origin,
-                &request,
-                &Credential::for_testing("sk-deliberately-invalid-no-such-key"),
-                std::time::Duration::from_secs(30),
-            )
-            .unwrap_or_else(|e| panic!("{}: the live wire failed: {e}", kind.as_str()));
-        println!(
-            "{}: {} answered HTTP {} ({} bytes)",
-            kind.as_str(),
-            origin,
-            response.status,
-            response.body.len()
-        );
-        assert_eq!(
-            response.status,
-            401,
-            "{}: an invalid key must be refused, got {} — body {}",
-            kind.as_str(),
-            response.status,
-            String::from_utf8_lossy(&response.body)
-                .chars()
-                .take(256)
-                .collect::<String>()
-        );
-        // And the driver maps that into the typed error the effect records.
-        let error = driver.parse(response.status, &response.body).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                kovee_effects::DriverError::ProviderStatus { status: 401, .. }
-            ),
-            "{error:?}"
-        );
-    }
-}
+// R3-B02 removed the test that used to live here, and it could not survive
+// the fix: it built an `HttpsTransport` and called `Transport::send`
+// directly, with a `PreparedRequest` of its own and no permit — the exact
+// bypass the seal closes. `Transport`, `HttpsTransport` and `RawResponse`
+// are crate-private now, and the only public way a byte leaves is
+// `kovee_effects::dispatch`, against a permit this daemon's own
+// `ConsumptionAuthority` sealed.
+//
+// What that test proved — that the live wire reaches both providers and
+// that an invalid key comes back as a mapped 401 — is proved by
+// `live_call` below, over the whole governed chain, whenever a key is in
+// the environment. It is no longer separately cheap to check, and that is
+// the cost of the seal rather than an oversight.
 
 /// The whole path for one provider: byom's act chain, the permit, the real
 /// TLS request, the outcome, and the metering report.
@@ -198,14 +148,16 @@ fn live_call(kind: ProviderKind, tag: &str) {
     };
     let authorization = authorize(&mut live, "lv", &call);
     // THE live transport: rustls, TLS 1.3 only, Mozilla roots compiled in, no
-    // redirects, and the connection-time address-class check.
-    let transport = HttpsTransport::new();
-    assert_eq!(transport.profile(), kovee_effects::PROFILE_HTTPS);
+    // redirects, and the connection-time address-class check. It is a
+    // process singleton inside kovee-effects that no caller can name; this
+    // is the whole of the public surface onto it.
+    let egress = Egress::live();
+    assert_eq!(egress.profile(), kovee_effects::PROFILE_HTTPS);
     let runtime = live.runtime();
     let completion = model_broker::complete(
         &mut live.store,
         &runtime,
-        &transport,
+        egress,
         &call.request(),
         &authorization,
         0,
@@ -417,7 +369,7 @@ fn notice(agent: &AgentSociety, wake: &str) -> Notice {
         // Replaced by byom's own PUBLISHED fragment once `episode_request`
         // answers (R3-L02).
         parent_budget: serde_json::Value::Null,
-        context_manifest_ref: "kovee-ctxman-live".to_owned(),
+        context_manifest_ref: CONTEXT_MANIFEST.to_owned(),
     }
 }
 
@@ -442,7 +394,7 @@ fn authorize(live: &mut Live, key: &str, call: &Call) -> ActAuthorization {
             "mandate_ref": live.agent.mandate_id,
             "mandate_revision": mandate_revision(&live.byomd, &live.agent.mandate_id),
             "mandate_digest": mandate_subject_digest(&live.byomd, &live.agent.mandate_id),
-            "context_manifest_ref": "kovee-ctxman-live",
+            "context_manifest_ref": CONTEXT_MANIFEST,
             "context_manifest_digest": keyed_digest(0xe1),
             "disclosure_manifest_ref": disclosure_ref,
             "disclosure_manifest_digest": serde_json::to_value(&disclosure_digest).unwrap(),
@@ -483,6 +435,12 @@ fn authorize(live: &mut Live, key: &str, call: &Call) -> ActAuthorization {
         act_intent_digest: serde_json::from_value(intent_digest(&live.byomd, &intent_id)).unwrap(),
         act_revision: finalized["result"]["revision"].as_u64().unwrap(),
         subject_digest: serde_json::from_value(subject_digest).unwrap(),
+        // The HOST-owned ContextManifest pair the act's seats assented to.
+        // byom compares BOTH at consumption now (R3-A01), so the values a
+        // consumption presents are the ones prepared above — not an empty
+        // pair, which is exactly what byom refuses.
+        context_manifest_ref: CONTEXT_MANIFEST.to_owned(),
+        context_manifest_digest: serde_json::from_value(keyed_digest(0xe1)).unwrap(),
         stable_execution_key: result["stable_execution_key"].as_str().unwrap().to_owned(),
         budget_reservation_set_ref: result["budget_reservation_set_ref"]
             .as_str()

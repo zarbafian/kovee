@@ -35,7 +35,7 @@ use common::tmp;
 use kovee_byom::bpp::Endpoint;
 use kovee_core::family::DigestRef;
 use kovee_core::problem::ProblemKind;
-use kovee_effects::{EffectState, RecordingTransport, Transport};
+use kovee_effects::{EffectState, RecordingTransport};
 use kovee_store::Store;
 use koveed::episode::{self, Notice, Runtime};
 use koveed::model_broker::{self, ActAuthorization, CompleteRequest, Fault};
@@ -46,6 +46,10 @@ const PROJECT: &str = "proj-broker";
 const PROFILE: &str = "mp-anthropic-realm-personal";
 /// byom's Δ4 class subject pins this exact audience for the model broker.
 const BROKER: &str = "kovee-model-broker";
+/// The HOST-owned ContextManifest every act in this suite is prepared under.
+/// byom compares the ref AND the digest at consumption (R3-A01), so this is
+/// one constant rather than two strings that could drift apart.
+const CONTEXT_MANIFEST: &str = "kovee-ctxman-broker";
 /// The provider reply the recording transport answers with.
 const REPLY: &[u8] = br#"{"id":"msg_01broker","model":"claude-haiku-4-5-20251001",
     "stop_reason":"end_turn","content":[{"type":"text","text":"OK"}],
@@ -293,7 +297,7 @@ fn prepare_position_finalize(
             // store: a caller that guesses either is refused.
             "mandate_revision": mandate_revision(byomd, &agent.mandate_id),
             "mandate_digest": mandate_subject_digest(byomd, &agent.mandate_id),
-            "context_manifest_ref": "kovee-ctxman-broker",
+            "context_manifest_ref": CONTEXT_MANIFEST,
             // byom's act_intent_prepare requires the KEYED class here: the
             // ContextManifest is a local object whose verifiability byom
             // erases with the act, not one it recomputes.
@@ -339,6 +343,12 @@ fn prepare_position_finalize(
         act_intent_digest: serde_json::from_value(intent_digest(byomd, &intent_id)).unwrap(),
         act_revision: finalized["result"]["revision"].as_u64().unwrap(),
         subject_digest: serde_json::from_value(subject_digest).unwrap(),
+        // The HOST-owned ContextManifest pair the act's seats assented to.
+        // byom compares BOTH at consumption now (R3-A01), so the values a
+        // consumption presents are the ones prepared above — not an empty
+        // pair, which is exactly what byom refuses.
+        context_manifest_ref: CONTEXT_MANIFEST.to_owned(),
+        context_manifest_digest: serde_json::from_value(portable_digest(0xe1)).unwrap(),
         stable_execution_key: result["stable_execution_key"].as_str().unwrap().to_owned(),
         budget_reservation_set_ref: result["budget_reservation_set_ref"]
             .as_str()
@@ -371,7 +381,7 @@ fn prepare_only(
             // store: a caller that guesses either is refused.
             "mandate_revision": mandate_revision(byomd, &agent.mandate_id),
             "mandate_digest": mandate_subject_digest(byomd, &agent.mandate_id),
-            "context_manifest_ref": "kovee-ctxman-broker",
+            "context_manifest_ref": CONTEXT_MANIFEST,
             // byom's act_intent_prepare requires the KEYED class here: the
             // ContextManifest is a local object whose verifiability byom
             // erases with the act, not one it recomputes.
@@ -392,6 +402,12 @@ fn prepare_only(
         act_intent_digest: serde_json::from_value(intent_digest(byomd, &intent_id)).unwrap(),
         act_revision: 1,
         subject_digest: serde_json::from_value(result["subject_digest"].clone()).unwrap(),
+        // The HOST-owned ContextManifest pair the act's seats assented to.
+        // byom compares BOTH at consumption now (R3-A01), so the values a
+        // consumption presents are the ones prepared above — not an empty
+        // pair, which is exactly what byom refuses.
+        context_manifest_ref: CONTEXT_MANIFEST.to_owned(),
+        context_manifest_digest: serde_json::from_value(portable_digest(0xe1)).unwrap(),
         stable_execution_key: result["stable_execution_key"].as_str().unwrap().to_owned(),
         budget_reservation_set_ref: result["budget_reservation_set_ref"]
             .as_str()
@@ -800,6 +816,8 @@ fn crash_child_prepares_then_dies() {
         act_intent_digest: serde_json::from_value(spec["act_intent_digest"].clone()).unwrap(),
         act_revision: spec["act_revision"].as_u64().unwrap(),
         subject_digest: serde_json::from_value(spec["subject_digest"].clone()).unwrap(),
+        context_manifest_ref: CONTEXT_MANIFEST.to_owned(),
+        context_manifest_digest: serde_json::from_value(portable_digest(0xe1)).unwrap(),
         stable_execution_key: spec["stable_execution_key"].as_str().unwrap().to_owned(),
         budget_reservation_set_ref: spec["budget_reservation_set_ref"]
             .as_str()
@@ -1256,7 +1274,10 @@ fn the_credential_never_reaches_worker_visible_state() {
         )
         .unwrap();
     assert_eq!(profile, kovee_effects::PROFILE_RECORDING);
-    assert_eq!(completed.transport_profile, transport.profile());
+    assert_eq!(
+        completed.transport_profile,
+        kovee_effects::PROFILE_RECORDING
+    );
 }
 
 // ----------------------------------------------------------- the metering ----
@@ -1316,4 +1337,133 @@ fn usage_is_metered_to_byoms_meter_channel() {
             .any(|t| t == "dev.kovee.model-effect.usage-reported.v1"),
         "{types:?}"
     );
+}
+
+// ------------------------------- the daemon's own completing egress (R3-I02) ----
+
+/// The **completing** dispatch through koveed's own worker-surface
+/// `model_complete`, over the daemon's own no-network wire.
+///
+/// R3-I02: `with_recording_egress` existed but nothing constructed a daemon
+/// with it — deleting the whole field, builder and feature branch still let
+/// `cargo test -p koveed --all-targets --no-run` succeed, and the I1 gate's
+/// completing call still ran in a kovee-linked driver that picked the
+/// transport itself. This test is what makes the branch load-bearing:
+///
+///   * it builds a real [`Daemon`] with
+///     [`RecordingTransport`](kovee_effects::RecordingTransport) as its
+///     egress and drives `model_complete` through
+///     [`Daemon::dispatch_line`] on the WORKER surface — koveed's own
+///     parsing, worker attempt-binding authentication, mutexed store and
+///     daemon-chosen wire;
+///   * the answer's numbers are the stub reply's own (`msg_01broker`,
+///     41/2 tokens), which only the recording double can produce, and the
+///     attempt row records `recording-test-double`;
+///   * byom's side is the real one: one receipt, one MandateUse.
+///
+/// Remove the feature branch and this does not compile. Point it at the
+/// live wire and it does not pass.
+#[test]
+fn the_daemon_completes_model_complete_over_its_own_recording_egress() {
+    let Some(mut live) = live("k2-broker-daemon-egress") else {
+        return skipped("k2_broker");
+    };
+    let call = live.call("Say OK.");
+    let authorization = authorize(&mut live, "de", &call, BROKER);
+
+    // The byom RUNTIME endpoint is the DAEMON's own configuration, read from
+    // its environment — a worker request cannot name it (§16.3 step 5).
+    std::env::set_var("KOVEE_BYOM_RUNTIME_DIR", &live.byomd.run_dir);
+    std::env::set_var("KOVEE_BYOM_CHANNELS_DIR", &live.channels);
+
+    // A second holder of the SAME store, opened the way `main.rs` opens it,
+    // then given the wire only a test build can offer.
+    let mut store = Store::open(&live.base.join("kovee.sqlite3")).unwrap();
+    store.bootstrap(0).unwrap();
+    let daemon = koveed::Daemon::new(store, None, &live.base)
+        .with_recording_egress(RecordingTransport::answering(REPLY));
+
+    let request = json!({
+        "version": "0.1",
+        "op": "model_complete",
+        "realm_id": REALM,
+        "project_id": PROJECT,
+        "meta": {"request_id": "req-daemon-egress",
+                 "idempotency_key": "idem-daemon-egress"},
+        "args": {
+            "attempt_id": call.attempt_id,
+            "fence_epoch": call.fence,
+            "model_profile_ref": PROFILE,
+            "purpose_ref": "purpose-explore-live",
+            "classification_ref": "class-public",
+            "system": SYSTEM,
+            "prompt": call.prompt,
+            "max_output_tokens": 64,
+            "stable_binding_key": call.binding_key,
+            "act_intent_ref": authorization.act_intent_ref,
+            "act_intent_digest": authorization.act_intent_digest,
+            "act_revision": authorization.act_revision,
+            "subject_digest": authorization.subject_digest,
+            "context_manifest_ref": authorization.context_manifest_ref,
+            "context_manifest_digest": authorization.context_manifest_digest,
+            "stable_execution_key": authorization.stable_execution_key,
+            "budget_reservation_set_ref": authorization.budget_reservation_set_ref,
+        }
+    });
+    let reply: Value = serde_json::from_slice(
+        &daemon.dispatch_line(&request.to_string(), koveed::Surface::Worker),
+    )
+    .expect("the daemon answers one JSON line");
+    assert_eq!(
+        reply["outcome"], "ok",
+        "koveed's own worker op must COMPLETE over the daemon's recording wire: {reply}"
+    );
+    let result = &reply["result"];
+    assert_eq!(result["state"], "completed", "{reply}");
+
+    // The stub provider's own reply reached the worker view — nothing else
+    // could have produced these, and no socket was opened to get them.
+    assert_eq!(result["usage"]["input_tokens"], 41, "{reply}");
+    assert_eq!(result["usage"]["output_tokens"], 2, "{reply}");
+    assert_eq!(result["provider_ref"], "msg_01broker", "{reply}");
+    assert_eq!(result["text"], "OK", "{reply}");
+
+    // And the effect the DAEMON committed records the wire that carried it.
+    let attempt_id = result["effect_attempt_id"].as_str().unwrap();
+    let (state, profile): (String, String) = live
+        .store
+        .conn()
+        .query_row(
+            "SELECT state, transport_profile FROM model_effect_attempts
+             WHERE effect_attempt_id = ?1",
+            [attempt_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (state.as_str(), profile.as_str()),
+        ("completed", "recording-test-double")
+    );
+
+    // byom's half is the real one: exactly one receipt and one MandateUse for
+    // the one-shot permit the daemon consumed.
+    assert_eq!(
+        live.byomd
+            .count("SELECT COUNT(*) FROM execution_consumption_receipts"),
+        1
+    );
+    assert_eq!(live.byomd.count("SELECT COUNT(*) FROM mandate_uses"), 1);
+
+    // A second dispatch of the SPENT permit is refused on the same path.
+    let mut retry = request.clone();
+    retry["meta"] = json!({"request_id": "req-daemon-egress-2",
+                           "idempotency_key": "idem-daemon-egress-2"});
+    let again: Value =
+        serde_json::from_slice(&daemon.dispatch_line(&retry.to_string(), koveed::Surface::Worker))
+            .unwrap();
+    assert_ne!(
+        again["outcome"], "ok",
+        "the one-shot permit is spent: {again}"
+    );
+    assert_eq!(live.byomd.count("SELECT COUNT(*) FROM mandate_uses"), 1);
 }
