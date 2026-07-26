@@ -66,6 +66,119 @@ fn event_count(daemon: &DaemonProc, project: &str) -> usize {
     events["result"]["events"].as_array().unwrap().len()
 }
 
+/// One `application_event_emit` request for this attempt binding.
+fn emit(project: &str, attempt_id: &str, fence: u64) -> Value {
+    mutation(
+        "application_event_emit",
+        Some(project),
+        "idem-worker-emit",
+        json!({
+            "attempt_id": attempt_id,
+            "fence_epoch": fence,
+            "type": "com.example.worker-note.v1",
+            "payload": {"note": "progress"},
+        }),
+    )
+}
+
+/// KV-R1, re-probed exactly as the R1 confirmation probed it.
+///
+/// `application_event_emit` was the operation still on the unguarded
+/// `command_transaction`, so an exact replay returned the stored bytes
+/// before the attempt/fence check ever ran. Emit on a live attempt (ok,
+/// and a live replay is still byte-identical), complete the attempt, then
+/// present the identical request: it must come back as the stale problem,
+/// not as the old receipt — and must re-execute nothing.
+#[test]
+fn an_application_event_replay_is_refused_after_the_attempt_completes() {
+    let base = tmp("k1-replay-auth-app-event");
+    let daemon = DaemonProc::start(&base.join("data"), &base.join("run"), None);
+    let (project, space, branch, head) = setup_space(&daemon);
+    let (invocation_id, attempt_id, fence, _append) =
+        claimed_worker(&daemon, &project, &space, &branch, &head);
+
+    let emit = emit(&project, &attempt_id, fence);
+    let first = daemon.worker_expect_ok(&emit);
+    let event_id = first["result"]["event_id"].as_str().unwrap().to_owned();
+    // While the attempt is live the exact replay still returns the exact
+    // stored bytes — the property the authorizer must not break.
+    let replay = daemon.worker_expect_ok(&emit);
+    assert_eq!(
+        first, replay,
+        "a live attempt still replays byte-identically"
+    );
+    let after_replay = event_count(&daemon, &project);
+
+    // The attempt completes.
+    daemon.worker_expect_ok(&mutation(
+        "invocation_complete",
+        Some(&project),
+        "idem-complete",
+        json!({
+            "invocation_id": invocation_id,
+            "attempt_id": attempt_id,
+            "fence_epoch": fence,
+        }),
+    ));
+
+    // The identical emit request now: a typed problem, no receipt.
+    let refused = daemon.worker_expect_problem(&emit, "stale-lease");
+    assert!(
+        refused.get("result").is_none(),
+        "a refused replay must carry no receipt: {refused}"
+    );
+    assert!(
+        !serde_json::to_string(&refused).unwrap().contains(&event_id),
+        "the refused replay leaked the old receipt: {refused}"
+    );
+    assert_eq!(
+        event_count(&daemon, &project),
+        after_replay + 1,
+        "only the completion event was added; the refused replay executed nothing"
+    );
+}
+
+/// The same probe against an advanced fence rather than a completed
+/// attempt: the attempt is still `running`, so the fence is unambiguously
+/// what refuses the replay.
+#[test]
+fn an_application_event_replay_is_refused_by_an_advanced_fence() {
+    let base = tmp("k1-replay-auth-app-event-fence");
+    let data = base.join("data");
+    let run = base.join("run");
+    let daemon = DaemonProc::start(&data, &run, None);
+    let (project, space, branch, head) = setup_space(&daemon);
+    let (_invocation_id, attempt_id, fence, _append) =
+        claimed_worker(&daemon, &project, &space, &branch, &head);
+
+    let emit = emit(&project, &attempt_id, fence);
+    daemon.worker_expect_ok(&emit);
+    let before = event_count(&daemon, &project);
+    drop(daemon);
+
+    // The supervisor fences the attempt out (K1 has no operation that
+    // advances a fence, so the epoch moves directly on the durable row).
+    {
+        let conn = rusqlite::Connection::open(data.join("kovee.db")).unwrap();
+        let changed = conn
+            .execute(
+                "UPDATE invocation_attempts SET fence_epoch = fence_epoch + 1
+                 WHERE attempt_id = ?1 AND state = 'running'",
+                [&attempt_id],
+            )
+            .unwrap();
+        assert_eq!(changed, 1, "the attempt must still be running");
+    }
+
+    let daemon = DaemonProc::start(&data, &run, None);
+    daemon.worker_expect_problem(&emit, "stale-lease");
+    assert_eq!(
+        event_count(&daemon, &project),
+        before,
+        "the refused replay executed nothing"
+    );
+}
+
 #[test]
 fn a_completed_attempt_is_refused_its_old_receipt() {
     let base = tmp("k1-replay-auth-completed");

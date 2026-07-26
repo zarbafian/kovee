@@ -42,9 +42,269 @@ fn all_stored_bytes(data_dir: &Path) -> Vec<u8> {
 }
 
 fn contains(haystack: &[u8], needle: &str) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|w| w == needle.as_bytes())
+    contains_bytes(haystack, needle.as_bytes())
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// The exact content projection `contribution_append` keys its digest
+/// over — the preimage the confirmation's probe re-derives from.
+fn content_projection(
+    space: &str,
+    branch: &str,
+    branch_sequence: u64,
+    kind: &str,
+    text: &str,
+) -> Value {
+    json!({
+        "space_id": space,
+        "origin_branch_id": branch,
+        "origin_branch_sequence": branch_sequence,
+        "kind": kind,
+        "body_parts": [{"media_type": "text/plain", "text": text}],
+        "subject_refs": [],
+        "source_refs": [],
+        "epistemic_posture": null,
+    })
+}
+
+/// The wrapped per-object secret a contribution row still retains, if any.
+fn retained_wrap(db: &Path, contribution_id: &str) -> Option<Vec<u8>> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.query_row(
+        "SELECT object_secret FROM contributions WHERE contribution_id = ?1",
+        [contribution_id],
+        |r| r.get::<_, Option<Vec<u8>>>(0),
+    )
+    .unwrap()
+}
+
+fn realm_object_key(db: &Path) -> Vec<u8> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = 'realm_object_key'",
+        [],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+/// **The R1 confirmation's own probe.** Take whatever key material the
+/// retained row still carries, open it with the realm key that is sitting
+/// in `meta` right beside it, and recompute the object's stored HMAC
+/// digest from the plaintext. `Ok(digest)` means the "erased" text is
+/// still confirmable from what is on disk; `Err` means the key material
+/// is gone and the digest can no longer be re-derived.
+fn unwrap_and_rederive(
+    db: &Path,
+    contribution_id: &str,
+    projection: &Value,
+) -> Result<(String, Vec<u8>, [u8; 32]), String> {
+    let wrapped = retained_wrap(db, contribution_id)
+        .ok_or_else(|| "no key material is retained beside the object".to_owned())?;
+    let key_ref = format!("kovee-contribution-object:{contribution_id}");
+    let secret = kovee_store::objkey::unwrap(&realm_object_key(db), &key_ref, &wrapped)
+        .map_err(|e| e.to_string())?;
+    let preimage =
+        kovee_core::family::tagged_canonical("kovee-contribution-content", projection).unwrap();
+    let digest = kovee_core::family::hex(&kovee_core::family::hmac_sha256(&secret, &preimage));
+    Ok((digest, wrapped, secret))
+}
+
+/// Appends one text contribution and returns
+/// `(id, digest, origin_branch_sequence, new_head)`.
+fn append_seq(
+    daemon: &DaemonProc,
+    project: &str,
+    space: &str,
+    branch: &str,
+    head: &str,
+    key: &str,
+    text: &str,
+) -> (String, String, u64, String) {
+    let reply = daemon.expect_ok(&mutation(
+        "contribution_append",
+        Some(project),
+        key,
+        json!({
+            "space_id": space,
+            "branch_id": branch,
+            "expected_head_digest": head,
+            "kind": "claim",
+            "body_parts": [{"media_type": "text/plain", "text": text}],
+        }),
+    ));
+    let id = reply["result"]["contribution_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let digest = reply["result"]["content_digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let seq = reply["result"]["origin_branch_sequence"].as_u64().unwrap();
+    let new_head = kovee_core::branch::next_head(head, seq, &digest);
+    (id, digest, seq, new_head)
+}
+
+/// KV-A5-1, re-probed exactly as the R1 confirmation probed it.
+///
+/// The first attempt scrubbed the plaintext but kept the 84-byte wrapped
+/// contribution secret beside the redacted row. The confirmation
+/// unwrapped it with the realm key and reproduced the supposedly-erased
+/// plaintext's stored HMAC digest — so the erasure was worth nothing.
+/// This test runs that same probe twice: it must SUCCEED before the
+/// redaction (otherwise the probe proves nothing) and must be impossible
+/// after it, with no wrap and no raw secret left anywhere in the data
+/// directory. An unrelated contribution stays fully verifiable, and the
+/// branch chain still folds.
+#[test]
+fn redaction_destroys_the_key_material_that_re_derives_the_erased_digest() {
+    let base = tmp("k1-erasure-key-material");
+    let data = base.join("data");
+    let db = data.join("kovee.db");
+    let daemon = DaemonProc::start(&data, &base.join("run"), None);
+    let (project, space, branch, head) = setup_space(&daemon);
+
+    let secret_text = "erase me: the passphrase is correct-horse-battery-staple";
+    let other_text = "an unrelated claim that must stay verifiable";
+    let (secret_id, secret_digest, secret_seq, head) = append_seq(
+        &daemon,
+        &project,
+        &space,
+        &branch,
+        &head,
+        "idem-secret",
+        secret_text,
+    );
+    let (other_id, other_digest, other_seq, head) = append_seq(
+        &daemon,
+        &project,
+        &space,
+        &branch,
+        &head,
+        "idem-other",
+        other_text,
+    );
+    let secret_projection = content_projection(&space, &branch, secret_seq, "claim", secret_text);
+    let other_projection = content_projection(&space, &branch, other_seq, "claim", other_text);
+
+    // ---- the probe, BEFORE redaction: it must work ----
+    // If this ever stops reproducing the digest the probe is broken and
+    // the post-redaction assertion below would prove nothing.
+    let (rederived, wrapped, raw_secret) =
+        unwrap_and_rederive(&db, &secret_id, &secret_projection).expect("the probe must work here");
+    assert_eq!(
+        rederived, secret_digest,
+        "the confirmation's probe: unwrap the retained secret, re-derive the stored digest"
+    );
+    assert_eq!(
+        wrapped.len(),
+        kovee_store::objkey::WRAPPED_LEN,
+        "the retained blob is the 84-byte wrap the confirmation opened"
+    );
+    let live = all_stored_bytes(&data);
+    assert!(
+        contains_bytes(&live, &wrapped),
+        "the fixture must really hold the wrap before erasure"
+    );
+
+    // ---- redact ----
+    daemon.expect_ok(&mutation(
+        "contribution_redact",
+        Some(&project),
+        "idem-redact",
+        json!({"contribution_ref": secret_id, "reason_class": "policy_erasure"}),
+    ));
+
+    // ---- the same probe, AFTER redaction: it must be impossible ----
+    // Run the probe first, exactly as before. It must not get as far as a
+    // digest; anything else means the erased plaintext is still
+    // confirmable from the retained row.
+    match unwrap_and_rederive(&db, &secret_id, &secret_projection) {
+        Err(why) => assert!(why.contains("no key material"), "unexpected: {why}"),
+        Ok((rederived, _, _)) => panic!(
+            "the erased plaintext's digest was re-derived from the retained row \
+             ({rederived}; stored {secret_digest})"
+        ),
+    }
+    assert_eq!(
+        retained_wrap(&db, &secret_id),
+        None,
+        "the redacted row still retains key material"
+    );
+
+    // And nowhere else either: the whole data directory — database, WAL,
+    // shared memory, artifact store — carries neither the wrap nor the
+    // raw secret it unwrapped to.
+    let after = all_stored_bytes(&data);
+    assert!(
+        !contains_bytes(&after, &wrapped),
+        "the wrapped contribution secret survives somewhere on disk"
+    );
+    assert!(
+        !contains_bytes(&after, &raw_secret),
+        "the raw per-object secret survives somewhere on disk"
+    );
+    assert!(!contains(&after, secret_text), "the plaintext survives");
+
+    // The object keeps its address; that address is now unverifiable —
+    // which is exactly what erasing this object's verifiability means.
+    let shown = daemon.expect_ok(&read_cmd(
+        "contribution_show",
+        Some(&project),
+        json!({"contribution_id": secret_id}),
+    ));
+    assert_eq!(
+        shown["result"]["content_digest"].as_str(),
+        Some(secret_digest.as_str())
+    );
+
+    // ---- the unrelated contribution is untouched: still verifiable ----
+    let (other_rederived, other_wrap, _) = unwrap_and_rederive(&db, &other_id, &other_projection)
+        .expect("an unrelated object keeps its own secret");
+    assert_eq!(
+        other_rederived, other_digest,
+        "erasing one object must not erase another's verifiability"
+    );
+    assert!(
+        contains_bytes(&after, &other_wrap),
+        "the unrelated object's wrap is still on disk, as it must be"
+    );
+
+    // ---- the branch chain still folds (D-R1-2) ----
+    // The redacted entry is no longer verifiable, but every entry still
+    // folds: an authorized reader recomputes the head from the ledger and
+    // the next append is accepted against it.
+    let recomputed = kovee_core::branch::next_head(
+        &kovee_core::branch::next_head(
+            &kovee_core::branch::genesis_head(&branch),
+            secret_seq,
+            &secret_digest,
+        ),
+        other_seq,
+        &other_digest,
+    );
+    assert_eq!(recomputed, head, "the fold is unchanged by the erasure");
+    let (_, _, _) = append(
+        &daemon,
+        &project,
+        &space,
+        &branch,
+        &recomputed,
+        "idem-after-erasure",
+        "claim",
+        "the chain still folds after the secret is destroyed",
+        json!({}),
+    );
+    let diagnosis = daemon.expect_ok(&read_cmd("diagnose", None, json!({})));
+    assert_eq!(
+        diagnosis["result"]["status"].as_str(),
+        Some("pass"),
+        "the audit chain must still verify: {diagnosis}"
+    );
 }
 
 /// The digest the pre-R1 construction produced: an ordinary

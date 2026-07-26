@@ -819,12 +819,21 @@ pub fn worker_invocation_cancel(
     let invocation_id = invoke::attempt_invocation_id(store, attempt_id)?;
     let scope = invoke::worker_scope(cmd, &invocation_id)?;
     let attempt_id = attempt_id.to_owned();
-    let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        invoke::check_binding(txn.conn(), &attempt_id, fence)?;
-        // No parent→child ancestry exists in K1: the target can never be
-        // this attempt's child invocation.
-        Err(not_found())
-    });
+    // KV-R1: a worker-surface operation carries its replay authorizer even
+    // when it is inert — the arm exists for registry parity, and a future
+    // implementation must not inherit an unguarded replay path.
+    let outcome = store.command_transaction_guarded(
+        &scope,
+        now,
+        hooks,
+        invoke::binding_authorizer(&attempt_id, fence),
+        move |txn| {
+            invoke::check_binding(txn.conn(), &attempt_id, fence)?;
+            // No parent→child ancestry exists in K1: the target can never
+            // be this attempt's child invocation.
+            Err(not_found())
+        },
+    );
     command_outcome_bytes(outcome)
 }
 
@@ -834,6 +843,11 @@ pub fn worker_invocation_cancel(
 /// the fenced attempt appends ONE registered-namespace event to its
 /// invocation's project ledger. The reserved `dev.kovee.*` namespace is
 /// refused — a worker can never counterfeit a Kovee lifecycle event.
+///
+/// KV-R1: like every other worker-surface operation this runs through
+/// [`Store::command_transaction_guarded`], so an exact replay from an
+/// attempt that has completed (or whose fence has moved) is refused with
+/// `stale-lease` BEFORE the stored receipt is released.
 pub fn application_event_emit(
     store: &mut Store,
     cmd: &RawCommand,
@@ -845,62 +859,81 @@ pub fn application_event_emit(
     let scope = invoke::worker_scope(cmd, &invocation_id)?;
     let meta = cmd.meta.clone().ok_or_else(internal)?;
     let project_id = cmd.project_id.clone().ok_or_else(internal)?;
-    let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        if args.event_type.starts_with(RESERVED_EVENT_NAMESPACE) {
-            return Err(Problem::new(
-                ProblemKind::Forbidden,
-                "the dev.kovee namespace is reserved (§11.3)",
-            ));
-        }
-        let (attempt, invocation) =
-            invoke::check_binding(txn.conn(), &args.attempt_id, args.fence_epoch)?;
-        if invocation.project_id != project_id {
-            return Err(not_found());
-        }
-        let stream_id = invocation
-            .space_id
-            .clone()
-            .unwrap_or_else(|| invocation.invocation_id.clone());
-        let event = txn
-            .append_event(NewEvent {
-                stream_id,
-                project_id: Some(project_id.clone()),
-                actor_ref: Some(invoke::deployment_actor_ref()),
-                event_type: args.event_type.clone(),
-                schema_ref: APP_EVENT_SCHEMA_REF.to_owned(),
-                resource_ref: invocation.invocation_id.clone(),
-                resource_revision: None,
-                causation_ref: meta.causation_event_ref.clone(),
-                correlation_ref: meta.request_id.clone(),
-                classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
-                payload: args.payload.clone(),
+    let replay = (
+        args.attempt_id.clone(),
+        args.fence_epoch,
+        project_id.clone(),
+    );
+    let outcome = store.command_transaction_guarded(
+        &scope,
+        now,
+        hooks,
+        move |conn| {
+            let (attempt_id, fence, project_id) = replay;
+            let (_, invocation) = invoke::check_binding(conn, &attempt_id, fence)?;
+            // The ledger the receipt names must still be this attempt's.
+            if invocation.project_id != project_id {
+                return Err(not_found());
+            }
+            Ok(())
+        },
+        move |txn| {
+            if args.event_type.starts_with(RESERVED_EVENT_NAMESPACE) {
+                return Err(Problem::new(
+                    ProblemKind::Forbidden,
+                    "the dev.kovee namespace is reserved (§11.3)",
+                ));
+            }
+            let (attempt, invocation) =
+                invoke::check_binding(txn.conn(), &args.attempt_id, args.fence_epoch)?;
+            if invocation.project_id != project_id {
+                return Err(not_found());
+            }
+            let stream_id = invocation
+                .space_id
+                .clone()
+                .unwrap_or_else(|| invocation.invocation_id.clone());
+            let event = txn
+                .append_event(NewEvent {
+                    stream_id,
+                    project_id: Some(project_id.clone()),
+                    actor_ref: Some(invoke::deployment_actor_ref()),
+                    event_type: args.event_type.clone(),
+                    schema_ref: APP_EVENT_SCHEMA_REF.to_owned(),
+                    resource_ref: invocation.invocation_id.clone(),
+                    resource_revision: None,
+                    causation_ref: meta.causation_event_ref.clone(),
+                    correlation_ref: meta.request_id.clone(),
+                    classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
+                    payload: args.payload.clone(),
+                })
+                .map_err(store_problem)?;
+            txn.audit(
+                "command.application_event_emitted",
+                &format!(
+                    "event={};invocation={};attempt={};type={};{}",
+                    event.event_id,
+                    invocation.invocation_id,
+                    attempt.attempt_id,
+                    args.event_type,
+                    scope_digest(&meta)
+                ),
+            );
+            let cursor = txn
+                .mint_project_cursor(&project_id, event.project_sequence.unwrap_or(0))
+                .map_err(store_problem)?;
+            Ok(Applied {
+                result: serde_json::json!({
+                    "event_id": event.event_id,
+                    "stream_id": event.stream_id,
+                    "stream_sequence": event.stream_sequence,
+                    "project_sequence": event.project_sequence,
+                    "occurred_at": event.occurred_at,
+                }),
+                revision: None,
+                event_cursor: Some(cursor),
             })
-            .map_err(store_problem)?;
-        txn.audit(
-            "command.application_event_emitted",
-            &format!(
-                "event={};invocation={};attempt={};type={};{}",
-                event.event_id,
-                invocation.invocation_id,
-                attempt.attempt_id,
-                args.event_type,
-                scope_digest(&meta)
-            ),
-        );
-        let cursor = txn
-            .mint_project_cursor(&project_id, event.project_sequence.unwrap_or(0))
-            .map_err(store_problem)?;
-        Ok(Applied {
-            result: serde_json::json!({
-                "event_id": event.event_id,
-                "stream_id": event.stream_id,
-                "stream_sequence": event.stream_sequence,
-                "project_sequence": event.project_sequence,
-                "occurred_at": event.occurred_at,
-            }),
-            revision: None,
-            event_cursor: Some(cursor),
-        })
-    });
+        },
+    );
     command_outcome_bytes(outcome)
 }

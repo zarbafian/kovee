@@ -11,9 +11,18 @@
 //! key — see [`mint_content_digest`]), so no plaintext-derived digest of
 //! a contribution exists to be copied into replay results, audit rows,
 //! relations, event payloads, or branch folds. Redaction removes the
-//! plaintext and every retained copy of it; destroying the per-object
-//! secret afterwards erases exactly that object's verifiability, and
-//! nothing else's.
+//! plaintext, every retained copy of it, AND this object's wrapped
+//! secret — erasing exactly that object's verifiability, and nothing
+//! else's.
+//!
+//! Why the secret dies with the plaintext (KV-A5-1): a wrap retained
+//! beside a redacted row is not erasure. Anyone with the realm key —
+//! which is right there in `meta` — unwraps it, HMACs a guess of the
+//! removed text, and compares with the stored digest. The R1
+//! confirmation did exactly that. `NULL`ing the wrap removes the only
+//! copy of that object's key material, so the digest becomes
+//! unreproducible; every other object keeps its own wrap and stays
+//! verifiable.
 
 use kovee_core::envelope::CommandMeta;
 use kovee_core::event::{
@@ -281,18 +290,25 @@ pub fn mint_content_digest(
 /// - the plaintext body parts are replaced by the schema-valid redaction
 ///   placeholder, and any artifact part's bytes and per-object secret are
 ///   erased with it;
+/// - **this object's wrapped secret is destroyed** (`object_secret =
+///   NULL`), so its `local_erasure_safe` digest can no longer be
+///   re-derived from the removed plaintext by anyone — including a holder
+///   of the realm key (KV-A5-1);
 /// - the content digest is already `local_erasure_safe` (keyed from the
 ///   first append), so nothing plaintext-derived has to be replaced; a
 ///   pre-V5 row that still carries a plaintext canonical digest is
-///   re-keyed here and every retained copy of the old value is scrubbed
-///   with the plaintext;
+///   re-keyed here (under a secret that is never stored) and every
+///   retained copy of the old value is scrubbed with the plaintext;
 /// - every retention-graph copy is scrubbed transactionally: the stored
 ///   idempotency result bytes (a replay returns the redacted projection,
 ///   never the erased plaintext), the retained event payloads with their
 ///   recomputed payload digests, the audit details (re-linked), and the
 ///   assembly/invocation records;
 /// - the branch head is recomputed as the fold over the branch entries,
-///   so the keyed chain stays recomputable by any authorized reader.
+///   so the keyed chain stays recomputable by any authorized reader. The
+///   redacted entry's own digest is no longer verifiable (its secret is
+///   gone — that is the erasure semantics, D-R1-2); every unrelated entry
+///   still folds and still verifies.
 ///
 /// The file-level compaction that removes freed plaintext pages runs
 /// straight after the commit ([`kovee_store::Store::compact_after_erasure`]);
@@ -335,13 +351,12 @@ pub fn contribution_redact(
         // A pre-V5 row has no wrapped secret and a plaintext canonical
         // digest — re-key it now and sweep the old value out with the
         // plaintext.
-        let (value_hex, digest_ref, wrapped) = match wrapped_secret {
-            Some(wrapped) => {
+        let (value_hex, digest_ref) = match wrapped_secret {
+            Some(_) => {
                 let key_ref = format!("kovee-contribution-object:{}", contribution.contribution_id);
                 (
                     old_digest.clone(),
                     DigestRef::local_erasure_safe(&key_ref, old_digest.clone()),
-                    wrapped,
                 )
             }
             None => {
@@ -355,11 +370,15 @@ pub fn contribution_redact(
                     "source_refs": contribution.source_refs,
                     "epistemic_posture": contribution.epistemic_posture,
                 });
-                mint_content_digest(
+                let (value_hex, digest_ref, _destroyed_with_the_plaintext) = mint_content_digest(
                     txn.conn(),
                     &contribution.contribution_id,
                     &content_projection,
-                )?
+                )?;
+                // The fresh wrap is never stored: it is minted only to
+                // give the erased object a stable address that is not
+                // plaintext-derived, and dropped in this same statement.
+                (value_hex, digest_ref)
             }
         };
         let rekeyed = value_hex != old_digest;
@@ -370,18 +389,25 @@ pub fn contribution_redact(
             language: None,
         }];
         let now_ts = txn.now_ts();
+        // KV-A5-1: `object_secret = NULL` is the erasure. Keeping the wrap
+        // beside the redacted row left the whole promise on the realm key:
+        // the R1 confirmation unwrapped the retained 84-byte blob and
+        // recomputed the erased plaintext's stored HMAC digest from a
+        // guess. Destroying the wrap destroys this object's key material,
+        // so that digest can never be re-derived — by us or by anyone
+        // holding the realm key. The digest VALUE stays as the object's
+        // address; it is now unverifiable, which is what erasure means.
         txn.conn()
             .execute(
                 "UPDATE contributions SET body_parts = ?2, content_digest = ?3,
                      content_state = 'redacted', content_digest_ref = ?4,
-                     object_secret = ?5
+                     object_secret = NULL
                  WHERE contribution_id = ?1",
                 params![
                     contribution.contribution_id,
                     serde_json::to_string(&redacted_parts).map_err(|_| internal())?,
                     value_hex,
                     serde_json::to_string(&digest_ref).map_err(|_| internal())?,
-                    wrapped.as_slice(),
                 ],
             )
             .map_err(|e| store_problem(e.into()))?;

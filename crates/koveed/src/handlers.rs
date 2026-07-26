@@ -23,7 +23,10 @@ use crate::state::*;
 /// external client channel for the same-UID owner principal.
 pub const SURFACE: &str = "external_client";
 /// The worker surface (§23.3): a separate socket, fenced attempt actors.
-pub const WORKER_SURFACE: &str = "worker";
+/// The store knows this name too — it refuses a worker-surface scope on
+/// the unguarded command transaction (KV-R1), so the two must be the
+/// same string, not two spellings of it.
+pub const WORKER_SURFACE: &str = kovee_store::WORKER_SURFACE;
 
 pub fn command_outcome_bytes(
     outcome: Result<kovee_store::CommandOutcome, CommandError>,

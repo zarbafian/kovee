@@ -75,6 +75,19 @@ pub fn check_binding(
     Ok((attempt, invocation))
 }
 
+/// The §11.2 replay authorizer a worker-surface operation hands to
+/// [`Store::command_transaction_guarded`] (KV-R1): the attempt binding is
+/// re-validated against CURRENT state before any stored receipt byte is
+/// released, so a completed attempt or an advanced fence gets
+/// `stale-lease` instead of its old reply — and re-executes nothing.
+pub fn binding_authorizer(
+    attempt_id: &str,
+    fence_epoch: u64,
+) -> impl FnOnce(&Connection) -> Result<(), Problem> {
+    let attempt_id = attempt_id.to_owned();
+    move |conn| check_binding(conn, &attempt_id, fence_epoch).map(drop)
+}
+
 // ------------------------------------------------------ invocation_create ----
 
 pub fn invocation_create(

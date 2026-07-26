@@ -30,7 +30,10 @@
 //! Two R1 corrections live in that one function:
 //! - [`Store::command_transaction_guarded`] runs an operation-specific
 //!   **replay authorizer** before any stored byte is released (KV-R1), so
-//!   a dead worker attempt gets a typed problem, not its old receipt;
+//!   a dead worker attempt gets a typed problem, not its old receipt —
+//!   and the unguarded [`Store::command_transaction`] **refuses a
+//!   worker-surface scope**, so no worker-surface operation can reach the
+//!   stored bytes without one;
 //! - the §11.8 **result bounds are judged inside the transaction**
 //!   (KV-C2), so an over-cap result rolls the command back instead of
 //!   committing a receipt every reply — original and replay — would have
@@ -84,6 +87,21 @@ pub const PERSONAL_REALM_ID: &str = "realm-personal";
 /// channel binding, §9.1: local mode binds one principal to Unix peer
 /// credentials). Channel-derived; never accepted from a request body.
 pub const OWNER_ACTOR_REF: &str = "prin-owner";
+/// The §11.6.1 worker authority surface. Every worker-surface command
+/// scope names it as the first segment of `actor_scope`, and
+/// [`Store::command_transaction`] **refuses** such a scope: a
+/// worker-surface operation must carry its replay authorizer through
+/// [`Store::command_transaction_guarded`] (KV-R1). Forgetting one is a
+/// loud fault, not a silently stale receipt.
+pub const WORKER_SURFACE: &str = "worker";
+
+/// Whether a command scope belongs to the worker authority surface.
+fn is_worker_scope(actor_scope: &str) -> bool {
+    actor_scope
+        .split('/')
+        .next()
+        .is_some_and(|surface| surface == WORKER_SURFACE)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -485,6 +503,10 @@ impl Store {
     ///
     /// (Steps 1–2, channel authentication and authorization, precede this
     /// call in the daemon.)
+    ///
+    /// Its replay authorizer is the empty one, so this entry point is for
+    /// **owner-surface** operations only: a worker-surface scope is
+    /// refused here (KV-R1) — see [`Store::command_transaction_guarded`].
     pub fn command_transaction(
         &mut self,
         scope: &CommandScope,
@@ -492,6 +514,17 @@ impl Store {
         hooks: CrashHooks,
         apply: impl FnOnce(&mut CommandTxn) -> Result<Applied, Problem>,
     ) -> Result<CommandOutcome, CommandError> {
+        if is_worker_scope(&scope.actor_scope) {
+            // Structural, not a convention: a worker-surface operation
+            // added without its authorizer fails closed instead of
+            // handing a dead attempt its old receipt.
+            return Err(CommandError::Store(StoreError::Corrupt(format!(
+                "worker-surface operation {} used the unguarded command \
+                 transaction; every worker-surface operation must pass a \
+                 replay authorizer (KV-R1)",
+                scope.operation
+            ))));
+        }
         self.command_transaction_guarded(scope, now, hooks, |_| Ok(()), apply)
     }
 
@@ -515,14 +548,18 @@ impl Store {
     ///     idempotency_key: "k".into(),
     ///     request_digest: "d".repeat(64),
     /// };
-    /// store.command_transaction(&scope, 0, CrashHooks::NONE, |_| Ok(Applied {
-    ///     result: serde_json::json!({"ok": true}), revision: Some(1), event_cursor: None,
-    /// })).unwrap();
+    /// // The attempt is live: the authorizer passes and the command runs.
+    /// store.command_transaction_guarded(&scope, 0, CrashHooks::NONE, |_| Ok(()),
+    ///     |_| Ok(Applied { result: serde_json::json!({"ok": true}),
+    ///                      revision: Some(1), event_cursor: None })).unwrap();
     /// // The lease is gone: the replay is refused, not served.
     /// let err = store.command_transaction_guarded(&scope, 0, CrashHooks::NONE,
     ///     |_| Err(Problem::new(ProblemKind::StaleLease, "attempt binding is not current")),
     ///     |_| unreachable!("a refused replay never re-executes")).unwrap_err();
     /// assert!(matches!(err, CommandError::Problem(p) if p.kind == ProblemKind::StaleLease));
+    /// // And the unguarded entry point refuses a worker scope outright.
+    /// assert!(store.command_transaction(&scope, 0, CrashHooks::NONE,
+    ///     |_| unreachable!("never reached")).is_err());
     /// ```
     pub fn command_transaction_guarded(
         &mut self,
@@ -1119,6 +1156,47 @@ mod tests {
             .command_transaction(&scope, 0, CrashHooks::NONE, |_| {
                 Ok(Applied {
                     result: serde_json::json!({"affected": ["front-0"]}),
+                    revision: Some(1),
+                    event_cursor: None,
+                })
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn the_unguarded_transaction_refuses_a_worker_surface_scope() {
+        // KV-R1, structurally: `application_event_emit` reached the stored
+        // bytes because it called the unguarded entry point. A worker
+        // scope can no longer get there at all — so a worker-surface
+        // operation added without a replay authorizer fails loudly on its
+        // first call instead of quietly serving a dead attempt.
+        let mut store = Store::open_in_memory().unwrap();
+        store.bootstrap(0).unwrap();
+        let scope = CommandScope {
+            actor_scope: format!("{WORKER_SURFACE}/inv-1/{PERSONAL_REALM_ID}"),
+            operation: "application_event_emit".into(),
+            idempotency_key: "k".into(),
+            request_digest: "a".repeat(64),
+        };
+        let err = store
+            .command_transaction(&scope, 0, CrashHooks::NONE, |_| {
+                panic!("an unguarded worker command must never execute")
+            })
+            .unwrap_err();
+        assert!(
+            matches!(&err, CommandError::Store(StoreError::Corrupt(m))
+                if m.contains("application_event_emit")),
+            "unexpected {err:?}"
+        );
+        // The owner surface is untouched.
+        let owner = CommandScope {
+            actor_scope: format!("external_client/{OWNER_ACTOR_REF}/{PERSONAL_REALM_ID}"),
+            ..scope
+        };
+        store
+            .command_transaction(&owner, 0, CrashHooks::NONE, |_| {
+                Ok(Applied {
+                    result: serde_json::json!({"ok": true}),
                     revision: Some(1),
                     event_cursor: None,
                 })
