@@ -1004,11 +1004,11 @@ fn the_disclosure_manifest_is_complete_and_names_training_use() {
     assert_eq!(permit["phase"], json!("pre_egress"));
     assert_eq!(permit["owner_protocol"], json!("byom"));
     assert_eq!(permit["max_uses"], json!(1));
-    // Recorded deviation, machine-checked: byom f232b04's `receipt_result`
-    // renders its digest members null, so those echoes cannot be re-checked
-    // here and the permit NAMES them rather than assuming them. byomd
-    // re-derived all of them against its own committed act inside the
-    // consuming transaction.
+    // byom 12c8fd2 renders every receipt digest member (it previously
+    // rendered them null, which is why this once asserted the opposite).
+    // Nothing is left unverified: the permit re-checked every echo against
+    // what Kovee sent, and byomd re-derived them against its own committed
+    // act inside the consuming transaction.
     let unverified: Vec<String> = permit["owner_unverified_digests"]
         .as_array()
         .unwrap()
@@ -1016,8 +1016,23 @@ fn the_disclosure_manifest_is_complete_and_names_training_use() {
         .map(|v| v.as_str().unwrap().to_owned())
         .collect();
     assert!(
-        unverified.contains(&"disclosure_digest".to_owned()),
-        "{unverified:?}"
+        unverified.is_empty(),
+        "byom publishes every receipt digest now: {unverified:?}"
+    );
+    // The receipt's own binding digest is the one that authenticates the
+    // permit before egress, so re-derive it rather than trusting it: it is
+    // portable_public per A8, over the frozen fragment both sides hold.
+    let receipt_digest = &receipt["digest"];
+    assert_eq!(receipt_digest["class"], json!("portable_public"));
+    assert_eq!(receipt_digest["algorithm"], json!("sha-256"));
+    assert!(
+        receipt_digest["key_ref"].is_null(),
+        "a portable_public digest carries no key_ref: {receipt_digest}"
+    );
+    assert_eq!(
+        receipt["mandate_use_digest"]["class"],
+        json!("portable_public"),
+        "the MandateUse pin must be consumer-derivable (A8)"
     );
 
     // The §16.3 chain is persisted, ordered, and ends at the exact bytes.
