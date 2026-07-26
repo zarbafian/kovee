@@ -1,0 +1,50 @@
+{
+  "name": "family/parent-budget-fragment",
+  "owner": "byom",
+  "producer": "byomd::episode_ops::parent_budget_fragment",
+  "domain": "bpp-parent-budget-fragment-v0",
+  "nested_domain": "bpp-budget-reservation-set-binding-v0",
+  "description": "The frozen portable_public parent-budget fragment byom's episode_request publishes (R3-L02, disposition D-R3-3), recorded from byom's own producer. It exists so the CONSUMER's test is not the producer's test: kovee verifies these exact recorded bytes, so a change to either side's domain tag, member set or canonicalization is a disagreement a machine sees. byom's own test re-runs the producer over `inputs` and asserts it reproduces `fragment`.",
+  "inputs": {
+    "byom_budget_reservation_set_ref": "brs-vector-1",
+    "byom_budget_reservation_set_revision": 4,
+    "external_budget_bridge_ref": "ebb-vector-1",
+    "external_budget_bridge_revision": 2,
+    "stable_external_reservation_key": "stable-vector-1",
+    "items": [
+      {
+        "account_ref": "bacct-parent-1",
+        "account_revision": 3,
+        "dimension": "unit",
+        "unit": "unit",
+        "worst_case_amount": 256
+      }
+    ]
+  },
+  "fragment": {
+    "byom_budget_reservation_set_digest": {
+      "algorithm": "sha-256",
+      "class": "portable_public",
+      "value_hex": "ef61ea8c10aff12f63064960ab2b5e55997ca18a3c1dc58995785eb856d3022c"
+    },
+    "byom_budget_reservation_set_ref": "brs-vector-1",
+    "byom_budget_reservation_set_revision": 4,
+    "digest": {
+      "algorithm": "sha-256",
+      "class": "portable_public",
+      "value_hex": "9ecda50f25f5a1f4da5e264f175c2bfcfade42fc3e9ca3ebdacfc52bcf819398"
+    },
+    "external_budget_bridge_ref": "ebb-vector-1",
+    "external_budget_bridge_revision": 2,
+    "items": [
+      {
+        "account_ref": "bacct-parent-1",
+        "account_revision": 3,
+        "dimension": "unit",
+        "unit": "unit",
+        "worst_case_amount": 256
+      }
+    ],
+    "stable_external_reservation_key": "stable-vector-1"
+  }
+}

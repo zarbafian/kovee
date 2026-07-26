@@ -13,9 +13,13 @@
 //! | the ACCOUNT ledger, not row arithmetic (R3-U03) | `the_capacity_ledger_conserves_across_every_transition` |
 //! | child rollup (R3-U03) | `capacity_delegated_to_a_child_rolls_back_up_unspent` |
 //! | the two-sided saga (R3-U01/U02) | `settlement_is_a_two_sided_saga_capped_locally_first` |
-//! | crash between the two sides (R3-U02) | `a_crash_between_the_two_sides_reconciles_to_byoms_truth` |
+//! | the saga record's own mechanics | `the_durable_saga_record_applies_only_what_the_peer_answers` |
 //! | duplicate parent-item pins (R3-U04) | `duplicate_parent_item_pins_cannot_amplify_the_parent` |
 //! | the verified parent fragment (R3-L02) | `the_parent_comes_only_from_byoms_verified_fragment` |
+//!
+//! The crash BETWEEN the two sides (R3-U02) is not provable here: a stub peer
+//! cannot show that production reconciliation exists. It is locked in
+//! `k2_episode_live`, against the real `byomd` and the real `koveed` binary.
 //!
 //! Recorded deviation: the byom kernel initiates this saga at
 //! `resource_allocate`, and §16.6 item 4 gives it no BPP or KCP operation at
@@ -705,16 +709,19 @@ fn settlement_is_a_two_sided_saga_capped_locally_first() {
     );
 }
 
-/// **R3-U02, reproduced.** The probe: byom is charged and Kovee is not. The
-/// scripted run charged byom 44 while Kovee stayed `confirmed, charged = 0,
-/// released_lifetime = 0` — no local settlement anywhere, and none at episode
-/// completion either.
+/// The saga RECORD's own mechanics, with a stub peer: a durable row survives a
+/// reopen, an answered query applies exactly the peer's number, and an
+/// unanswered one stays unresolved.
 ///
-/// This exercises the crash between the two sides directly: the local record
-/// is committed, the process dies, the store is REOPENED from disk, and
-/// reconciliation asks the peer what it committed and applies exactly that.
+/// This is deliberately **not** the R3-U02 lock. Its "peer" is a closure, so it
+/// cannot show that the production start-up sweep exists at all — the
+/// confirmer deleted that entire invocation from `Daemon::new` and this test
+/// stayed green. The lock is
+/// `k2_episode_live::a_crash_between_the_two_sides_reconciles_to_byoms_truth`,
+/// where the peer is the real `byomd` and the reconciler is the real `koveed`
+/// binary.
 #[test]
-fn a_crash_between_the_two_sides_reconciles_to_byoms_truth() {
+fn the_durable_saga_record_applies_only_what_the_peer_answers() {
     let base = tmp("k2-budget-crash");
     let path = base.join("kovee.sqlite3");
     let reference;
@@ -898,13 +905,79 @@ fn duplicate_parent_item_pins_cannot_amplify_the_parent() {
     assert!(account(&store).conserves());
 }
 
-/// **R3-L02, reproduced.** The parent used to arrive as caller arguments and
-/// naming conventions, and Kovee MINTED byom's reservation digest with its own
-/// governance key. The fragment is now the only door, it is verified, and its
-/// members are exactly the frozen set.
+/// **R3-L02, reproduced against BYOM's OWN recorded fragment.**
+///
+/// The parent used to arrive as caller arguments and naming conventions, and
+/// Kovee MINTED byom's reservation digest with its own governance key. The
+/// fragment is now the only door, and — the part that was missing — the
+/// fragment this test verifies is **byom's**, not one Kovee composed for
+/// itself. The previous version called `budget::doc_fragment`, so Kovee
+/// constructed and verified both sides: changing only Kovee's
+/// `PARENT_BUDGET_TAG` left it green, because both halves moved together.
+///
+/// `crates/koveed/tests/vectors/byom-parent-budget-fragment.json` is a recording of
+/// byom's own producer (`byomd::episode_ops::parent_budget_fragment`), pinned
+/// by the same digest constant byom's
+/// `the_published_fragment_reproduces_the_pinned_family_vector` names. Kovee
+/// only consumes it. A domain tag, member set or canonicalization that no
+/// longer agrees with byom's is now a machine-visible disagreement on
+/// whichever side moved.
 #[test]
 fn the_parent_comes_only_from_byoms_verified_fragment() {
+    const VECTOR: &str = include_str!("vectors/byom-parent-budget-fragment.json");
+    /// The one constant both repositories name literally.
+    const PINNED_DIGEST: &str = "9ecda50f25f5a1f4da5e264f175c2bfcfade42fc3e9ca3ebdacfc52bcf819398";
+
     let mut store = store("k2-budget-fragment");
+    let vector: Value = serde_json::from_str(VECTOR).expect("the pinned byom vector parses");
+    assert_eq!(
+        vector["owner"], "byom",
+        "this vector is byom's, not Kovee's"
+    );
+    let fragment = vector["fragment"].clone();
+    assert_eq!(fragment["digest"]["value_hex"], PINNED_DIGEST);
+
+    // BYOM's recorded fragment verifies on this side, with no help from any
+    // Kovee-side producer. This is the assertion the confirmer's independent
+    // test made and the shipped one did not.
+    let byoms = budget::verify_parent_fragment(&fragment, "soc-1", 0)
+        .expect("byom's own recorded fragment verifies against Kovee's verifier");
+    let inputs = &vector["inputs"];
+    assert_eq!(
+        byoms.byom_reservation_set_ref,
+        inputs["byom_budget_reservation_set_ref"].as_str().unwrap()
+    );
+    assert_eq!(
+        byoms.byom_reservation_set_revision,
+        inputs["byom_budget_reservation_set_revision"]
+            .as_u64()
+            .unwrap()
+    );
+    assert_eq!(
+        byoms.external_budget_bridge_ref,
+        inputs["external_budget_bridge_ref"].as_str().unwrap()
+    );
+    assert_eq!(
+        byoms.stable_external_reservation_key,
+        inputs["stable_external_reservation_key"].as_str().unwrap()
+    );
+    assert_eq!(
+        byoms.ceiling("unit"),
+        inputs["items"][0]["worst_case_amount"].as_u64().unwrap()
+    );
+    assert_eq!(byoms.fragment_digest.value_hex, PINNED_DIGEST);
+    // Tampering with byom's recorded bytes is refused for the same reason.
+    let mut tampered_vector = fragment.clone();
+    tampered_vector["items"][0]["worst_case_amount"] = json!(4_096);
+    assert_eq!(
+        budget::verify_parent_fragment(&tampered_vector, "soc-1", 0)
+            .unwrap_err()
+            .kind,
+        ProblemKind::StaleRevision
+    );
+
+    // The rest of the negatives run over a locally composed fragment, because
+    // they need members byom would never emit (an extra one, a missing one).
     let items = json!([parent_item(256, 3)]);
     let fragment = budget::doc_fragment("brs-9", 4, "ebb-9", 2, "stable-frag", items.clone());
 

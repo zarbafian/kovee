@@ -94,9 +94,46 @@ use crate::manifest::{ManifestError, ProviderContextManifest};
 use crate::permit::{Claim, ConsumptionAuthority, ExecutionPermit};
 use crate::transport::Egress;
 
-/// The byom type tag of Kovee's local effect projection — the preimage of
-/// the `host_effect_digest` byom stores and compares on replay.
-pub const EFFECT_TAG: &str = "kovee-model-effect-v1";
+/// **Kovee's `$domain` for the host-effect BINDING fragment** — the preimage
+/// of the `host_effect_digest` byom stores, compares on replay, and demands
+/// again at `effect_outcome_admit`.
+///
+/// It is the converse of byom's `bpp-parent-budget-fragment-v0` (R3-L02): a
+/// peer-owned digest the other side must verify travels as a frozen
+/// `portable_public` fragment whose members that side holds, so the digest is
+/// *derived*, not *asserted* (disposition D-R3-3). byom rebuilds this exact
+/// preimage — the act facts from its OWN committed ActIntent, the two
+/// Kovee-owned members from the request — and refuses a
+/// `host_effect_digest` that does not re-derive from it.
+///
+/// The old preimage was Kovee's whole local effect projection, including its
+/// keyed provider-context digest. byom held none of those bytes, so it could
+/// only store whatever value it was handed.
+pub const HOST_EFFECT_BINDING_TAG: &str = "kovee-host-effect-binding-v1";
+
+/// The frozen member set of that fragment, in canonical order.
+///
+/// - `intent_ref`, `stable_execution_key`, `context_manifest_ref`,
+///   `context_digest`, `disclosure_manifest_ref`, `disclosure_digest` are
+///   byom's OWN committed act facts. They are never echoed as request members
+///   (A8's converse); byom reads each from its committed ActIntent.
+/// - `host_effect_ref` is Kovee's Effect identity, already a request member.
+/// - `external_idempotency_key` and `final_provider_request_typed_byte_digest`
+///   are Kovee's own, and travel as request members precisely so byom can
+///   rebuild the preimage. They are not free: byom re-checks that the
+///   idempotency key is exactly
+///   `kovee-model-{stable_execution_key}-{byte_digest[..16]}`.
+pub const HOST_EFFECT_BINDING_FIELDS: [&str; 9] = [
+    "context_digest",
+    "context_manifest_ref",
+    "disclosure_digest",
+    "disclosure_manifest_ref",
+    "external_idempotency_key",
+    "final_provider_request_typed_byte_digest",
+    "host_effect_ref",
+    "intent_ref",
+    "stable_execution_key",
+];
 /// The typed-bytes domain of a provider response.
 pub const PROVIDER_RESPONSE_DOMAIN: &str = "dev.kovee.provider-response-bytes.v1";
 
@@ -142,6 +179,10 @@ pub struct CallPlan {
     external_idempotency_key: String,
     subject_digest: DigestRef,
     host_effect_digest: DigestRef,
+    /// The exact preimage of `host_effect_digest`: the frozen
+    /// `portable_public` fragment byom rebuilds from its own committed act
+    /// (R3-L01, D-R3-3).
+    host_effect_binding: Value,
     disclosure: DisclosureManifest,
     context_manifest: ProviderContextManifest,
     origin: Origin,
@@ -200,16 +241,15 @@ impl CallPlan {
         self.max_output_tokens
     }
 
-    /// The local effect projection whose digest byom stores.
-    pub fn projection(&self) -> Value {
-        projection(
-            &self.effect_id,
-            &self.execution_key,
-            &self.external_idempotency_key,
-            &self.subject_digest,
-            &self.disclosure,
-            &self.context_manifest,
-        )
+    /// The frozen `portable_public` host-effect binding fragment — the exact
+    /// preimage of [`host_effect_digest`](Self::host_effect_digest), which
+    /// byom rebuilds from its own committed act (D-R3-3).
+    ///
+    /// It is published for audit and for the vector that pins the two sides
+    /// together; the wire carries only the two Kovee-owned members byom does
+    /// not hold, never byom's own committed digests (A8's converse).
+    pub fn host_effect_binding(&self) -> &Value {
+        &self.host_effect_binding
     }
 
     /// A plan identical to this one but dialing `origin` — **test-only**, and
@@ -234,28 +274,43 @@ impl CallPlan {
     }
 }
 
-/// The effect projection, from the parts — so [`plan`] can seal a `CallPlan`
-/// in ONE construction, digest included, rather than patching a field in.
-fn projection(
-    effect_id: &str,
-    execution_key: &str,
+/// **The host-effect binding fragment (R3-L01, D-R3-3).**
+///
+/// Composed here from the parts so [`plan`] seals a `CallPlan` in ONE
+/// construction, digest included. Every member is one byom either holds in its
+/// committed ActIntent or is handed explicitly, so byom can build the
+/// identical preimage and re-derive the digest instead of storing an
+/// assertion. [`host_effect_binding_digest`] is the whole of what byom checks.
+#[allow(clippy::too_many_arguments)]
+pub fn host_effect_binding(
+    host_effect_ref: &str,
+    intent_ref: &str,
+    stable_execution_key: &str,
+    context_manifest_ref: &str,
+    context_digest: &DigestRef,
+    disclosure_manifest_ref: &str,
+    disclosure_digest: &DigestRef,
     external_idempotency_key: &str,
-    subject_digest: &DigestRef,
-    disclosure: &DisclosureManifest,
-    context_manifest: &ProviderContextManifest,
+    request_byte_digest: &str,
 ) -> Value {
     json!({
-        "effect_id": effect_id,
-        "execution_key": execution_key,
+        "context_digest": context_digest,
+        "context_manifest_ref": context_manifest_ref,
+        "disclosure_digest": disclosure_digest,
+        "disclosure_manifest_ref": disclosure_manifest_ref,
         "external_idempotency_key": external_idempotency_key,
-        "subject_digest": subject_digest,
-        "disclosure_manifest_ref": disclosure.disclosure_id,
-        "disclosure_digest": disclosure.digest,
-        "provider_context_id": context_manifest.provider_context_id,
-        "provider_context_digest": context_manifest.digest,
-        "final_provider_request_typed_byte_digest":
-            context_manifest.final_provider_request_typed_byte_digest,
+        "final_provider_request_typed_byte_digest": request_byte_digest,
+        "host_effect_ref": host_effect_ref,
+        "intent_ref": intent_ref,
+        "stable_execution_key": stable_execution_key,
     })
+}
+
+/// The `portable_public` digest of one such fragment. Unkeyed by
+/// construction: a cross-boundary digest a counterparty must re-derive can
+/// never be keyed (A8).
+pub fn host_effect_binding_digest(fragment: &Value) -> Option<DigestRef> {
+    record_digest(HOST_EFFECT_BINDING_TAG, fragment, RecordDigestKey::Portable)
 }
 
 /// What the caller asks the broker to plan.
@@ -264,8 +319,18 @@ pub struct PlanInput<'a> {
     pub effect_id: &'a str,
     /// byom's `stable_execution_key` from the prepared `model_egress` act.
     pub execution_key: &'a str,
-    /// byom's authorized `subject_digest`, echoed.
+    /// byom's authorizing ActIntent — a member of the binding fragment byom
+    /// rebuilds, so the effect digest names the act it was prepared for.
+    pub act_intent_ref: &'a str,
+    /// byom's authorized `subject_digest`, echoed. It binds the PERMIT (the
+    /// receipt names byom's own committed value), and is deliberately not a
+    /// member of the binding fragment: byom recomputes it, so a fragment
+    /// carrying it would be an owner echo (A8's converse).
     pub subject_digest: &'a DigestRef,
+    /// The HOST-owned ContextManifest pair the act's seats assented to, as
+    /// byom committed it. Kovee holds it only as byom's value.
+    pub context_manifest_ref: &'a str,
+    pub context_manifest_digest: &'a DigestRef,
     pub system: Option<&'a str>,
     pub prompt: &'a str,
     pub max_output_tokens: u64,
@@ -338,34 +403,35 @@ pub fn plan(
     let context_manifest = context_manifest.seal(&request.body, keys.context)?;
     context_manifest.verify(keys.context)?;
 
-    // The local effect digest byom stores as `host_effect_digest`, compares
-    // on a replay, and demands again at `effect_outcome_admit`: a
-    // CROSS-BOUNDARY fragment, so unkeyed `portable_public` (A8). It is
-    // derived BEFORE the plan exists, so the plan is sealed in one
-    // construction and has no half-built state anyone could observe.
+    // The effect digest byom stores as `host_effect_digest`, compares on a
+    // replay, and demands again at `effect_outcome_admit`: the
+    // `portable_public` digest of the FROZEN BINDING FRAGMENT above (A8,
+    // D-R3-3). It is derived BEFORE the plan exists, so the plan is sealed in
+    // one construction and has no half-built state anyone could observe.
     let external_idempotency_key = external_idempotency_key(
         input.execution_key,
         &context_manifest.final_provider_request_typed_byte_digest,
     );
-    let host_effect_digest = record_digest(
-        EFFECT_TAG,
-        &projection(
-            input.effect_id,
-            input.execution_key,
-            &external_idempotency_key,
-            input.subject_digest,
-            &disclosure,
-            &context_manifest,
-        ),
-        RecordDigestKey::Portable,
-    )
-    .ok_or(BrokerError::Uncanonical)?;
+    let binding_fragment = host_effect_binding(
+        input.effect_id,
+        input.act_intent_ref,
+        input.execution_key,
+        input.context_manifest_ref,
+        input.context_manifest_digest,
+        &disclosure.disclosure_id,
+        &disclosure.digest,
+        &external_idempotency_key,
+        &context_manifest.final_provider_request_typed_byte_digest,
+    );
+    let host_effect_digest =
+        host_effect_binding_digest(&binding_fragment).ok_or(BrokerError::Uncanonical)?;
     Ok(CallPlan {
         effect_id: input.effect_id.to_owned(),
         execution_key: input.execution_key.to_owned(),
         external_idempotency_key,
         subject_digest: input.subject_digest.clone(),
         host_effect_digest,
+        host_effect_binding: binding_fragment,
         disclosure,
         context_manifest,
         origin: binding.endpoint.clone(),
@@ -751,7 +817,10 @@ mod tests {
         PlanInput {
             effect_id: "meff-1",
             execution_key: "exec-abc",
+            act_intent_ref: "actint-1",
             subject_digest: subject,
+            context_manifest_ref: "ctxman-1",
+            context_manifest_digest: subject,
             system: Some("Be brief."),
             prompt: "Say OK.",
             max_output_tokens: 16,
@@ -870,11 +939,23 @@ mod tests {
         assert!(plan.host_effect_digest().key_ref.is_none());
         assert_eq!(plan.host_effect_digest(), planned().host_effect_digest());
         // The plan is sealed in one construction: its digest covers the
-        // projection it reports, with no window where the two disagree.
+        // BINDING FRAGMENT it reports, with no window where the two disagree,
+        // and that fragment is exactly the frozen member set byom rebuilds.
         assert_eq!(
-            record_digest(EFFECT_TAG, &plan.projection(), RecordDigestKey::Portable).unwrap(),
+            host_effect_binding_digest(plan.host_effect_binding()).unwrap(),
             *plan.host_effect_digest()
         );
+        let mut members: Vec<&str> = plan
+            .host_effect_binding()
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        members.sort_unstable();
+        let mut frozen = HOST_EFFECT_BINDING_FIELDS.to_vec();
+        frozen.sort_unstable();
+        assert_eq!(members, frozen);
     }
 
     #[test]

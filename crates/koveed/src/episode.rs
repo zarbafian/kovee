@@ -1540,6 +1540,33 @@ pub fn yield_episode(
 /// `episode_complete` (runtime, update) — honors both fences, then
 /// releases the binding and hands the budget reservations to §11.4
 /// settlement.
+///
+/// **The ordering is the fix (R3-U02).** byom's terminalization is the moment
+/// byom decides the charge on its own: a bridge it never saw measured is
+/// settled to the CONSERVATIVE MAXIMUM, the bridge is released, and the
+/// meter workload token for that Episode is withdrawn. Calling it first — as
+/// this did — meant the remote ledger could commit the whole bridge and then
+/// leave Kovee holding a still-`confirmed` subordinate it could no longer
+/// settle, or worse, release it in full because the measured usage was zero.
+/// Two ledgers, one truth each.
+///
+/// So the terminal settlement runs FIRST, as the same two-sided saga
+/// everything else uses, and this side does not terminalize at all while its
+/// own half is unresolved:
+///
+/// ```text
+///  1  settle_begin        durable local record, capped by THIS side
+///  2  usage_report        byom's meter channel; byom commits its OWN number
+///  3  settle_commit       exactly what byom answered, within this side's cap
+///  4  episode_complete    byom now sees a `settled` bridge and RELEASES
+///  5  release             the demonstrably unspent remainder, here
+/// ```
+///
+/// A crash anywhere between 1 and 3 leaves a durable `remote_pending` record
+/// and a running lease, which is precisely what
+/// [`reconcile_settlements`] resolves against byom on the next start. A
+/// refusal or an unknown at 2/3 returns without terminalizing, so byom's
+/// conservative maximum is never reached through this path.
 pub fn complete(
     store: &mut Store,
     runtime: &Runtime,
@@ -1555,6 +1582,22 @@ pub fn complete(
         now,
     )?;
     let realm = binding_realm(store.conn(), stable_binding_key)?;
+    let subordinate = bound.record.kovee_subordinate_reservation_ref.clone();
+    let mut local = json!({"subordinate_reservation_ref": subordinate});
+
+    // STEPS 1-3: the terminal settlement, BEFORE byom is asked to terminalize.
+    terminal_settlement(
+        store,
+        runtime,
+        &bound,
+        presented,
+        &subordinate,
+        &mut local,
+        now,
+    )?;
+
+    // STEP 4: byom's terminalization. The bridge is `settled` by now, so byom
+    // releases its reserved remainder instead of charging the maximum.
     let seam = seam_of(
         store.conn(),
         &bound.record.society_ref,
@@ -1591,68 +1634,44 @@ pub fn complete(
             ],
         )
         .map_err(|e| store_problem(e.into()))?;
-    // KOVEE'S OWN SIDE of terminalization (R3-U02). Episode completion used to
-    // release the binding row and stop: byom settled and released its parent
-    // while Kovee's subordinate stayed `confirmed` with `charged = 0` and
-    // `released_lifetime = 0` forever. Now the subordinate is settled from the
-    // metered total if a settlement is still owed, and then released — so the
-    // capacity actually returns to the ledger.
-    let subordinate = bound.record.kovee_subordinate_reservation_ref.clone();
-    let mut local = json!({"subordinate_reservation_ref": subordinate});
-    if let Some(state) = crate::budget::state_of(store.conn(), &subordinate)? {
-        if state == kovee_byom::budget::ReservationState::Confirmed {
-            let metered = metered_total(store.conn(), &bound.episode_ref)?;
-            if metered > 0 {
-                let key = format!("kovee-settle-complete-{stable_binding_key}");
-                let pending = crate::budget::settle_begin(
-                    store,
-                    &subordinate,
-                    "unit",
-                    metered,
-                    kovee_byom::budget::Meter::TrustedBroker,
-                    &key,
-                    now,
-                )?;
-                let (_, outcome) =
-                    report_and_resolve(store, runtime, &bound, presented, &pending, now)?;
-                match outcome {
-                    crate::budget::RemoteSettlement::Settled {
-                        settlement_ref,
-                        charged,
-                    } => {
-                        crate::budget::settle_commit(
-                            store,
-                            &pending,
-                            settlement_ref.as_deref(),
-                            charged,
-                            now,
-                        )?;
-                        local["settled_charge"] = json!(charged);
-                    }
-                    crate::budget::RemoteSettlement::NotSettled { reason } => {
-                        crate::budget::settle_denied(store, &pending, &reason, now)?;
-                        local["settlement_refused"] = json!(reason);
-                    }
-                    crate::budget::RemoteSettlement::Unknown { detail } => {
-                        crate::budget::settle_unknown(store, &pending, &detail, now)?;
-                        local["settlement_unknown"] = json!(detail);
-                    }
-                }
+
+    // STEP 5. byom reports what its own terminalization did. `measured` means
+    // the settled bridge released its remainder and this side releases the
+    // matching remainder. `conservatively_maxed` means byom charged the whole
+    // bridge on its own authority — which this ordering does not produce, and
+    // which this side must NEVER answer by releasing: the capacity is applied
+    // through this side's own cap, or held and reported.
+    let terminal = result
+        .pointer("/settlement")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let conservative = terminal
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s == "conservatively_maxed");
+    if conservative {
+        adopt_terminal_charge(
+            store,
+            stable_binding_key,
+            &subordinate,
+            &terminal,
+            &mut local,
+            now,
+        )?;
+    } else {
+        // The release: only the demonstrably unspent remainder, and an
+        // `uncertain` reservation is left for the R38 seat rather than guessed
+        // away at completion.
+        match crate::budget::release(store, &subordinate, now) {
+            Ok(remainder) => local["released_remainder"] = json!(remainder),
+            Err(problem) if problem.kind == ProblemKind::Ambiguous => {
+                local["release_blocked"] = json!(problem.title);
             }
+            Err(problem) if problem.kind == ProblemKind::NotFound => {
+                local["subordinate_absent"] = json!(true);
+            }
+            Err(problem) => return Err(problem),
         }
-    }
-    // The release: only the demonstrably unspent remainder, and an
-    // `uncertain` reservation is left for the R38 seat rather than guessed
-    // away at completion.
-    match crate::budget::release(store, &subordinate, now) {
-        Ok(remainder) => local["released_remainder"] = json!(remainder),
-        Err(problem) if problem.kind == ProblemKind::Ambiguous => {
-            local["release_blocked"] = json!(problem.title);
-        }
-        Err(problem) if problem.kind == ProblemKind::NotFound => {
-            local["subordinate_absent"] = json!(true);
-        }
-        Err(problem) => return Err(problem),
     }
     emit(
         store,
@@ -1673,6 +1692,145 @@ pub fn complete(
         map.insert("kovee_settlement".to_owned(), local);
     }
     Ok(result)
+}
+
+/// **Steps 1-3 of the terminal saga**, run BEFORE `episode_complete` (R3-U02).
+///
+/// A `confirmed` subordinate is settled here from the measured total — which
+/// may legitimately be **zero**, and zero is a measurement, not an absence.
+/// Reporting a measured zero is what makes byom's bridge `settled` with
+/// `settled_charge: 0`, so byom releases the whole reservation at
+/// terminalization instead of charging the conservative maximum against a
+/// subordinate this side is about to release. Skipping the report because
+/// "there is nothing to charge" is exactly how the two ledgers came apart.
+///
+/// Neither a refusal nor an unknown is papered over: both return, leaving the
+/// Episode running and the durable saga record for reconciliation.
+fn terminal_settlement(
+    store: &mut Store,
+    runtime: &Runtime,
+    bound: &Bound,
+    presented: Fences,
+    subordinate: &str,
+    local: &mut Value,
+    now: i64,
+) -> Result<(), Problem> {
+    let Some(state) = crate::budget::state_of(store.conn(), subordinate)? else {
+        local["subordinate_absent"] = json!(true);
+        return Ok(());
+    };
+    if state != kovee_byom::budget::ReservationState::Confirmed {
+        local["already_terminal"] = json!(state.as_str());
+        return Ok(());
+    }
+    let metered = metered_total(store.conn(), &bound.episode_ref)?;
+    let key = format!("kovee-settle-complete-{}", bound.stable_binding_key);
+    let pending = crate::budget::settle_begin(
+        store,
+        subordinate,
+        "unit",
+        metered,
+        kovee_byom::budget::Meter::TrustedBroker,
+        &key,
+        now,
+    )?;
+    let (_, outcome) = report_and_resolve(store, runtime, bound, presented, &pending, now)?;
+    match outcome {
+        crate::budget::RemoteSettlement::Settled {
+            settlement_ref,
+            charged,
+        } => {
+            crate::budget::settle_commit(store, &pending, settlement_ref.as_deref(), charged, now)?;
+            local["settled_charge"] = json!(charged);
+            local["stable_settlement_key"] = json!(key);
+            Ok(())
+        }
+        crate::budget::RemoteSettlement::NotSettled { reason } => {
+            crate::budget::settle_denied(store, &pending, &reason, now)?;
+            Err(forbidden(
+                "byom refused the terminal settlement, so the Episode is NOT completed",
+                format!(
+                    "{reason}; completing now would let byom settle this bridge to its \
+                     conservative maximum while this side stayed unsettled (R3-U02). Nothing \
+                     is charged on either side and the lease is still running."
+                ),
+            ))
+        }
+        crate::budget::RemoteSettlement::Unknown { detail } => {
+            crate::budget::settle_unknown(store, &pending, &detail, now)?;
+            Err(Problem::new(
+                ProblemKind::Ambiguous,
+                "the terminal settlement is unresolved, so the Episode is NOT completed",
+            )
+            .with_detail(format!(
+                "{detail}; the durable saga record survives under {key:?} and \
+                 reconcile_settlements resolves it against byom before this Episode is \
+                 terminalized"
+            )))
+        }
+    }
+}
+
+/// **The defensive arm.** byom terminalized a bridge it had never seen
+/// measured and charged the CONSERVATIVE MAXIMUM on its own authority. This
+/// ordering does not produce that, but if it is ever observed the one answer
+/// that splits the ledgers is releasing this side's capacity — so this side
+/// applies byom's own committed number through its OWN cap instead, and holds
+/// the reservation when its cap will not take it.
+fn adopt_terminal_charge(
+    store: &mut Store,
+    stable_binding_key: &str,
+    subordinate: &str,
+    terminal: &Value,
+    local: &mut Value,
+    now: i64,
+) -> Result<(), Problem> {
+    local["byom_charged_conservatively"] = terminal.clone();
+    let Some(charged) = terminal.get("charged").and_then(Value::as_u64) else {
+        local["release_blocked"] =
+            json!("byom reported a conservative charge without its amount; nothing is released");
+        return Ok(());
+    };
+    let key = format!("kovee-settle-terminal-{stable_binding_key}");
+    // `settle_begin` caps against THIS side's exact confirmed items and its own
+    // ledger: byom's number is applied only if this side's own arithmetic
+    // admits it (D-R3-2). A refusal holds the capacity rather than releasing.
+    match crate::budget::settle_begin(
+        store,
+        subordinate,
+        "unit",
+        charged,
+        kovee_byom::budget::Meter::TrustedBroker,
+        &key,
+        now,
+    ) {
+        Ok(pending) => {
+            let settlement_ref = terminal.get("settlement_ref").and_then(Value::as_str);
+            crate::budget::settle_commit(store, &pending, settlement_ref, charged, now)?;
+            local["adopted_terminal_charge"] = json!(charged);
+            match crate::budget::release(store, subordinate, now) {
+                Ok(remainder) => local["released_remainder"] = json!(remainder),
+                Err(problem) if problem.kind == ProblemKind::Ambiguous => {
+                    local["release_blocked"] = json!(problem.title);
+                }
+                Err(problem) => return Err(problem),
+            }
+            Ok(())
+        }
+        Err(problem) => {
+            local["release_blocked"] = json!(problem.title);
+            local["terminal_charge_refused"] = json!(charged);
+            Err(Problem::new(
+                ProblemKind::Ambiguous,
+                "byom charged its conservative maximum and this side cannot apply it",
+            )
+            .with_detail(format!(
+                "{}: the subordinate stays held and nothing is released — releasing it here is \
+                 the split-ledger condition itself (R3-U02)",
+                problem.title
+            )))
+        }
+    }
 }
 
 /// The measured `unit` total already reported to byom for one Episode — what

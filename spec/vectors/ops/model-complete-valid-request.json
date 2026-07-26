@@ -1,6 +1,6 @@
 {
   "name": "ops/model-complete-valid-request",
-  "description": "worker model call: attempt binding, logical model profile, purpose and classification, prompt, and byom's authorizing model_egress act (§14.1, §16.1-§16.3). No provider, host, URL, header, or credential is expressible.",
+  "description": "worker model call: attempt binding, logical model profile, purpose and classification, prompt, and byom's authorizing model_egress act (§14.1, §16.1-§16.3), including the HOST-owned ContextManifest pair the act's seats assented to (byom R3-A01, all-or-none). No provider, host, URL, header, or credential is expressible.",
   "input": {
     "schema": "model-complete-request",
     "value": {
@@ -35,6 +35,12 @@
           "algorithm": "hmac-sha-256",
           "key_ref": "byom-act-object:actint-0001",
           "value_hex": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+        },
+        "context_manifest_ref": "ctxman-0001",
+        "context_manifest_digest": {
+          "class": "portable_public",
+          "algorithm": "sha-256",
+          "value_hex": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
         },
         "stable_execution_key": "exec-0001",
         "budget_reservation_set_ref": "rset-0001"

@@ -20,6 +20,7 @@
 //! | an uncertain send is ambiguous, frozen, reconcilable | `an_uncertain_send_is_ambiguous_and_frozen_until_reconciled` | Kovee |
 //! | the disclosure manifest is complete, incl. `training_use` | `the_disclosure_manifest_is_complete_and_names_training_use` | Kovee |
 //! | the credential is nowhere a worker or an event can see it | `the_credential_never_reaches_worker_visible_state` | Kovee |
+//! | the host-effect digest is the pinned frozen fragment byom re-derives (R3-L01) | `the_host_effect_binding_fragment_matches_the_pinned_family_vector` | BOTH (pinned vector) |
 //!
 //! Gated on the byom repository being present — `$KOVEE_BYOM_REPO`, else the
 //! sibling `../byom`. When present it always runs; it never silently passes
@@ -1466,4 +1467,68 @@ fn the_daemon_completes_model_complete_over_its_own_recording_egress() {
         "the one-shot permit is spent: {again}"
     );
     assert_eq!(live.byomd.count("SELECT COUNT(*) FROM mandate_uses"), 1);
+}
+
+/// **R3-L01, the producer half of the pinned cross-repo vector.**
+///
+/// `crates/koveed/tests/vectors/kovee-host-effect-binding.json` records this
+/// producer's output, and byom's shipped
+/// `the_host_effect_digest_must_re_derive_from_the_frozen_binding_fragment`
+/// consumes those exact bytes and rebuilds them from its own committed act.
+/// Neither side derives its own expectation — the weakness the confirmer
+/// found in L02's cross-contract test, avoided here from the start.
+///
+/// Change `HOST_EFFECT_BINDING_TAG`, the member set, the canonicalization or
+/// the idempotency-key derivation on this side and this fails; change them on
+/// byom's and byom's fails.
+#[test]
+fn the_host_effect_binding_fragment_matches_the_pinned_family_vector() {
+    const VECTOR: &str = include_str!("vectors/kovee-host-effect-binding.json");
+    /// The one constant both repositories name literally.
+    const PINNED_DIGEST: &str = "e57fc39aa2e8a6170e59b685e5f9579e18923312fcddea57549368dfeab59872";
+
+    let vector: Value = serde_json::from_str(VECTOR).expect("the pinned vector parses");
+    assert_eq!(vector["owner"], "kovee");
+    assert_eq!(vector["domain"], kovee_effects::HOST_EFFECT_BINDING_TAG);
+    let i = &vector["inputs"];
+    let bytes = i["final_provider_request_typed_byte_digest"]
+        .as_str()
+        .unwrap();
+    let key =
+        kovee_effects::external_idempotency_key(i["stable_execution_key"].as_str().unwrap(), bytes);
+    let fragment = kovee_effects::host_effect_binding(
+        i["host_effect_ref"].as_str().unwrap(),
+        i["intent_ref"].as_str().unwrap(),
+        i["stable_execution_key"].as_str().unwrap(),
+        i["context_manifest_ref"].as_str().unwrap(),
+        &serde_json::from_value::<DigestRef>(i["context_digest"].clone()).unwrap(),
+        i["disclosure_manifest_ref"].as_str().unwrap(),
+        &serde_json::from_value::<DigestRef>(i["disclosure_digest"].clone()).unwrap(),
+        &key,
+        bytes,
+    );
+    assert_eq!(
+        fragment, vector["fragment"],
+        "this producer no longer emits the recorded fragment: byom's pinned \
+         copy is now wrong, and re-recording it is a wire change, not a test fix"
+    );
+    let digest = kovee_effects::host_effect_binding_digest(&fragment).unwrap();
+    assert_eq!(digest.value_hex, PINNED_DIGEST);
+    assert_eq!(digest.class, "portable_public", "unkeyed by A8");
+    // The frozen member set, exactly.
+    let mut members: Vec<&str> = fragment
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    members.sort_unstable();
+    let mut frozen = kovee_effects::HOST_EFFECT_BINDING_FIELDS.to_vec();
+    frozen.sort_unstable();
+    assert_eq!(members, frozen);
+    // byom's own recomputed digests are NOT members: an owner echo inside the
+    // preimage would be the same defect in the other direction (A8).
+    for owned in ["subject_digest", "intent_digest", "episode_fence_digest"] {
+        assert!(!members.contains(&owned), "{owned} is byom's, not kovee's");
+    }
 }

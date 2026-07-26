@@ -22,10 +22,16 @@
 //! let plan = plan(&PlanInput {
 //!     effect_id: "meff-1",
 //!     execution_key: "exec-abc",       // byom's kernel-derived one-shot key
+//!     act_intent_ref: "actint-1",      // byom's authorizing act
 //!     subject_digest: subject,         // byom's authorized subject, echoed
+//!     context_manifest_ref: "ctxman-1",       // the pair the seats assented
+//!     context_manifest_digest: subject,       // to, as byom committed it
 //!     system: Some("Be brief."), prompt: "Say OK.",
 //!     max_output_tokens: 256, classification_ref: "class-public",
 //! }, binding, profile, disclosure, chain, keys)?;
+//! // `plan.host_effect_digest()` is the portable_public digest of the FROZEN
+//! // `kovee-host-effect-binding-v1` fragment above: byom rebuilds the same
+//! // preimage from its own committed act and re-derives it (R3-L01).
 //!
 //! // 2. …the caller COMMITS the prepared effect, then byom consumes the
 //! //    permit for `plan.execution_key()`. byom's reply becomes a receipt
@@ -164,8 +170,9 @@ pub use binding::{
     RequestLimits, Status,
 };
 pub use broker::{
-    dispatch, external_idempotency_key, plan, BrokerError, CallPlan, Outcome, PlanInput, PlanKeys,
-    DEFAULT_TIMEOUT,
+    dispatch, external_idempotency_key, host_effect_binding, host_effect_binding_digest, plan,
+    BrokerError, CallPlan, Outcome, PlanInput, PlanKeys, DEFAULT_TIMEOUT,
+    HOST_EFFECT_BINDING_FIELDS, HOST_EFFECT_BINDING_TAG,
 };
 pub use credential::{resolve, Credential, CredentialError};
 pub use disclosure::{

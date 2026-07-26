@@ -137,7 +137,10 @@ fn planned() -> CallPlan {
         &PlanInput {
             effect_id: "meff-1",
             execution_key: "exec-forged",
+            act_intent_ref: "actint-forged",
             subject_digest: &subject,
+            context_manifest_ref: "ctxman-forged",
+            context_manifest_digest: &subject,
             system: None,
             prompt: "Say OK.",
             max_output_tokens: 16,

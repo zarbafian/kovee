@@ -24,6 +24,8 @@
 //! | a stale Kovee fence is refused by the REAL byomd | `the_real_byomd_refuses_a_stale_kovee_fence` | byom |
 //! | no episode work before the placement is admitted | `the_real_byomd_refuses_a_claim_before_the_placement_is_admitted` | byom |
 //! | reclaim refused before the lease deadline, permitted after | `the_lease_expiry_is_clocked_not_liveness_guessed` | BOTH |
+//! | a crash between the two sides converges on byom's truth, through the REAL `koveed` start-up sweep (R3-U02) | `a_crash_between_the_two_sides_reconciles_to_byoms_truth` | BOTH |
+//! | a zero-usage completion settles before byom can charge its maximum (R3-U02) | `a_zero_usage_completion_settles_before_byom_can_charge_the_maximum` | BOTH |
 //!
 //! Gated on the byom repository being present — `$KOVEE_BYOM_REPO`, else
 //! the sibling `../byom` — mirroring the plan's env-gated real-harness
@@ -36,7 +38,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::byomd::*;
-use common::tmp;
+use common::{tmp, DaemonProc};
 use kovee_byom::bpp::{BppError, Endpoint};
 use kovee_byom::episode::Fences;
 use kovee_byom::runtime::{self, Workload};
@@ -56,6 +58,10 @@ struct Live {
     store: Store,
     endpoint: Endpoint,
     channels: PathBuf,
+    /// The `--data-dir` layout the REAL `koveed` binary uses, so a test can
+    /// hand the same durable store to the production daemon.
+    data_dir: PathBuf,
+    run_dir: PathBuf,
 }
 
 impl Live {
@@ -192,7 +198,14 @@ fn live(tag: &str) -> Option<Live> {
     let byomd = Byomd::start(&binary, &base.join("byom-data"), &base.join("byom-run"));
     let agent = bootstrap_agent_society(&byomd, tag);
 
-    let mut store = Store::open(&base.join("kovee.sqlite3")).unwrap();
+    // The store lives where the REAL `koveed` binary would open it
+    // (`<data-dir>/kovee.db`), so the settlement-crash test can hand this
+    // exact durable file to the production daemon.
+    let data_dir = base.join("kovee-data");
+    let run_dir = base.join("kovee-run");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(&run_dir).unwrap();
+    let mut store = Store::open(&data_dir.join("kovee.db")).unwrap();
     store.bootstrap(0).unwrap();
     // The seam pins byomd's REAL Society and incarnation: every runtime
     // `meta` carries both, and byomd refuses a mismatch.
@@ -209,6 +222,8 @@ fn live(tag: &str) -> Option<Live> {
         store,
         endpoint,
         channels,
+        data_dir,
+        run_dir,
     })
 }
 
@@ -700,6 +715,286 @@ fn the_four_stage_activation_runs_across_both_daemons() {
         runtime::token(&live.channels, Workload::Worker, &episode_ref).is_err(),
         "a terminal Episode keeps no worker token"
     );
+}
+
+// ------------------------------- the crash between the two sides (U02) ----
+
+/// **R3-U02, reproduced against the REAL production start-up path.**
+///
+/// The probe: byom is charged and Kovee is not. The previous version of this
+/// test called `budget::reconcile_settlements` with a "peer" that was a
+/// closure returning a constant `Settled { charged: 44 }` — so deleting the
+/// entire production start-up reconciliation from `Daemon::new` left it green,
+/// which is the defect this file exists to lock, not the fix.
+///
+/// Here the peer is the real `byomd` and the reconciler is the real `koveed`
+/// **binary**:
+///
+/// 1. the durable local record is committed (`settle_begin`);
+/// 2. the remote half really commits at byom, on byom's meter channel;
+/// 3. this process dies before applying anything locally — the exact R3 state,
+///    byom charged and Kovee `confirmed, charged = 0`;
+/// 4. a fresh `koveed` process opens the same durable store, and its own
+///    start-up sweep asks byom what it committed under the same stable
+///    settlement key and applies exactly that.
+///
+/// Delete the sweep from `Daemon::new` and step 4 does nothing: this test then
+/// fails on Kovee's still-`confirmed` reservation.
+#[test]
+fn a_crash_between_the_two_sides_reconciles_to_byoms_truth() {
+    let Some(mut live) = live("k2-episode-live-settlement-crash") else {
+        return skipped("k2_episode_live");
+    };
+    let (notice, episode_ref) = live.activate("c1");
+    let bound = activate_attempt(&mut live, &notice, &episode_ref, 300);
+    let parent = parent_of(&notice);
+    let subordinate =
+        koveed::budget::read(live.store.conn(), &parent.stable_external_reservation_key)
+            .unwrap()
+            .expect("Kovee's confirmed subordinate reservation");
+    let reference = subordinate.subordinate_reservation_ref.clone();
+    let narrowed = subordinate.reserved("unit");
+    let charge = narrowed / 2;
+    assert!(charge > 0);
+    let key = format!("kovee-settle-crash-{}", bound.stable_binding_key);
+
+    // -- step 1: the durable LOCAL record, before a byte leaves -----------
+    let pending = koveed::budget::settle_begin(
+        &mut live.store,
+        &reference,
+        "unit",
+        charge,
+        kovee_byom::budget::Meter::TrustedBroker,
+        &key,
+        0,
+    )
+    .expect("the local half caps and records first");
+    assert_eq!(pending.phase, koveed::budget::SagaPhase::RemotePending);
+
+    // -- step 2: the REMOTE half really commits, at the real byomd --------
+    let token = runtime::token(&live.channels, Workload::Meter, &episode_ref)
+        .expect("byom published the Episode's meter token");
+    let reply = runtime::call(
+        &live.endpoint,
+        &token,
+        &json!({
+            "version": "0.2",
+            "op": "usage_report",
+            "meta": {
+                "request_id": format!("kovee-usg-crash-{episode_ref}"),
+                "idempotency_key": format!("kovee-report-crash-{episode_ref}"),
+                "expected_endpoint_incarnation": live.agent.incarnation,
+                "expected_recovery_epoch": 0,
+            },
+            "episode_ref": episode_ref,
+            "generation": bound.record.generation,
+            "byom_attempt_ref": bound.byom_attempt_ref,
+            "byom_fence_epoch": bound.fences.byom,
+            "kovee_invocation_fence": bound.fences.kovee,
+            "source": "trusted_meter",
+            "stable_report_key": format!("kovee-report-crash-{episode_ref}"),
+            "quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
+            "meter_ref": "kovee-model-broker-meter-realm-personal",
+            "meter_attestation_ref": format!("kovee-meter-attestation-{episode_ref}"),
+            "stable_settlement_key": key,
+            "charged_quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
+        }),
+    )
+    .expect("byom's meter channel settled")
+    .result;
+    assert_eq!(reply["settlement"]["settled"], json!(true), "{reply}");
+    assert_eq!(reply["settlement"]["charged"], json!(charge), "{reply}");
+    assert_eq!(
+        live.byomd.ledger(PARENT_ACCOUNT).committed,
+        charge as i64,
+        "byom really committed the charge (byom's record)"
+    );
+
+    // -- step 3: the process dies HERE, before the local apply ------------
+    //
+    // This is the exact R3 state: byom charged, Kovee `confirmed, charged = 0`.
+    assert_eq!(
+        koveed::budget::state_of(live.store.conn(), &reference).unwrap(),
+        Some(kovee_byom::budget::ReservationState::Confirmed),
+        "nothing was applied on this side"
+    );
+    let unresolved = koveed::budget::unresolved_sagas(live.store.conn()).unwrap();
+    assert_eq!(unresolved.len(), 1, "the crash left evidence, not silence");
+    assert_eq!(unresolved[0].stable_settlement_key, key);
+    assert_eq!(
+        unresolved[0].phase,
+        koveed::budget::SagaPhase::RemotePending
+    );
+    // Close this process's handle on the durable store.
+    let dead = std::mem::replace(&mut live.store, Store::open_in_memory().unwrap());
+    drop(dead);
+
+    // -- step 4: a fresh koveed PROCESS over the same durable store -------
+    //
+    // Nothing here calls a reconciliation helper: the production binary's own
+    // `Daemon::new` start-up sweep is the only thing that can resolve this.
+    let koveed = DaemonProc::start_with_env(
+        &live.data_dir,
+        &live.run_dir,
+        None,
+        &[
+            (
+                "KOVEE_BYOM_RUNTIME_DIR",
+                &live.byomd.run_dir.to_string_lossy(),
+            ),
+            ("KOVEE_BYOM_CHANNELS_DIR", &live.channels.to_string_lossy()),
+        ],
+    );
+    // The daemon answers only once `Daemon::new` has RETURNED, so one served
+    // request is proof the start-up sweep ran to completion — not a sleep, and
+    // not a socket that is merely bound.
+    koveed.expect_ok(&json!({
+        "version": "0.1", "op": "hello",
+        "args": {
+            "supported_versions": ["0.1"],
+            "implementation": "k2-episode-live",
+            "implementation_version": "0.0.1",
+            "requested_features": [],
+        },
+    }));
+    drop(koveed);
+
+    // -- the two sides now agree, and the number is BYOM's ---------------
+    let store = Store::open(&live.data_dir.join("kovee.db")).unwrap();
+    let saga = koveed::budget::saga_of(store.conn(), &key)
+        .unwrap()
+        .expect("the durable local saga record survived the crash");
+    assert_eq!(
+        saga.phase,
+        koveed::budget::SagaPhase::Settled,
+        "the production start-up sweep resolved it against the REAL byomd"
+    );
+    assert_eq!(
+        koveed::budget::state_of(store.conn(), &reference).unwrap(),
+        Some(kovee_byom::budget::ReservationState::Settled)
+    );
+    let (kovee_charged, _): (i64, i64) = store
+        .conn()
+        .query_row(
+            "SELECT charged, released_lifetime FROM byom_subordinate_reservations
+             WHERE subordinate_reservation_ref = ?1",
+            [&reference],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        kovee_charged, charge as i64,
+        "the exact defect: byom charged and this counter stayed 0"
+    );
+    assert_eq!(
+        live.byomd.ledger(PARENT_ACCOUNT).committed,
+        kovee_charged,
+        "one number on both sides, and byom's is the one that was adopted"
+    );
+    let account = koveed::budget::account(
+        store.conn(),
+        &koveed::budget::realm_account_ref(REALM),
+        "unit",
+    )
+    .unwrap()
+    .expect("kovee's capacity account");
+    assert!(account.conserves(), "{account:?}");
+    assert_eq!(
+        (account.reserved, account.committed),
+        (narrowed - charge, charge)
+    );
+    assert!(koveed::budget::unresolved_sagas(store.conn())
+        .unwrap()
+        .is_empty());
+}
+
+/// **R3-U02, the terminal half.** byom's terminalization is where byom decides
+/// the charge on its own: an unmeasured bridge is settled to the CONSERVATIVE
+/// MAXIMUM and the meter channel is withdrawn. Completing FIRST let that
+/// happen and then left Kovee holding a still-`confirmed` subordinate — or, on
+/// a zero-usage Episode, releasing it in full while byom had charged
+/// everything.
+///
+/// The settlement now precedes the terminalization, and a measured ZERO is
+/// reported rather than skipped, so byom releases instead of maxing.
+#[test]
+fn a_zero_usage_completion_settles_before_byom_can_charge_the_maximum() {
+    let Some(mut live) = live("k2-episode-live-zero-usage") else {
+        return skipped("k2_episode_live");
+    };
+    let (notice, episode_ref) = live.activate("z1");
+    let bound = activate_attempt(&mut live, &notice, &episode_ref, 300);
+    let parent = parent_of(&notice);
+    let reference =
+        koveed::budget::read(live.store.conn(), &parent.stable_external_reservation_key)
+            .unwrap()
+            .unwrap()
+            .subordinate_reservation_ref;
+    let before = live.byomd.ledger(PARENT_ACCOUNT);
+
+    // Not one model call was made, so the measured total is zero.
+    let runtime = live.runtime();
+    let completed = episode::complete(
+        &mut live.store,
+        &runtime,
+        &bound.stable_binding_key,
+        bound.fences,
+        0,
+    )
+    .expect("episode_complete against the live byomd");
+
+    // BYOM: a MEASURED settlement of zero, not a conservative maximum.
+    assert_eq!(
+        completed["settlement"]["status"],
+        json!("measured"),
+        "byom released the bridge it had seen measured: {completed}"
+    );
+    assert_eq!(
+        live.byomd.row(
+            "SELECT status FROM usage_settlements WHERE reservation_set_ref = ?1",
+            &parent.byom_reservation_set_ref
+        ),
+        Some("measured".to_owned()),
+        "the defect was `conservatively_maxed` here, charging the whole bridge"
+    );
+    let closed = live.byomd.ledger(PARENT_ACCOUNT);
+    assert!(closed.conserves(), "{closed:?}");
+    assert_eq!(
+        closed.committed, before.committed,
+        "byom charged nothing for an Episode that used nothing"
+    );
+    // BYOM's own durable record of the counterparty's terminal position.
+    assert_eq!(
+        live.byomd.row(
+            "SELECT state FROM subordinate_reservations
+             WHERE subordinate_reservation_ref = ?1",
+            &reference
+        ),
+        Some("released".to_owned()),
+        "byom's subordinate row reached a terminal state with the charge it \
+         describes; it used to stay `confirmed` for ever (byom's record)"
+    );
+
+    // KOVEE: settled at zero and released in full, and the two agree.
+    assert_eq!(completed["kovee_settlement"]["settled_charge"], json!(0));
+    assert_eq!(
+        koveed::budget::state_of(live.store.conn(), &reference).unwrap(),
+        Some(kovee_byom::budget::ReservationState::Released)
+    );
+    let account = koveed::budget::account(
+        live.store.conn(),
+        &koveed::budget::realm_account_ref(REALM),
+        "unit",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(account.conserves(), "{account:?}");
+    assert_eq!(
+        (account.reserved, account.committed),
+        (0, 0),
+        "nothing charged, everything back in `remaining`"
+    );
+    assert_eq!(account.remaining, account.ceiling);
 }
 
 // ------------------------------------------------------- dual fences ----

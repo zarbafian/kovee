@@ -1,0 +1,49 @@
+{
+  "name": "family/kovee-host-effect-binding",
+  "owner": "kovee",
+  "producer": "kovee_effects::broker::host_effect_binding",
+  "domain": "kovee-host-effect-binding-v1",
+  "description": "The frozen portable_public host-effect binding fragment a consuming host publishes for execution_permit_consume (R3-L01, disposition D-R3-3), recorded from kovee's own producer. It is the converse of family/parent-budget-fragment: the VERIFIER (byom) must not derive its own expectation, so byom's shipped test consumes these exact recorded bytes. Of the nine members, byom holds six in its committed ActIntent (intent_ref, stable_execution_key, both manifest pairs), takes host_effect_ref from the request, and is handed external_idempotency_key and final_provider_request_typed_byte_digest — which are tied to each other by external_idempotency_key == kovee-model-{stable_execution_key}-{final_provider_request_typed_byte_digest[0:16]}.",
+  "inputs": {
+    "host_effect_ref": "kovee-effect-905",
+    "intent_ref": "intent-31",
+    "stable_execution_key": "exec-key-410",
+    "context_manifest_ref": "kovee-context-7",
+    "context_digest": {
+      "class": "portable_public",
+      "algorithm": "sha-256",
+      "value_hex": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e"
+    },
+    "disclosure_manifest_ref": "disclosure-7",
+    "disclosure_digest": {
+      "class": "portable_public",
+      "algorithm": "sha-256",
+      "value_hex": "7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+    },
+    "final_provider_request_typed_byte_digest": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+  },
+  "fragment": {
+    "context_digest": {
+      "algorithm": "sha-256",
+      "class": "portable_public",
+      "value_hex": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e"
+    },
+    "context_manifest_ref": "kovee-context-7",
+    "disclosure_digest": {
+      "algorithm": "sha-256",
+      "class": "portable_public",
+      "value_hex": "7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+    },
+    "disclosure_manifest_ref": "disclosure-7",
+    "external_idempotency_key": "kovee-model-exec-key-410-3c3c3c3c3c3c3c3c",
+    "final_provider_request_typed_byte_digest": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+    "host_effect_ref": "kovee-effect-905",
+    "intent_ref": "intent-31",
+    "stable_execution_key": "exec-key-410"
+  },
+  "host_effect_digest": {
+    "class": "portable_public",
+    "algorithm": "sha-256",
+    "value_hex": "e57fc39aa2e8a6170e59b685e5f9579e18923312fcddea57549368dfeab59872"
+  }
+}

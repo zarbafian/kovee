@@ -730,7 +730,15 @@ pub fn prepare(
         &PlanInput {
             effect_id: &effect_id,
             execution_key: key,
+            // The act facts the binding fragment commits to are BYOM's, taken
+            // from the authorization byomd itself issued (R3-L01, D-R3-3):
+            // byom rebuilds the identical preimage from its committed
+            // ActIntent, so `host_effect_digest` is a value it derives rather
+            // than one it is handed.
+            act_intent_ref: &authorization.act_intent_ref,
             subject_digest: &authorization.subject_digest,
+            context_manifest_ref: &authorization.context_manifest_ref,
+            context_manifest_digest: &authorization.context_manifest_digest,
             system: request.system,
             prompt: request.prompt,
             max_output_tokens: request.max_output_tokens,
@@ -943,6 +951,23 @@ pub fn consume_permit(
                 "host_effect_ref": prepared.effect_id,
                 "host_effect_digest": prepared.plan.host_effect_digest(),
                 "host_effect_credential": credential,
+                // The two members of the host-effect BINDING fragment byom
+                // does not already hold (R3-L01, D-R3-3). With them byom
+                // REBUILDS the preimage — every other member comes out of its
+                // own committed ActIntent — re-derives the `portable_public`
+                // digest and refuses a `host_effect_digest` that does not
+                // agree. Before this the digest was asserted: byom
+                // authenticated a tuple that CONTAINED it and stored whatever
+                // it was handed.
+                "host_effect_external_idempotency_key":
+                    prepared.plan.external_idempotency_key(),
+                "host_effect_request_byte_digest": DigestRef::portable_public(
+                    prepared
+                        .plan
+                        .context_manifest()
+                        .final_provider_request_typed_byte_digest
+                        .clone(),
+                ),
                 // BOTH host manifest bindings, ref and digest, presented to
                 // be compared against the pairs the act's seats assented to
                 // (byom R3-A01). The context pair used never to be sent at
