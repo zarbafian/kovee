@@ -1,0 +1,3 @@
+# Evidence and fleet state are a run's output, never source. fleet-state.json
+# holds droplet ids and addresses; nothing here is ever committed.
+evidence/
