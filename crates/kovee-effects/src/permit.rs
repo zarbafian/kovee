@@ -8,33 +8,44 @@
 //! execution key of an already-committed local Effect, and stores the one
 //! immutable receipt byom returns (§16.1 steps 1-4, byom R34).
 //!
-//! [`authorize`] is the fail-closed gate over that receipt. It is a pure
-//! function so the refusals are unit-provable and identical wherever the
-//! broker runs:
+//! # One door, and it is keyed
 //!
-//! | refusal | cause |
-//! |---|---|
-//! | [`PermitError::NoPermit`] | no receipt at all — nothing was consumed |
-//! | [`PermitError::SpentPermit`] | `max_uses: 1` already spent by a dispatched attempt |
-//! | [`PermitError::NotOneShot`] | a receipt claiming more than one use |
-//! | [`PermitError::WrongExecutionKey`] | a receipt for another effect's key |
-//! | [`PermitError::WrongAudience`] | a receipt minted for another driver |
-//! | [`PermitError::SubjectMismatch`] | the authorized subject is not this effect's |
-//! | [`PermitError::DisclosureMismatch`] | a different disclosure than the one authorized |
-//! | [`PermitError::StaleFence`] | either fence advanced since consumption |
-//! | [`PermitError::EpisodeMismatch`] | another Episode, or an unbound episode-scoped call |
-//! | [`PermitError::Expired`] | the receipt's own deadline passed |
-//! | [`PermitError::WrongEndpoint`] | another byomd incarnation or recovery epoch |
-//! | [`PermitError::UnkeyedProvenance`] | a receipt attested under a key anyone could recompute |
+//! Everything on this page hangs off a single value: the
+//! [`ConsumptionAuthority`]. The daemon builds exactly one, from key material
+//! no worker-reachable path holds and the **durable** spent ledger, and it is
+//! then the only way to
+//!
+//! 1. turn byom's reply into a receipt ([`ConsumptionAuthority::admit`]),
+//! 2. attest that receipt against its committed consumption row
+//!    ([`ConsumptionAuthority::attest`]),
+//! 3. mint a permit ([`ConsumptionAuthority::authorize`]), and
+//! 4. spend one — [`crate::dispatch`] takes the authority, **not** a ledger
+//!    chosen at the call site, and refuses a permit this authority did not
+//!    seal.
+//!
+//! Each step verifies the previous one's keyed tag rather than assuming it,
+//! so the chain reply → receipt → attestation → permit → egress is
+//! authenticated end to end under one secret (R3-B01, D-R3-1).
 //!
 //! What you write:
 //! ```
-//! use kovee_effects::{authorize, Expectation, PermitError};
+//! use kovee_effects::{Claim, ConsumptionAuthority, Expectation, ExecutionPermit,
+//!                     PermitError, SpentLedger};
 //! # use kovee_core::family::DigestRef;
 //! # use kovee_effects::Origin;
 //! # let subject = DigestRef::portable_public("11".repeat(32));
 //! # let disclosure = DigestRef::portable_public("22".repeat(32));
 //! # let origin = Origin::https("api.anthropic.com", 443);
+//! struct Rows;                       // the daemon's durable consumption table
+//! impl SpentLedger for Rows {
+//!     fn claim_single_use(&self, _p: &ExecutionPermit) -> Result<Claim, String> {
+//!         Ok(Claim::Claimed)
+//!     }
+//! }
+//! // The daemon's one authority: its realm-derived secret and its own ledger.
+//! let authority = ConsumptionAuthority::new(
+//!     "kovee-consumption-object:realm-personal", [7u8; 32], &Rows);
+//!
 //! let expect = Expectation {
 //!     execution_key: "exec-abc", subject_digest: &subject,
 //!     disclosure_digest: &disclosure,
@@ -43,34 +54,48 @@
 //!     now: 1_800_000_000, already_spent: false, bound_origin: &origin,
 //! };
 //! // No receipt, no call. This is the whole point of the broker.
-//! assert_eq!(authorize(None, &expect).unwrap_err(), PermitError::NoPermit);
+//! assert_eq!(authority.authorize(None, &expect).unwrap_err(), PermitError::NoPermit);
 //! ```
 //!
-//! # Why these two types are opaque (D-R3-1)
+//! # Why these types are opaque, and why that is not the whole fix (D-R3-1)
 //!
-//! Both are authority-bearing values that cross a trust boundary *inside*
-//! one process, so neither is a plain record:
+//! Opacity came first and is still here: every field is private, no type has
+//! a public constructor or a `Deserialize`, [`ExecutionPermit`] is not
+//! `Clone`, and [`crate::dispatch`] takes it **by value**.
 //!
-//! - every field is private, and neither type has a public constructor;
-//! - a receipt exists only by [`ExecutionConsumptionReceipt::from_result`]
-//!   parsing byom's reply — the type itself is not `Deserialize`, so no
-//!   caller can conjure one from JSON of its own;
-//! - turning a receipt into a permit needs a [`ConsumedReceipt`], which
-//!   requires the daemon's own keyed per-object secret: an authenticated
-//!   constructor, not a public one;
-//! - [`ExecutionPermit`] is neither `Clone` nor `Deserialize`, and
-//!   [`crate::dispatch`] takes it **by value**, so a permit cannot be used
-//!   twice by the same code path; and
-//! - the one authorized use lives in a **durable** [`SpentLedger`], so a
-//!   second permit *value* for the same consumption is worthless in fact.
+//! R3's confirmation showed opacity alone is not a gate. A caller could
+//! author the receipt JSON, hand it to a public parser, attest it under a key
+//! **of its own choosing**, and dispatch it against a ledger **of its own
+//! writing** — every value opaque, every value forged. So the parser, the
+//! attestation and the ledger all moved behind the authority:
 //!
-//! Each of those is a compile error rather than a convention, and the
-//! `compile_fail` doctests on the types below are how that is proven.
+//! - a receipt exists only as [`ConsumptionAuthority::admit`] returns it, and
+//!   it carries a keyed admission tag over its exact members;
+//! - [`ConsumptionAuthority::attest`] **verifies** that tag before it will
+//!   attest anything, so a receipt admitted elsewhere is refused here;
+//! - the attestation takes **no key argument** — the secret is the
+//!   authority's, never the call site's;
+//! - the minted permit carries a keyed **seal** over its whole authorized
+//!   projection, and `dispatch` re-verifies it under the same authority;
+//! - the single use is claimed in the ledger the authority **owns**, so no
+//!   call site can substitute a permissive one.
+//!
+//! What that leaves, stated plainly: code that can construct a
+//! `ConsumptionAuthority` *is* the daemon, because it supplies the daemon's
+//! secret and the daemon's ledger. A library cannot distinguish it from the
+//! daemon; only byom signing its own receipts could, and byom does not sign
+//! them today. What is closed is everything short of that — no receipt, no
+//! attestation, no permit and no spent use can be produced by any code that
+//! does not already hold both.
+//!
+//! Each opacity claim is a compile error rather than a convention, and
+//! `tests/compile_gate.rs` is how that is proven against rustc's own
+//! diagnostics.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use kovee_core::family::DigestRef;
+use kovee_core::family::{hmac_sha256, tagged_canonical, DigestRef};
 use kovee_core::time::unix_from_rfc3339_utc;
 
 use crate::egress::{EgressPolicy, Origin};
@@ -88,10 +113,40 @@ pub const OWNER_PROTOCOL_BYOM: &str = "byom";
 /// never fabricated alongside it.
 pub const PHASE_PRE_EGRESS: &str = "pre_egress";
 
+/// The type tag of the receipt-admission preimage: what the authority MACs
+/// when byom's reply first becomes a receipt.
+pub const RECEIPT_ADMISSION_TAG: &str = "kovee-consumption-admission-v1";
+/// The type tag of the receipt-provenance preimage.
+pub const RECEIPT_PROVENANCE_TAG: &str = "kovee-consumption-provenance-v1";
+/// The type tag of the permit seal: what `dispatch` re-verifies.
+pub const PERMIT_SEAL_TAG: &str = "kovee-execution-permit-seal-v1";
+
+/// A comparison whose duration does not depend on where the first difference
+/// is. Every check on this page compares a secret-keyed tag, so none of them
+/// uses `==`.
+fn ct_eq(left: &[u8; 32], right: &[u8; 32]) -> bool {
+    let mut difference = 0u8;
+    for i in 0..32 {
+        difference |= left[i] ^ right[i];
+    }
+    difference == 0
+}
+
+/// The same, for the hex of a keyed digest.
+fn ct_eq_str(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut difference = 0u8;
+    for (l, r) in left.bytes().zip(right.bytes()) {
+        difference |= l ^ r;
+    }
+    difference == 0
+}
+
 /// byom's reply members, as the wire carries them. **Private on purpose**:
-/// it is the only `Deserialize` in this module, so the only way to get a
-/// receipt is to parse a reply through
-/// [`ExecutionConsumptionReceipt::from_result`].
+/// it is the only `Deserialize` in this module, and the only code that can
+/// reach it is [`ConsumptionAuthority::admit`].
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReceiptWire {
@@ -144,10 +199,15 @@ struct ReceiptWire {
 /// records it. Every member is byom's; Kovee echoes and checks, never
 /// invents.
 ///
-/// Opaque by construction (D-R3-1): no public field, no public constructor,
-/// and no `Deserialize` — so a receipt in Kovee's hands always came through
-/// [`ExecutionConsumptionReceipt::from_result`] over byom's reply. It stays
-/// `Serialize`, because Kovee must record byom's reply verbatim.
+/// Opaque *and* admitted (D-R3-1): no public field, no public constructor, no
+/// `Deserialize`, and a private keyed **admission tag** that only a
+/// [`ConsumptionAuthority`] can compute. So a receipt in Kovee's hands did
+/// not merely parse — it came through
+/// [`ConsumptionAuthority::admit`] under the daemon's own secret, and
+/// [`ConsumptionAuthority::attest`] re-checks that before it will do anything
+/// with it. It stays `Serialize`, because Kovee must record byom's reply
+/// verbatim; the admission tag is not part of that record, it is re-derived
+/// whenever the stored reply is admitted again.
 ///
 /// A literal will not compile:
 /// ```compile_fail,E0422
@@ -160,57 +220,69 @@ struct ReceiptWire {
 /// let receipt: ExecutionConsumptionReceipt =
 ///     serde_json::from_str(r#"{"max_uses":1}"#).unwrap();
 /// ```
+/// Nor will parsing JSON of one's own, which is what R3's confirmation did:
+/// ```compile_fail,E0624
+/// # use kovee_effects::ExecutionConsumptionReceipt;
+/// # fn f(mine: &serde_json::Value) {
+/// let receipt = ExecutionConsumptionReceipt::from_result(mine);
+/// # }
+/// ```
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
-pub struct ExecutionConsumptionReceipt(ReceiptWire);
+pub struct ExecutionConsumptionReceipt {
+    wire: ReceiptWire,
+    /// The keyed tag of the authority that admitted this reply. Not part of
+    /// the recorded receipt: it is a fact about *this process's* handling of
+    /// byom's bytes, not a member of byom's record.
+    #[serde(skip)]
+    admission: [u8; 32],
+}
 
 impl ExecutionConsumptionReceipt {
-    /// Parses byom's `result` object — the only way one of these exists.
-    /// Unknown members are refused: a receipt shape Kovee does not fully
-    /// understand cannot be reasoned about, so it fails closed rather than
-    /// being partly honored.
-    pub fn from_result(result: &Value) -> Result<ExecutionConsumptionReceipt, PermitError> {
-        let wire: ReceiptWire = serde_json::from_value(result.clone())
-            .map_err(|e| PermitError::Malformed(e.to_string()))?;
-        Ok(ExecutionConsumptionReceipt(wire))
+    /// Parses byom's `result` object. **Private**: the public door is
+    /// [`ConsumptionAuthority::admit`], which is this plus the keyed
+    /// admission tag. Unknown members are refused — a receipt shape Kovee
+    /// does not fully understand cannot be reasoned about, so it fails closed
+    /// rather than being partly honored.
+    fn from_result(result: &Value) -> Result<ReceiptWire, PermitError> {
+        serde_json::from_value(result.clone()).map_err(|e| PermitError::Malformed(e.to_string()))
     }
 
     /// Whether this receipt recovered a retained one (byom's `replayed`).
     pub fn is_replay(&self) -> bool {
-        self.0.replayed.unwrap_or(false)
+        self.wire.replayed.unwrap_or(false)
     }
 
     pub fn receipt_id(&self) -> &str {
-        &self.0.receipt_id
+        &self.wire.receipt_id
     }
     pub fn byom_endpoint_ref(&self) -> &str {
-        &self.0.byom_endpoint_ref
+        &self.wire.byom_endpoint_ref
     }
     pub fn intent_ref(&self) -> &str {
-        &self.0.intent_ref
+        &self.wire.intent_ref
     }
     pub fn stable_execution_key(&self) -> &str {
-        &self.0.stable_execution_key
+        &self.wire.stable_execution_key
     }
     pub fn mandate_use_ref(&self) -> &str {
-        &self.0.mandate_use_ref
+        &self.wire.mandate_use_ref
     }
     /// byom's own digest over the receipt, when byom reported one.
     pub fn digest(&self) -> Option<&DigestRef> {
-        self.0.digest.as_ref()
+        self.wire.digest.as_ref()
     }
 }
 
-/// A receipt Kovee has **attested**: the authenticated constructor between a
-/// parsed reply and an [`ExecutionPermit`].
+/// A receipt Kovee has **attested**: the authenticated step between an
+/// admitted reply and an [`ExecutionPermit`].
 ///
-/// [`authorize`] will not look at a bare [`ExecutionConsumptionReceipt`]. It
-/// takes one of these, and minting one requires a *keyed* per-object secret
-/// — the daemon's realm-wrapped consumption key, which no worker-reachable
-/// path holds. The keyed digest it computes over the exact receipt bytes and
-/// the durable consumption id is recorded in the permit, so an auditor can
-/// later re-derive it and see that the permit was minted from the committed
-/// receipt and not from something else.
+/// It exists only as [`ConsumptionAuthority::attest`] returns it, and only
+/// after that authority has verified the receipt's admission tag. The keyed
+/// digest it carries is over the exact receipt bytes and the durable
+/// consumption id, so an auditor holding the daemon's secret can re-derive it
+/// and see that the permit was minted from the committed receipt and not from
+/// something else.
 #[derive(Debug)]
 pub struct ConsumedReceipt<'a> {
     receipt: &'a ExecutionConsumptionReceipt,
@@ -218,35 +290,7 @@ pub struct ConsumedReceipt<'a> {
     provenance: DigestRef,
 }
 
-/// The type tag of the receipt-provenance preimage.
-pub const RECEIPT_PROVENANCE_TAG: &str = "kovee-consumption-provenance-v1";
-
-impl<'a> ConsumedReceipt<'a> {
-    /// Attests one committed consumption. `key` must be a keyed
-    /// ([`RecordDigestKey::Object`]) key: an unkeyed one is refused, because
-    /// anyone could recompute it and the attestation would prove nothing.
-    pub fn attest(
-        receipt: &'a ExecutionConsumptionReceipt,
-        consumption_ref: &'a str,
-        key: RecordDigestKey<'_>,
-    ) -> Result<ConsumedReceipt<'a>, PermitError> {
-        if !matches!(key, RecordDigestKey::Object { .. }) {
-            return Err(PermitError::UnkeyedProvenance);
-        }
-        let projection = json!({
-            "consumption_ref": consumption_ref,
-            "receipt": serde_json::to_value(receipt)
-                .map_err(|e| PermitError::Malformed(e.to_string()))?,
-        });
-        let provenance = record_digest(RECEIPT_PROVENANCE_TAG, &projection, key)
-            .ok_or(PermitError::Unattestable)?;
-        Ok(ConsumedReceipt {
-            receipt,
-            consumption_ref,
-            provenance,
-        })
-    }
-
+impl ConsumedReceipt<'_> {
     pub fn consumption_ref(&self) -> &str {
         self.consumption_ref
     }
@@ -254,6 +298,277 @@ impl<'a> ConsumedReceipt<'a> {
     /// The keyed digest that binds this receipt to its consumption record.
     pub fn provenance(&self) -> &DigestRef {
         &self.provenance
+    }
+}
+
+// -------------------------------------------------------- the authority ----
+
+/// The daemon's one consumption authority: the secret that authenticates
+/// every step from byom's reply to an outbound byte, and the **durable**
+/// ledger the single use is claimed in.
+///
+/// Both are chosen **here**, once, by the code that owns the daemon's key
+/// material and its database — never at a dispatch call site. That is the
+/// difference R3's confirmation demanded: a caller can no longer pick the
+/// attestation secret, and can no longer pair a permit with a ledger that
+/// forgets.
+///
+/// The secret must be per-realm key material the daemon derives (koveed
+/// derives it from the realm object key), not a constant and not anything a
+/// worker can read.
+pub struct ConsumptionAuthority<'a> {
+    key_ref: String,
+    secret: [u8; 32],
+    ledger: &'a dyn SpentLedger,
+}
+
+impl std::fmt::Debug for ConsumptionAuthority<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConsumptionAuthority")
+            .field("key_ref", &self.key_ref)
+            .field("secret", &"redacted")
+            .finish()
+    }
+}
+
+impl<'a> ConsumptionAuthority<'a> {
+    /// The daemon's authority. `key_ref` names the secret in the audit record
+    /// — it is what a later reader of a permit's `owner_receipt_provenance`
+    /// uses to tell which key would have to be destroyed to erase it.
+    pub fn new(
+        key_ref: &str,
+        secret: [u8; 32],
+        ledger: &'a dyn SpentLedger,
+    ) -> ConsumptionAuthority<'a> {
+        ConsumptionAuthority {
+            key_ref: key_ref.to_owned(),
+            secret,
+            ledger,
+        }
+    }
+
+    /// The `key_ref` this authority's digests are keyed under.
+    pub fn key_ref(&self) -> &str {
+        &self.key_ref
+    }
+
+    /// The **only** way an [`ExecutionConsumptionReceipt`] comes into
+    /// existence: byom's `result` object, parsed and tagged under this
+    /// authority's secret.
+    ///
+    /// The tag is over the parsed members rather than the raw bytes, so the
+    /// crash-recovery path — re-admitting the reply Kovee durably stored —
+    /// reproduces the identical receipt and uses the same door as the live
+    /// one.
+    pub fn admit(&self, reply: &Value) -> Result<ExecutionConsumptionReceipt, PermitError> {
+        let wire = ExecutionConsumptionReceipt::from_result(reply)?;
+        let admission = self.tag(RECEIPT_ADMISSION_TAG, &wire)?;
+        Ok(ExecutionConsumptionReceipt { wire, admission })
+    }
+
+    /// Attests one committed consumption. There is no key argument: the
+    /// secret is this authority's. A receipt this authority did not admit is
+    /// refused before anything is computed over it.
+    pub fn attest<'r>(
+        &self,
+        receipt: &'r ExecutionConsumptionReceipt,
+        consumption_ref: &'r str,
+    ) -> Result<ConsumedReceipt<'r>, PermitError> {
+        self.check_admission(receipt)?;
+        Ok(ConsumedReceipt {
+            provenance: self.provenance_of(receipt, consumption_ref)?,
+            receipt,
+            consumption_ref,
+        })
+    }
+
+    /// The keyed digest this authority — and only this authority — derives
+    /// for one receipt under one consumption row. `attest` produces it and
+    /// `authorize` re-derives it, so an attestation made anywhere else is a
+    /// value this authority would never have written.
+    fn provenance_of(
+        &self,
+        receipt: &ExecutionConsumptionReceipt,
+        consumption_ref: &str,
+    ) -> Result<DigestRef, PermitError> {
+        let projection = json!({
+            "consumption_ref": consumption_ref,
+            "receipt": serde_json::to_value(receipt)
+                .map_err(|e| PermitError::Malformed(e.to_string()))?,
+        });
+        record_digest(
+            RECEIPT_PROVENANCE_TAG,
+            &projection,
+            RecordDigestKey::Object {
+                key_ref: &self.key_ref,
+                secret: &self.secret,
+            },
+        )
+        .ok_or(PermitError::Unattestable)
+    }
+
+    /// The gate. Every check is a refusal, and the order is deliberate: the
+    /// absent permit first (the commonest and most serious mistake), the
+    /// provenance next (an attestation this authority did not make is not an
+    /// attestation), the spent permit, then the bindings, then the clock.
+    ///
+    /// It takes a [`ConsumedReceipt`], not a receipt: the authenticated
+    /// constructor is part of the gate (D-R3-1).
+    pub fn authorize(
+        &self,
+        consumed: Option<ConsumedReceipt<'_>>,
+        expect: &Expectation<'_>,
+    ) -> Result<ExecutionPermit, PermitError> {
+        let consumed = consumed.ok_or(PermitError::NoPermit)?;
+        // Both keyed tags, re-verified rather than trusted: the receipt was
+        // admitted here, and the attestation was made here.
+        self.check_admission(consumed.receipt)?;
+        let mine = self.provenance_of(consumed.receipt, consumed.consumption_ref)?;
+        if mine.class != consumed.provenance.class
+            || mine.algorithm != consumed.provenance.algorithm
+            || mine.key_ref != consumed.provenance.key_ref
+            || !ct_eq_str(&mine.value_hex, &consumed.provenance.value_hex)
+        {
+            return Err(PermitError::ForeignAttestation);
+        }
+        let receipt = &consumed.receipt.wire;
+        if expect.already_spent {
+            return Err(PermitError::SpentPermit);
+        }
+        if receipt.max_uses != 1 {
+            return Err(PermitError::NotOneShot(receipt.max_uses));
+        }
+        if receipt.stable_execution_key != expect.execution_key {
+            return Err(PermitError::WrongExecutionKey {
+                want: expect.execution_key.to_owned(),
+                got: receipt.stable_execution_key.clone(),
+            });
+        }
+        if receipt.driver_audience != expect.driver_audience {
+            return Err(PermitError::WrongAudience {
+                want: expect.driver_audience.to_owned(),
+                got: receipt.driver_audience.clone(),
+            });
+        }
+        // Every digest byom REPORTS must match; each one it does not report is
+        // recorded, never assumed. `execution_permit_consume` already re-derived
+        // all three against its own committed act before minting this receipt.
+        let mut unverified = Vec::new();
+        match &receipt.subject_digest {
+            Some(digest) if digest == expect.subject_digest => {}
+            Some(_) => return Err(PermitError::SubjectMismatch),
+            None => unverified.push("subject_digest".to_owned()),
+        }
+        match &receipt.disclosure_digest {
+            Some(digest) if digest == expect.disclosure_digest => {}
+            Some(_) => return Err(PermitError::DisclosureMismatch),
+            None => unverified.push("disclosure_digest".to_owned()),
+        }
+        if receipt.intent_digest.is_none() {
+            unverified.push("intent_digest".to_owned());
+        }
+        if receipt.digest.is_none() {
+            unverified.push("receipt_digest".to_owned());
+        }
+        if receipt.endpoint_incarnation != expect.endpoint_incarnation
+            || receipt.recovery_epoch != expect.recovery_epoch
+        {
+            return Err(PermitError::WrongEndpoint);
+        }
+        let (byom_fence, kovee_fence) = match expect.episode {
+            Some(episode) => {
+                let bound = receipt.episode_ref.as_deref().ok_or(PermitError::Unbound)?;
+                if bound != episode.episode_ref {
+                    return Err(PermitError::EpisodeMismatch {
+                        want: episode.episode_ref.to_owned(),
+                        got: bound.to_owned(),
+                    });
+                }
+                match &receipt.episode_fence_digest {
+                    Some(digest) if digest == episode.fence_digest => {}
+                    Some(_) => return Err(PermitError::StaleFence),
+                    // byomd compared the fence digest against its own committed
+                    // ByomEpisodeBinding inside the consuming transaction; an
+                    // unreported echo is recorded, not assumed.
+                    None => unverified.push("episode_fence_digest".to_owned()),
+                }
+                (episode.byom_fence_epoch, episode.kovee_invocation_fence)
+            }
+            None => {
+                // An episode-bound receipt cannot authorize an unbound call.
+                if receipt.episode_ref.is_some() {
+                    return Err(PermitError::Unbound);
+                }
+                (0, 0)
+            }
+        };
+        let expires_at = unix_from_rfc3339_utc(&receipt.expires_at)
+            .ok_or_else(|| PermitError::UnreadableExpiry(receipt.expires_at.clone()))?;
+        if expires_at <= expect.now {
+            return Err(PermitError::Expired(receipt.expires_at.clone()));
+        }
+        let mut permit = ExecutionPermit {
+            owner_protocol: OWNER_PROTOCOL_BYOM.to_owned(),
+            phase: PHASE_PRE_EGRESS.to_owned(),
+            owner_endpoint_ref: receipt.byom_endpoint_ref.clone(),
+            owner_intent_ref: receipt.intent_ref.clone(),
+            owner_receipt_ref: receipt.receipt_id.clone(),
+            owner_receipt_digest: receipt.digest.clone(),
+            owner_receipt_provenance: consumed.provenance.clone(),
+            consumption_ref: consumed.consumption_ref.to_owned(),
+            mandate_use_ref: receipt.mandate_use_ref.clone(),
+            execution_key: receipt.stable_execution_key.clone(),
+            subject_digest: expect.subject_digest.clone(),
+            disclosure_digest: expect.disclosure_digest.clone(),
+            owner_unverified_digests: unverified,
+            driver_audience: receipt.driver_audience.clone(),
+            episode_ref: receipt.episode_ref.clone(),
+            byom_fence_epoch: byom_fence,
+            kovee_invocation_fence: kovee_fence,
+            budget_reservation_set_ref: receipt.budget_reservation_set_ref.clone(),
+            expires_at: receipt.expires_at.clone(),
+            max_uses: 1,
+            bound_origin: expect.bound_origin.clone(),
+            bound_egress_policy: EgressPolicy::allowing([expect.bound_origin.clone()]),
+            seal: [0u8; 32],
+        };
+        // The seal covers the permit's whole recorded projection — the seal
+        // itself is `skip`ped, so this is exactly what a later reader sees.
+        permit.seal = self.tag(PERMIT_SEAL_TAG, &permit)?;
+        Ok(permit)
+    }
+
+    /// Whether this authority sealed that permit. Crate-private: it is
+    /// [`crate::dispatch`]'s first refusal, not a question a caller asks.
+    pub(crate) fn sealed(&self, permit: &ExecutionPermit) -> bool {
+        match self.tag(PERMIT_SEAL_TAG, permit) {
+            Ok(expected) => ct_eq(&permit.seal, &expected),
+            Err(_) => false,
+        }
+    }
+
+    /// The one use, claimed in the ledger this authority owns. Crate-private
+    /// for the same reason: no call site chooses the ledger.
+    pub(crate) fn claim_single_use(&self, permit: &ExecutionPermit) -> Result<Claim, String> {
+        self.ledger.claim_single_use(permit)
+    }
+
+    fn check_admission(&self, receipt: &ExecutionConsumptionReceipt) -> Result<(), PermitError> {
+        let expected = self.tag(RECEIPT_ADMISSION_TAG, &receipt.wire)?;
+        if ct_eq(&receipt.admission, &expected) {
+            Ok(())
+        } else {
+            Err(PermitError::UnadmittedReceipt)
+        }
+    }
+
+    /// The keyed tag over any canonicalizable projection.
+    fn tag<T: Serialize>(&self, domain: &str, value: &T) -> Result<[u8; 32], PermitError> {
+        let projection =
+            serde_json::to_value(value).map_err(|e| PermitError::Malformed(e.to_string()))?;
+        let preimage =
+            tagged_canonical(domain, &projection).map_err(|_| PermitError::Unattestable)?;
+        Ok(hmac_sha256(&self.secret, &preimage))
     }
 }
 
@@ -327,10 +642,15 @@ pub enum PermitError {
     #[error("the byom receipt is malformed: {0}")]
     Malformed(String),
     #[error(
-        "a receipt attested under an unkeyed digest proves nothing: provenance needs the \
-         daemon's own per-object secret"
+        "this receipt was not admitted by this consumption authority: a receipt is byom's reply \
+         through `admit`, never JSON someone had to hand"
     )]
-    UnkeyedProvenance,
+    UnadmittedReceipt,
+    #[error(
+        "this attestation was made under another consumption authority's secret, so it proves \
+         nothing here"
+    )]
+    ForeignAttestation,
     #[error("the receipt could not be canonicalized for attestation")]
     Unattestable,
 }
@@ -338,7 +658,8 @@ pub enum PermitError {
 /// The local intersection `ExecutionPermit` (§16.1): the owner's exact
 /// receipt narrowed by Kovee's current restrictions, recording every
 /// contributing digest. Holding one is what makes egress lawful; it is
-/// minted only by [`authorize`] and carries no credential.
+/// minted only by [`ConsumptionAuthority::authorize`] and carries no
+/// credential.
 ///
 /// It is `Serialize` because §16.1 requires the intersection to be recorded.
 /// It is deliberately **not** `Clone`, **not** `Deserialize`, and has no
@@ -359,6 +680,10 @@ pub enum PermitError {
 /// permit.execution_key = "exec-someone-elses".to_owned();
 /// # }
 /// ```
+///
+/// And it is *sealed*: the private `seal` is a keyed tag over everything
+/// below, so a permit minted under another authority is refused at dispatch
+/// even though the value itself is perfectly well formed.
 #[derive(Debug, Serialize)]
 pub struct ExecutionPermit {
     owner_protocol: String,
@@ -397,6 +722,11 @@ pub struct ExecutionPermit {
     /// from it. Dispatch rechecks against these (R3-B02).
     bound_origin: Origin,
     bound_egress_policy: EgressPolicy,
+    /// The authority's keyed tag over every member above. Not recorded: it
+    /// authenticates the value inside this process, and the audit record is
+    /// byom's members plus Kovee's own, not Kovee's internal key material.
+    #[serde(skip)]
+    seal: [u8; 32],
 }
 
 impl ExecutionPermit {
@@ -486,6 +816,11 @@ pub enum Claim {
 /// permit value for the same consumption — however a caller came to hold one
 /// — sends nothing. The implementation must be atomic and survive a crash;
 /// koveed's is a conditional `UPDATE` on the consumption row.
+///
+/// A ledger is chosen **once**, when the [`ConsumptionAuthority`] is built,
+/// and `dispatch` takes the authority rather than a ledger: R3's confirmation
+/// dispatched a forged permit against a ledger of its own writing, and that
+/// argument no longer exists.
 pub trait SpentLedger {
     /// Moves this permit's consumption from unspent to spent, atomically.
     /// `Err` is a ledger failure and is treated as a refusal: a use that
@@ -513,131 +848,18 @@ impl SpentLedger for MemorySpentLedger {
     }
 }
 
-/// The gate. Every check is a refusal, and the order is deliberate: the
-/// absent permit first (the commonest and most serious mistake), the spent
-/// permit next (a duplicate disclosure and a duplicate charge), then the
-/// bindings, then the clock.
-///
-/// It takes a [`ConsumedReceipt`], not a receipt: the authenticated
-/// constructor is part of the gate (D-R3-1).
-pub fn authorize(
-    consumed: Option<ConsumedReceipt<'_>>,
-    expect: &Expectation<'_>,
-) -> Result<ExecutionPermit, PermitError> {
-    let consumed = consumed.ok_or(PermitError::NoPermit)?;
-    let receipt = &consumed.receipt.0;
-    if expect.already_spent {
-        return Err(PermitError::SpentPermit);
-    }
-    if receipt.max_uses != 1 {
-        return Err(PermitError::NotOneShot(receipt.max_uses));
-    }
-    if receipt.stable_execution_key != expect.execution_key {
-        return Err(PermitError::WrongExecutionKey {
-            want: expect.execution_key.to_owned(),
-            got: receipt.stable_execution_key.clone(),
-        });
-    }
-    if receipt.driver_audience != expect.driver_audience {
-        return Err(PermitError::WrongAudience {
-            want: expect.driver_audience.to_owned(),
-            got: receipt.driver_audience.clone(),
-        });
-    }
-    // Every digest byom REPORTS must match; each one it does not report is
-    // recorded, never assumed. `execution_permit_consume` already re-derived
-    // all three against its own committed act before minting this receipt.
-    let mut unverified = Vec::new();
-    match &receipt.subject_digest {
-        Some(digest) if digest == expect.subject_digest => {}
-        Some(_) => return Err(PermitError::SubjectMismatch),
-        None => unverified.push("subject_digest".to_owned()),
-    }
-    match &receipt.disclosure_digest {
-        Some(digest) if digest == expect.disclosure_digest => {}
-        Some(_) => return Err(PermitError::DisclosureMismatch),
-        None => unverified.push("disclosure_digest".to_owned()),
-    }
-    if receipt.intent_digest.is_none() {
-        unverified.push("intent_digest".to_owned());
-    }
-    if receipt.digest.is_none() {
-        unverified.push("receipt_digest".to_owned());
-    }
-    if receipt.endpoint_incarnation != expect.endpoint_incarnation
-        || receipt.recovery_epoch != expect.recovery_epoch
-    {
-        return Err(PermitError::WrongEndpoint);
-    }
-    let (byom_fence, kovee_fence) = match expect.episode {
-        Some(episode) => {
-            let bound = receipt.episode_ref.as_deref().ok_or(PermitError::Unbound)?;
-            if bound != episode.episode_ref {
-                return Err(PermitError::EpisodeMismatch {
-                    want: episode.episode_ref.to_owned(),
-                    got: bound.to_owned(),
-                });
-            }
-            match &receipt.episode_fence_digest {
-                Some(digest) if digest == episode.fence_digest => {}
-                Some(_) => return Err(PermitError::StaleFence),
-                // byomd compared the fence digest against its own committed
-                // ByomEpisodeBinding inside the consuming transaction; an
-                // unreported echo is recorded, not assumed.
-                None => unverified.push("episode_fence_digest".to_owned()),
-            }
-            (episode.byom_fence_epoch, episode.kovee_invocation_fence)
-        }
-        None => {
-            // An episode-bound receipt cannot authorize an unbound call.
-            if receipt.episode_ref.is_some() {
-                return Err(PermitError::Unbound);
-            }
-            (0, 0)
-        }
-    };
-    let expires_at = unix_from_rfc3339_utc(&receipt.expires_at)
-        .ok_or_else(|| PermitError::UnreadableExpiry(receipt.expires_at.clone()))?;
-    if expires_at <= expect.now {
-        return Err(PermitError::Expired(receipt.expires_at.clone()));
-    }
-    Ok(ExecutionPermit {
-        owner_protocol: OWNER_PROTOCOL_BYOM.to_owned(),
-        phase: PHASE_PRE_EGRESS.to_owned(),
-        owner_endpoint_ref: receipt.byom_endpoint_ref.clone(),
-        owner_intent_ref: receipt.intent_ref.clone(),
-        owner_receipt_ref: receipt.receipt_id.clone(),
-        owner_receipt_digest: receipt.digest.clone(),
-        owner_receipt_provenance: consumed.provenance.clone(),
-        consumption_ref: consumed.consumption_ref.to_owned(),
-        mandate_use_ref: receipt.mandate_use_ref.clone(),
-        execution_key: receipt.stable_execution_key.clone(),
-        subject_digest: expect.subject_digest.clone(),
-        disclosure_digest: expect.disclosure_digest.clone(),
-        owner_unverified_digests: unverified,
-        driver_audience: receipt.driver_audience.clone(),
-        episode_ref: receipt.episode_ref.clone(),
-        byom_fence_epoch: byom_fence,
-        kovee_invocation_fence: kovee_fence,
-        budget_reservation_set_ref: receipt.budget_reservation_set_ref.clone(),
-        expires_at: receipt.expires_at.clone(),
-        max_uses: 1,
-        bound_origin: expect.bound_origin.clone(),
-        bound_egress_policy: EgressPolicy::allowing([expect.bound_origin.clone()]),
-    })
-}
-
 /// Fixtures shared with the broker's tests. A test receipt is built from
-/// byom's reply JSON and parsed by [`ExecutionConsumptionReceipt::from_result`]
-/// — the same door production uses, because there is no other.
+/// byom's reply JSON and admitted by a test authority — the same door
+/// production uses, because there is no other.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 pub(crate) mod fixture {
     use super::*;
     use serde_json::json;
 
-    /// The daemon's per-object consumption secret, in a test.
+    /// The daemon's per-realm consumption secret, in a test.
     pub(crate) const SECRET: [u8; 32] = [11u8; 32];
+    pub(crate) const KEY_REF: &str = "kovee-consumption-object:realm-personal";
     pub(crate) const CONSUMPTION: &str = "eac-1";
     pub(crate) const EXPIRES: &str = "2027-01-15T09:00:00Z";
 
@@ -676,21 +898,9 @@ pub(crate) mod fixture {
         })
     }
 
-    pub(crate) fn receipt_from(reply: &Value) -> ExecutionConsumptionReceipt {
-        ExecutionConsumptionReceipt::from_result(reply).unwrap()
-    }
-
-    /// The keyed per-object attestation the daemon performs on the committed
-    /// consumption row.
-    pub(crate) fn attest(receipt: &ExecutionConsumptionReceipt) -> ConsumedReceipt<'_> {
-        ConsumedReceipt::attest(receipt, CONSUMPTION, key()).unwrap()
-    }
-
-    pub(crate) fn key() -> RecordDigestKey<'static> {
-        RecordDigestKey::Object {
-            key_ref: "kovee-consumption-object:eac-1",
-            secret: &SECRET,
-        }
+    /// The daemon's authority over a ledger the caller supplies.
+    pub(crate) fn authority(ledger: &dyn SpentLedger) -> ConsumptionAuthority<'_> {
+        ConsumptionAuthority::new(KEY_REF, SECRET, ledger)
     }
 }
 
@@ -744,8 +954,13 @@ mod tests {
     #[test]
     fn a_valid_receipt_mints_the_intersection_permit() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
-        let receipt = receipt_from(&reply_ok());
-        let permit = authorize(Some(attest(&receipt)), &expectation(&s, &di, &f, &o)).unwrap();
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let receipt = authority.admit(&reply_ok()).unwrap();
+        let consumed = authority.attest(&receipt, CONSUMPTION).unwrap();
+        let permit = authority
+            .authorize(Some(consumed), &expectation(&s, &di, &f, &o))
+            .unwrap();
         assert_eq!(permit.max_uses(), 1);
         assert_eq!(permit.owner_protocol(), "byom");
         assert_eq!(permit.phase(), "pre_egress");
@@ -763,79 +978,163 @@ mod tests {
             permit.owner_receipt_provenance().class,
             "local_erasure_safe"
         );
+        assert_eq!(
+            permit.owner_receipt_provenance().key_ref.as_deref(),
+            Some(KEY_REF)
+        );
         // The destination is bound HERE, from the provider binding.
         assert_eq!(permit.bound_origin(), &o);
         assert_eq!(
             permit.bound_egress_policy(),
             &EgressPolicy::allowing([o.clone()])
         );
-        // And no credential rides along.
+        // The seal is this authority's, and it is not part of the record.
+        assert!(authority.sealed(&permit));
         let json = serde_json::to_string(&permit).unwrap();
+        assert!(!json.contains("seal"));
+        // And no credential rides along.
         assert!(!json.contains("api-key") && !json.contains("sk-"));
     }
 
     #[test]
     fn no_receipt_is_the_refusal_that_matters_most() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let ledger = MemorySpentLedger::default();
         assert_eq!(
-            authorize(None, &expectation(&s, &di, &f, &o)).unwrap_err(),
+            authority(&ledger)
+                .authorize(None, &expectation(&s, &di, &f, &o))
+                .unwrap_err(),
             PermitError::NoPermit
         );
     }
 
+    /// R3's confirmation minted a permit from JSON of its own under a secret
+    /// of its own. Both halves are now refused at runtime as well as at
+    /// compile time: a receipt admitted by one authority cannot be attested,
+    /// nor an attestation honored, by another.
     #[test]
-    fn an_unkeyed_attestation_proves_nothing_and_is_refused() {
-        let receipt = receipt_from(&reply_ok());
+    fn a_receipt_or_attestation_from_another_authority_is_refused() {
+        let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let ledger = MemorySpentLedger::default();
+        let daemon = authority(&ledger);
+        let forger =
+            ConsumptionAuthority::new("kovee-consumption-object:mine", [0xffu8; 32], &ledger);
+
+        // The forger admits its own reply — and the daemon will not attest it.
+        let theirs = forger.admit(&reply_ok()).unwrap();
         assert_eq!(
-            ConsumedReceipt::attest(&receipt, CONSUMPTION, RecordDigestKey::Portable).unwrap_err(),
-            PermitError::UnkeyedProvenance
+            daemon.attest(&theirs, CONSUMPTION).unwrap_err(),
+            PermitError::UnadmittedReceipt
+        );
+        // Nor will the daemon authorize the forger's own attestation, even of
+        // a receipt the daemon itself admitted.
+        let ours = daemon.admit(&reply_ok()).unwrap();
+        let attested_elsewhere = forger.attest(&theirs, CONSUMPTION).unwrap();
+        assert_eq!(
+            daemon
+                .authorize(Some(attested_elsewhere), &expectation(&s, &di, &f, &o))
+                .unwrap_err(),
+            PermitError::UnadmittedReceipt
+        );
+        // The daemon's own chain still works, and the forger cannot seal it.
+        let consumed = daemon.attest(&ours, CONSUMPTION).unwrap();
+        let permit = daemon
+            .authorize(Some(consumed), &expectation(&s, &di, &f, &o))
+            .unwrap();
+        assert!(daemon.sealed(&permit));
+        assert!(
+            !forger.sealed(&permit),
+            "a permit is sealed to one authority"
+        );
+    }
+
+    /// An attestation whose receipt IS admitted here but whose keyed
+    /// provenance came from elsewhere: the separate `ForeignAttestation`
+    /// refusal, reached by handing one authority's `ConsumedReceipt` to
+    /// another that shares the admission secret but not the key_ref.
+    #[test]
+    fn an_attestation_keyed_under_another_key_ref_is_refused() {
+        let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let ledger = MemorySpentLedger::default();
+        let daemon = authority(&ledger);
+        // Same secret (so `admit` agrees), different key_ref (so the
+        // provenance digest, and therefore its tag, differs).
+        let sibling = ConsumptionAuthority::new("kovee-consumption-object:other", SECRET, &ledger);
+        let receipt = daemon.admit(&reply_ok()).unwrap();
+        let elsewhere = sibling.attest(&receipt, CONSUMPTION).unwrap();
+        assert_eq!(
+            daemon
+                .authorize(Some(elsewhere), &expectation(&s, &di, &f, &o))
+                .unwrap_err(),
+            PermitError::ForeignAttestation
         );
     }
 
     #[test]
     fn the_provenance_binds_the_exact_receipt_bytes_and_its_consumption() {
-        let receipt = receipt_from(&reply_ok());
-        let one = attest(&receipt);
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let receipt = authority.admit(&reply_ok()).unwrap();
+        let one = authority.attest(&receipt, CONSUMPTION).unwrap();
         // The same receipt under the same consumption re-derives identically:
         // an auditor holding the daemon's secret can re-check the permit.
-        assert_eq!(attest(&receipt).provenance(), one.provenance());
+        assert_eq!(
+            authority
+                .attest(&receipt, CONSUMPTION)
+                .unwrap()
+                .provenance(),
+            one.provenance()
+        );
         // Another consumption record, or another receipt, does not.
-        let other_row = ConsumedReceipt::attest(&receipt, "eac-2", key()).unwrap();
+        let other_row = authority.attest(&receipt, "eac-2").unwrap();
         assert_ne!(other_row.provenance(), one.provenance());
         let mut altered = reply_ok();
         altered["mandate_use_ref"] = serde_json::json!("muse-someone-elses");
-        let altered = receipt_from(&altered);
-        assert_ne!(attest(&altered).provenance(), one.provenance());
+        let altered = authority.admit(&altered).unwrap();
+        assert_ne!(
+            authority
+                .attest(&altered, CONSUMPTION)
+                .unwrap()
+                .provenance(),
+            one.provenance()
+        );
         // And a different daemon secret does not either.
-        let other_secret = [12u8; 32];
-        let elsewhere = ConsumedReceipt::attest(
-            &receipt,
-            CONSUMPTION,
-            RecordDigestKey::Object {
-                key_ref: "kovee-consumption-object:eac-1",
-                secret: &other_secret,
-            },
-        )
-        .unwrap();
-        assert_ne!(elsewhere.provenance(), one.provenance());
+        let elsewhere = ConsumptionAuthority::new(KEY_REF, [12u8; 32], &ledger);
+        let theirs = elsewhere.admit(&reply_ok()).unwrap();
+        assert_ne!(
+            elsewhere.attest(&theirs, CONSUMPTION).unwrap().provenance(),
+            one.provenance()
+        );
     }
 
     #[test]
     fn a_spent_one_shot_permit_cannot_authorize_a_second_dispatch() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
-        let receipt = receipt_from(&reply_ok());
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let receipt = authority.admit(&reply_ok()).unwrap();
         let mut expect = expectation(&s, &di, &f, &o);
         expect.already_spent = true;
         assert_eq!(
-            authorize(Some(attest(&receipt)), &expect).unwrap_err(),
+            authority
+                .authorize(
+                    Some(authority.attest(&receipt, CONSUMPTION).unwrap()),
+                    &expect
+                )
+                .unwrap_err(),
             PermitError::SpentPermit
         );
         // A receipt CLAIMING more than one use is refused outright.
         let mut multi = reply_ok();
         multi["max_uses"] = serde_json::json!(2);
-        let multi = receipt_from(&multi);
+        let multi = authority.admit(&multi).unwrap();
         assert_eq!(
-            authorize(Some(attest(&multi)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            authority
+                .authorize(
+                    Some(authority.attest(&multi, CONSUMPTION).unwrap()),
+                    &expectation(&s, &di, &f, &o)
+                )
+                .unwrap_err(),
             PermitError::NotOneShot(2)
         );
     }
@@ -843,46 +1142,68 @@ mod tests {
     #[test]
     fn the_durable_ledger_grants_the_single_use_exactly_once() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
-        let receipt = receipt_from(&reply_ok());
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let receipt = authority.admit(&reply_ok()).unwrap();
         // TWO permits from the ONE receipt: a caller that never consulted the
         // spent flag. The value is not what limits the use — the ledger is.
-        let first = authorize(Some(attest(&receipt)), &expectation(&s, &di, &f, &o)).unwrap();
-        let second = authorize(Some(attest(&receipt)), &expectation(&s, &di, &f, &o)).unwrap();
-        let ledger = MemorySpentLedger::default();
-        assert_eq!(ledger.claim_single_use(&first).unwrap(), Claim::Claimed);
+        let first = authority
+            .authorize(
+                Some(authority.attest(&receipt, CONSUMPTION).unwrap()),
+                &expectation(&s, &di, &f, &o),
+            )
+            .unwrap();
+        let second = authority
+            .authorize(
+                Some(authority.attest(&receipt, CONSUMPTION).unwrap()),
+                &expectation(&s, &di, &f, &o),
+            )
+            .unwrap();
+        assert_eq!(authority.claim_single_use(&first).unwrap(), Claim::Claimed);
         assert_eq!(
-            ledger.claim_single_use(&second).unwrap(),
+            authority.claim_single_use(&second).unwrap(),
             Claim::AlreadySpent
         );
         // And the first permit itself cannot be re-claimed either.
         assert_eq!(
-            ledger.claim_single_use(&first).unwrap(),
+            authority.claim_single_use(&first).unwrap(),
             Claim::AlreadySpent
         );
+    }
+
+    /// Every refusal below shares the same shape, so they share a helper: the
+    /// daemon's authority admits `reply`, attests it, and reports what the
+    /// gate said.
+    fn refusal(reply: &Value, expect: &Expectation<'_>) -> PermitError {
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let receipt = authority.admit(reply).unwrap();
+        let consumed = authority.attest(&receipt, CONSUMPTION).unwrap();
+        authority
+            .authorize(Some(consumed), expect)
+            .expect_err("the gate must refuse")
     }
 
     #[test]
     fn a_receipt_for_another_key_audience_or_subject_is_refused() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let expect = expectation(&s, &di, &f, &o);
         let mut other_key = reply_ok();
         other_key["stable_execution_key"] = serde_json::json!("exec-other");
-        let other_key = receipt_from(&other_key);
         assert!(matches!(
-            authorize(Some(attest(&other_key)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&other_key, &expect),
             PermitError::WrongExecutionKey { .. }
         ));
         let mut other_audience = reply_ok();
         other_audience["driver_audience"] = serde_json::json!("kovee-other-broker");
-        let other_audience = receipt_from(&other_audience);
         assert!(matches!(
-            authorize(Some(attest(&other_audience)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&other_audience, &expect),
             PermitError::WrongAudience { .. }
         ));
         let mut other_subject = reply_ok();
         other_subject["subject_digest"] = serde_json::to_value(d(0xee)).unwrap();
-        let other_subject = receipt_from(&other_subject);
         assert_eq!(
-            authorize(Some(attest(&other_subject)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&other_subject, &expect),
             PermitError::SubjectMismatch
         );
     }
@@ -890,27 +1211,36 @@ mod tests {
     #[test]
     fn a_different_disclosure_is_refused_and_an_unreported_one_is_recorded() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let expect = expectation(&s, &di, &f, &o);
         let mut changed = reply_ok();
         changed["disclosure_digest"] = serde_json::to_value(d(0xdd)).unwrap();
-        let changed = receipt_from(&changed);
-        assert_eq!(
-            authorize(Some(attest(&changed)), &expectation(&s, &di, &f, &o)).unwrap_err(),
-            PermitError::DisclosureMismatch
-        );
+        assert_eq!(refusal(&changed, &expect), PermitError::DisclosureMismatch);
         // A digest byom did not report is NAMED in the permit, never assumed
         // to match. byomd re-derived it against its own committed act inside
         // the consuming transaction, so the authorization still binds it.
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
         let mut absent = reply_ok();
         absent["disclosure_digest"] = Value::Null;
-        let absent = receipt_from(&absent);
-        let permit = authorize(Some(attest(&absent)), &expectation(&s, &di, &f, &o)).unwrap();
+        let absent = authority.admit(&absent).unwrap();
+        let permit = authority
+            .authorize(
+                Some(authority.attest(&absent, CONSUMPTION).unwrap()),
+                &expect,
+            )
+            .unwrap();
         assert_eq!(
             permit.owner_unverified_digests(),
             ["disclosure_digest".to_owned()]
         );
         // And a healthy receipt names nothing as unverified.
-        let receipt = receipt_from(&reply_ok());
-        let permit = authorize(Some(attest(&receipt)), &expectation(&s, &di, &f, &o)).unwrap();
+        let receipt = authority.admit(&reply_ok()).unwrap();
+        let permit = authority
+            .authorize(
+                Some(authority.attest(&receipt, CONSUMPTION).unwrap()),
+                &expect,
+            )
+            .unwrap();
         assert!(permit.owner_unverified_digests().is_empty());
     }
 
@@ -919,52 +1249,43 @@ mod tests {
         let (s, di, o) = (d(0x03), d(0x04), origin());
         // The binding digest advanced: the fence moved under the receipt.
         let advanced = d(0x55);
-        let receipt = receipt_from(&reply_ok());
         assert_eq!(
-            authorize(Some(attest(&receipt)), &expectation(&s, &di, &advanced, &o)).unwrap_err(),
+            refusal(&reply_ok(), &expectation(&s, &di, &advanced, &o)),
             PermitError::StaleFence
         );
         let f = d(0x05);
+        let expect = expectation(&s, &di, &f, &o);
         let mut other_episode = reply_ok();
         other_episode["episode_ref"] = serde_json::json!("ep-2");
-        let other_episode = receipt_from(&other_episode);
         assert!(matches!(
-            authorize(Some(attest(&other_episode)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&other_episode, &expect),
             PermitError::EpisodeMismatch { .. }
         ));
         // A governed call whose receipt binds no Episode at all.
         let mut unbound = reply_ok();
         unbound["episode_ref"] = Value::Null;
         unbound["episode_fence_digest"] = Value::Null;
-        let unbound = receipt_from(&unbound);
-        assert_eq!(
-            authorize(Some(attest(&unbound)), &expectation(&s, &di, &f, &o)).unwrap_err(),
-            PermitError::Unbound
-        );
+        assert_eq!(refusal(&unbound, &expect), PermitError::Unbound);
         // And the converse: an episode-bound receipt for an unbound call.
-        let mut expect = expectation(&s, &di, &f, &o);
-        expect.episode = None;
-        assert_eq!(
-            authorize(Some(attest(&receipt)), &expect).unwrap_err(),
-            PermitError::Unbound
-        );
+        let mut no_episode = expectation(&s, &di, &f, &o);
+        no_episode.episode = None;
+        assert_eq!(refusal(&reply_ok(), &no_episode), PermitError::Unbound);
     }
 
     #[test]
     fn an_expired_or_unreadable_deadline_fails_closed() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let expect = expectation(&s, &di, &f, &o);
         let mut expired = reply_ok();
         expired["expires_at"] = serde_json::json!(EARLIER);
-        let expired = receipt_from(&expired);
         assert!(matches!(
-            authorize(Some(attest(&expired)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&expired, &expect),
             PermitError::Expired(_)
         ));
         let mut unreadable = reply_ok();
         unreadable["expires_at"] = serde_json::json!("whenever");
-        let unreadable = receipt_from(&unreadable);
         assert!(matches!(
-            authorize(Some(attest(&unreadable)), &expectation(&s, &di, &f, &o)).unwrap_err(),
+            refusal(&unreadable, &expect),
             PermitError::UnreadableExpiry(_)
         ));
     }
@@ -972,26 +1293,21 @@ mod tests {
     #[test]
     fn another_byomd_incarnation_or_recovery_epoch_is_refused() {
         let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let expect = expectation(&s, &di, &f, &o);
         let mut reincarnated = reply_ok();
         reincarnated["endpoint_incarnation"] = serde_json::json!("inst-2");
-        let reincarnated = receipt_from(&reincarnated);
-        assert_eq!(
-            authorize(Some(attest(&reincarnated)), &expectation(&s, &di, &f, &o)).unwrap_err(),
-            PermitError::WrongEndpoint
-        );
+        assert_eq!(refusal(&reincarnated, &expect), PermitError::WrongEndpoint);
         let mut recovered = reply_ok();
         recovered["recovery_epoch"] = serde_json::json!(1);
-        let recovered = receipt_from(&recovered);
-        assert_eq!(
-            authorize(Some(attest(&recovered)), &expectation(&s, &di, &f, &o)).unwrap_err(),
-            PermitError::WrongEndpoint
-        );
+        assert_eq!(refusal(&recovered, &expect), PermitError::WrongEndpoint);
     }
 
     #[test]
     fn byoms_reply_parses_and_an_unknown_member_fails_closed() {
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
         let wire = reply_ok();
-        let parsed = ExecutionConsumptionReceipt::from_result(&wire).unwrap();
+        let parsed = authority.admit(&wire).unwrap();
         assert_eq!(parsed.receipt_id(), "ecr-1");
         assert_eq!(parsed.stable_execution_key(), "exec-abc");
         assert_eq!(parsed.mandate_use_ref(), "muse-1");
@@ -1000,25 +1316,33 @@ mod tests {
         assert_eq!(parsed.digest(), Some(&d(0x06)));
         assert!(!parsed.is_replay());
         // It round-trips through Kovee's own durable record: the stored reply
-        // re-parses to the identical receipt, which is what makes the
-        // crash-recovery path use the SAME door as the live one.
+        // RE-ADMITS to the identical receipt, admission tag included, which is
+        // what makes the crash-recovery path use the SAME door as the live one.
         let stored = serde_json::to_value(&parsed).unwrap();
-        assert_eq!(
-            ExecutionConsumptionReceipt::from_result(&stored).unwrap(),
-            parsed
-        );
+        assert_eq!(authority.admit(&stored).unwrap(), parsed);
         // byom's replay marker.
         let mut replayed = wire.clone();
         replayed["replayed"] = serde_json::json!(true);
-        assert!(ExecutionConsumptionReceipt::from_result(&replayed)
-            .unwrap()
-            .is_replay());
+        assert!(authority.admit(&replayed).unwrap().is_replay());
         // A member Kovee does not understand is not silently ignored.
         let mut extended = wire;
         extended["some_new_grant"] = serde_json::json!("trust me");
         assert!(matches!(
-            ExecutionConsumptionReceipt::from_result(&extended).unwrap_err(),
+            authority.admit(&extended).unwrap_err(),
             PermitError::Malformed(_)
         ));
+    }
+
+    #[test]
+    fn the_keyed_tag_is_compared_in_constant_time() {
+        // Not a timing measurement — a proof that the comparison used is the
+        // folding one and reports what `==` would.
+        let mut a = [0u8; 32];
+        let mut b = [0u8; 32];
+        assert!(ct_eq(&a, &b));
+        b[31] = 1;
+        assert!(!ct_eq(&a, &b));
+        a[0] = 9;
+        assert!(!ct_eq(&a, &b));
     }
 }

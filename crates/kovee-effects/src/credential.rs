@@ -32,12 +32,23 @@
 //! ```compile_fail,E0624
 //! let credential = kovee_effects::Credential::new("sk-mine");
 //! ```
+//! and a resolved one cannot be duplicated:
+//! ```compile_fail,E0599
+//! # use kovee_effects::Credential;
+//! # fn f(credential: Credential) -> (Credential, Credential) {
+//! let copy = credential.clone();
+//! (credential, copy)
+//! # }
+//! ```
 
 use crate::binding::CredentialRef;
 
-/// One resolved provider credential. Never serialized, never displayed, and
-/// never readable outside this crate.
-#[derive(Clone, PartialEq, Eq)]
+/// One resolved provider credential. Never serialized, never displayed,
+/// never readable outside this crate — and, since R3-B02, never **copied**
+/// either: without `Clone` a credential cannot be duplicated into a longer
+/// lived place than the call that resolved it, and its `Drop` scrub is the
+/// only end it has.
+#[derive(PartialEq, Eq)]
 pub struct Credential(String);
 
 impl Credential {

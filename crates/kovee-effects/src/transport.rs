@@ -28,17 +28,36 @@
 //! **only** under `cfg(test)` or the `testing` feature — a production build
 //! has no such type to pass (R3-B02).
 //!
-//! [`Egress`] is what seals that: [`crate::dispatch`] takes an `Egress`, not
-//! a `&dyn Transport`, and the only ways to make one are the daemon's own
-//! [`HttpsTransport`] and (test-only) the recording double. A third-party
-//! `impl Transport` cannot be handed to the broker.
+//! # The seal (R3-B02)
+//!
+//! R3's confirmation compiled an outside program that called
+//! `HttpsTransport::new()` and then `Transport::send(...)` with a
+//! `PreparedRequest` of its own and a credential from `resolve` — no permit,
+//! no plan, no ledger. That is now impossible, and by absence rather than by
+//! discipline:
+//!
+//! - [`Transport`], [`HttpsTransport`], [`RawResponse`] and [`TransportError`]
+//!   are **crate-private**. Outside this crate there is no trait to call, no
+//!   type to construct, and no `send` to name.
+//! - The one public egress value is [`Egress`], and it has exactly one
+//!   production constructor, [`Egress::live`], which hands back the process's
+//!   single wire without ever exposing it.
+//! - An `Egress` does nothing on its own. The only function that moves a byte
+//!   through one is [`crate::dispatch`], which needs an
+//!   [`ExecutionPermit`](crate::ExecutionPermit) by value and claims its
+//!   single use in the [`ConsumptionAuthority`](crate::ConsumptionAuthority)'s
+//!   own durable ledger first.
+//!
+//! So the reachable surface for a caller holding a valid provider credential
+//! is: obtain an `Egress`, and be unable to do anything with it but pass it to
+//! the gate.
 //!
 //! What you write:
 //! ```no_run
-//! use kovee_effects::{Egress, HttpsTransport};
-//! let wire = HttpsTransport::new();
-//! let egress: Egress<'_> = Egress::live(&wire);
+//! use kovee_effects::Egress;
+//! let egress = Egress::live();
 //! assert_eq!(egress.profile(), kovee_effects::PROFILE_HTTPS);
+//! // …and the only thing that can be done with it is `dispatch(.., permit, &egress, ..)`.
 //! ```
 
 use std::io::{Read as _, Write as _};
@@ -62,16 +81,17 @@ pub const PROFILE_RECORDING: &str = "recording-test-double";
 /// with more than this is refused rather than buffered.
 pub const RESPONSE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
-/// One raw provider response.
+/// One raw provider response. Crate-private: nothing outside can hold the
+/// result of a send, because nothing outside can perform one.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawResponse {
+pub(crate) struct RawResponse {
     pub status: u16,
     pub body: Vec<u8>,
 }
 
 /// Why a send failed — and, decisively, whether bytes may have left.
 #[derive(Debug, thiserror::Error)]
-pub enum TransportError {
+pub(crate) enum TransportError {
     /// Nothing was transmitted: the destination was refused, resolution
     /// failed, or the connection never opened. Safe to classify `failed`.
     #[error("no request was transmitted: {0}")]
@@ -85,13 +105,14 @@ pub enum TransportError {
 impl TransportError {
     /// Whether this failure leaves the effect `ambiguous` rather than
     /// cleanly `failed`.
-    pub fn is_uncertain(&self) -> bool {
+    pub(crate) fn is_uncertain(&self) -> bool {
         matches!(self, TransportError::Uncertain(_))
     }
 }
 
-/// The one egress path (§16.3 step 5). Object-safe.
-pub trait Transport: Send + Sync {
+/// The one egress path (§16.3 step 5). Object-safe, and **crate-private**:
+/// outside this crate there is no `send` to call (R3-B02).
+pub(crate) trait Transport: Send + Sync {
     /// The profile recorded on the effect.
     fn profile(&self) -> &'static str;
 
@@ -108,13 +129,14 @@ pub trait Transport: Send + Sync {
 // ------------------------------------------------------------- the seal ----
 
 /// The sealed egress: the only value [`crate::dispatch`] will send bytes
-/// through.
+/// through, and the only egress-shaped thing that exists outside this crate.
 ///
-/// There is no `From<&dyn Transport>` and no public constructor beyond these
-/// two, so the set of wires the broker can use is closed: the daemon's own
-/// [`HttpsTransport`], or — only where `cfg(test)` or the `testing` feature
-/// is on — the recording double. That is what "the live transport is sealed
-/// inside the Daemon" means as a type rather than a habit (R3-B02).
+/// There is no `From<&dyn Transport>`, no way to name the trait, and no way
+/// to construct the live wire: [`Egress::live`] hands back the process's one
+/// [`HttpsTransport`], created on first use and never exposed. Under
+/// `cfg(test)` or the `testing` feature there is additionally the recording
+/// double. That is what "the live transport is sealed inside the Daemon"
+/// means as a type rather than a habit (R3-B02).
 #[derive(Debug)]
 pub struct Egress<'a> {
     wire: Wire<'a>,
@@ -127,22 +149,24 @@ enum Wire<'a> {
     Recording(&'a RecordingTransport),
 }
 
+/// The process's single live wire. Building a rustls client config reads the
+/// compiled-in Mozilla root bundle, so it is done once; and because the value
+/// never leaves this module, "who may send" is not a question a caller gets
+/// to answer.
+static LIVE: std::sync::OnceLock<HttpsTransport> = std::sync::OnceLock::new();
+
+impl Egress<'static> {
+    /// The live TLS 1.3 wire. It carries no destination and no credential of
+    /// its own: both arrive at [`crate::dispatch`], from the permit and from
+    /// the daemon's secret table respectively.
+    pub fn live() -> Egress<'static> {
+        Egress {
+            wire: Wire::Live(LIVE.get_or_init(HttpsTransport::new)),
+        }
+    }
+}
+
 impl<'a> Egress<'a> {
-    /// The live TLS 1.3 wire the daemon holds.
-    pub fn live(transport: &'a HttpsTransport) -> Egress<'a> {
-        Egress {
-            wire: Wire::Live(transport),
-        }
-    }
-
-    /// The recording double — test configuration only.
-    #[cfg(any(test, feature = "testing"))]
-    pub fn recording(transport: &'a RecordingTransport) -> Egress<'a> {
-        Egress {
-            wire: Wire::Recording(transport),
-        }
-    }
-
     /// The profile recorded on the effect, so an audit can tell a real
     /// provider call from a test one.
     pub fn profile(&self) -> &'static str {
@@ -158,11 +182,13 @@ impl<'a> Egress<'a> {
             Wire::Recording(transport) => transport,
         }
     }
-}
 
-impl<'a> From<&'a HttpsTransport> for Egress<'a> {
-    fn from(transport: &'a HttpsTransport) -> Egress<'a> {
-        Egress::live(transport)
+    /// The recording double — test configuration only.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn recording(transport: &'a RecordingTransport) -> Egress<'a> {
+        Egress {
+            wire: Wire::Recording(transport),
+        }
     }
 }
 
@@ -175,8 +201,9 @@ impl<'a> From<&'a RecordingTransport> for Egress<'a> {
 
 // ----------------------------------------------------------------- https ----
 
-/// The live TLS 1.3 transport.
-pub struct HttpsTransport {
+/// The live TLS 1.3 transport. Crate-private, and reachable only as the one
+/// value [`Egress::live`] wraps.
+pub(crate) struct HttpsTransport {
     config: Arc<rustls::ClientConfig>,
 }
 
@@ -186,14 +213,8 @@ impl std::fmt::Debug for HttpsTransport {
     }
 }
 
-impl Default for HttpsTransport {
-    fn default() -> HttpsTransport {
-        HttpsTransport::new()
-    }
-}
-
 impl HttpsTransport {
-    pub fn new() -> HttpsTransport {
+    fn new() -> HttpsTransport {
         HttpsTransport {
             config: Arc::new(client_config()),
         }

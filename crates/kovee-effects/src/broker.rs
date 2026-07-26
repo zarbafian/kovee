@@ -17,15 +17,19 @@
 //!     stable execution key                             koveed
 //!  7  byom's execution_permit_consume returns ONE
 //!     ExecutionConsumptionReceipt (max_uses 1)         koveed
-//!  8  authorize(): key, audience, subject, disclosure,
-//!     Episode, both fences, incarnation, expiry, spent  permit::authorize
-//!  9  the plan's origin IS the origin the permit bound   dispatch()
-//! 10  that origin is https and exactly allowlisted, by
+//!  8  the authority ADMITTED byom's reply and ATTESTED it,
+//!     then authorize(): key, audience, subject,
+//!     disclosure, Episode, both fences, incarnation,
+//!     expiry, spent                       ConsumptionAuthority::authorize
+//!  9  the permit carries THIS authority's keyed seal      dispatch()
+//! 10  the plan's origin IS the origin the permit bound   dispatch()
+//! 11  that origin is https and exactly allowlisted, by
 //!     the policy the PERMIT carries                     dispatch()
-//! 11  the bytes about to leave match the sealed digest   dispatch()
-//! 12  the attempt is COMMITTED dispatching               koveed
-//! 13  the one use is CLAIMED in the durable ledger        dispatch()
-//! 14  the resolved address is globally routable          transport
+//! 12  the bytes about to leave match the sealed digest   dispatch()
+//! 13  the attempt is COMMITTED dispatching               koveed
+//! 14  the one use is CLAIMED in the authority's durable
+//!     ledger                                            dispatch()
+//! 15  the resolved address is globally routable          transport
 //! ```
 //!
 //! Only then does the credential get resolved and injected, inside the
@@ -33,13 +37,14 @@
 //!
 //! What you write (the two halves, and the gate is not optional — you cannot
 //! call [`dispatch`] without an [`ExecutionPermit`], you hand the permit
-//! over rather than lending it, and the destination comes from the permit):
+//! over rather than lending it, the destination comes from the permit, and
+//! the spent ledger comes from the authority rather than from here):
 //! ```no_run
 //! # use kovee_effects::*;
 //! # use std::time::Duration;
 //! # fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
-//! #      credential: &Credential, ledger: &dyn SpentLedger) {
-//! let outcome = dispatch(plan, permit, egress, credential, ledger,
+//! #      credential: &Credential, authority: &ConsumptionAuthority<'_>) {
+//! let outcome = dispatch(plan, permit, egress, credential, authority,
 //!                        Duration::from_secs(60));
 //! match outcome.state {
 //!     EffectState::Completed => { /* reply + usage */ }
@@ -56,9 +61,18 @@
 //! # use kovee_effects::*;
 //! # use std::time::Duration;
 //! # fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
+//! #      credential: &Credential, authority: &ConsumptionAuthority<'_>) {
+//! let first = dispatch(plan, permit, egress, credential, authority, Duration::from_secs(60));
+//! let second = dispatch(plan, permit, egress, credential, authority, Duration::from_secs(60));
+//! # }
+//! ```
+//! and a ledger of one's own is not a thing `dispatch` accepts at all:
+//! ```compile_fail,E0308
+//! # use kovee_effects::*;
+//! # use std::time::Duration;
+//! # fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
 //! #      credential: &Credential, ledger: &dyn SpentLedger) {
-//! let first = dispatch(plan, permit, egress, credential, ledger, Duration::from_secs(60));
-//! let second = dispatch(plan, permit, egress, credential, ledger, Duration::from_secs(60));
+//! let outcome = dispatch(plan, permit, egress, credential, ledger, Duration::from_secs(60));
 //! # }
 //! ```
 
@@ -77,8 +91,8 @@ use crate::driver::{driver_for, DriverError, ModelReply, ModelRequest, PreparedR
 use crate::egress::{check_origin, EgressError, Origin};
 use crate::keying::{record_digest, RecordDigestKey};
 use crate::manifest::{ManifestError, ProviderContextManifest};
-use crate::permit::{Claim, ExecutionPermit, SpentLedger};
-use crate::transport::{Egress, TransportError};
+use crate::permit::{Claim, ConsumptionAuthority, ExecutionPermit};
+use crate::transport::Egress;
 
 /// The byom type tag of Kovee's local effect projection — the preimage of
 /// the `host_effect_digest` byom stores and compares on replay.
@@ -420,14 +434,20 @@ impl Outcome {
 
 /// Dispatches a planned call under an already-consumed permit.
 ///
-/// Three things make this the gate rather than a convention:
+/// Four things make this the gate rather than a convention:
 ///
-/// - the permit is minted only by [`crate::permit::authorize`], and is
-///   neither `Clone` nor `Deserialize`, so it cannot be forged or copied;
+/// - the permit is minted only by
+///   [`ConsumptionAuthority::authorize`](crate::ConsumptionAuthority::authorize),
+///   and is neither `Clone` nor `Deserialize`, so it cannot be forged or
+///   copied;
 /// - it is taken **by value**, so the caller cannot dispatch twice with it;
-/// - the one authorized use is claimed in a **durable** [`SpentLedger`]
-///   before the socket opens, so a second permit value — however obtained —
-///   sends nothing (R3-B01).
+/// - it carries the minting authority's keyed **seal**, re-verified here
+///   first of all — a permit some other authority minted is refused before
+///   anything else is looked at (R3-B01);
+/// - the one authorized use is then claimed in **that authority's own
+///   durable ledger** before the socket opens. There is no ledger argument:
+///   R3's confirmation dispatched a forged permit against a ledger it wrote
+///   itself, and that call site no longer exists.
 ///
 /// The destination is the permit's own bound origin, not a field of the plan:
 /// a plan whose origin no longer matches what was authorized is refused
@@ -440,11 +460,27 @@ pub fn dispatch(
     permit: ExecutionPermit,
     egress: &Egress<'_>,
     credential: &Credential,
-    ledger: &dyn SpentLedger,
+    authority: &ConsumptionAuthority<'_>,
     timeout: Duration,
 ) -> Outcome {
     let started = Instant::now();
     let profile = egress.profile();
+
+    // 8b. this authority minted this permit. A well-formed permit from
+    //     anywhere else is not authority here, and the check is first
+    //     because nothing after it means anything otherwise.
+    if !authority.sealed(&permit) {
+        return Outcome::terminal(
+            EffectState::Failed,
+            format!(
+                "this permit was not sealed by the consumption authority {:?}: it was minted \
+                 elsewhere and authorizes nothing here",
+                authority.key_ref()
+            ),
+            started.elapsed(),
+            profile,
+        );
+    }
 
     // The permit must still be for this exact effect. Cheap, and it closes
     // the gap between `authorize` and here.
@@ -506,9 +542,10 @@ pub fn dispatch(
         );
     }
 
-    // 13. the one use, claimed durably BEFORE the socket opens. A permit
-    //     value is not the authority; this row is.
-    match ledger.claim_single_use(&permit) {
+    // 13. the one use, claimed durably BEFORE the socket opens, in the
+    //     ledger the AUTHORITY owns. A permit value is not the authority;
+    //     this row is.
+    match authority.claim_single_use(&permit) {
         Ok(Claim::Claimed) => {}
         Ok(Claim::AlreadySpent) => {
             return Outcome::terminal(
@@ -539,22 +576,17 @@ pub fn dispatch(
         .send(origin, &plan.request, credential, timeout)
     {
         Ok(response) => response,
-        Err(e @ TransportError::NotSent(_)) => {
-            return Outcome::terminal(
-                EffectState::Failed,
-                e.to_string(),
-                started.elapsed(),
-                profile,
-            );
-        }
-        Err(e @ TransportError::Uncertain(_)) => {
-            // "No receipt observed" is not proof of failure (§16.1).
-            return Outcome::terminal(
-                EffectState::Ambiguous,
-                e.to_string(),
-                started.elapsed(),
-                profile,
-            );
+        Err(e) => {
+            // "No receipt observed" is not proof of failure (§16.1): a
+            // failure from the first flush onward may still have been
+            // received and billed, so it freezes as `ambiguous` rather than
+            // being written off as `failed`.
+            let state = if e.is_uncertain() {
+                EffectState::Ambiguous
+            } else {
+                EffectState::Failed
+            };
+            return Outcome::terminal(state, e.to_string(), started.elapsed(), profile);
         }
     };
     let latency = started.elapsed();
@@ -598,7 +630,9 @@ mod tests {
     use crate::binding::{ProviderKind, RequestLimits, Status};
     use crate::disclosure::{DisclosureItem, ProviderClaims};
     use crate::manifest::{ByomSourceFields, Segment, SegmentKind};
-    use crate::permit::{EpisodeFence, Expectation, MemorySpentLedger, BROKER_DRIVER_AUDIENCE};
+    use crate::permit::{
+        EpisodeFence, Expectation, MemorySpentLedger, SpentLedger, BROKER_DRIVER_AUDIENCE,
+    };
     use crate::transport::RecordingTransport;
 
     fn d(b: u8) -> DigestRef {
@@ -738,12 +772,20 @@ mod tests {
         "stop_reason":"end_turn","content":[{"type":"text","text":"OK"}],
         "usage":{"input_tokens":12,"output_tokens":2}}"#;
 
+    /// The daemon's authority over an in-memory ledger, as every test here
+    /// needs one: `authorize` and `dispatch` must be the same authority, or
+    /// the seal refuses.
+    fn authority(ledger: &dyn SpentLedger) -> crate::permit::ConsumptionAuthority<'_> {
+        crate::permit::fixture::authority(ledger)
+    }
+
     /// The permit for this plan, minted the ONLY way one can be: byom's reply
-    /// JSON → the parser → the keyed attestation over the committed
-    /// consumption → [`authorize`]. There is no literal to write here any
-    /// more, which is the point of R3-B01.
-    fn permit_for(plan: &CallPlan) -> ExecutionPermit {
+    /// JSON → the authority's `admit` → its keyed attestation over the
+    /// committed consumption → its `authorize`. There is no literal to write
+    /// here any more, and no key to choose, which is the point of R3-B01.
+    fn permit_for(authority: &ConsumptionAuthority<'_>, plan: &CallPlan) -> ExecutionPermit {
         gate(
+            authority,
             plan,
             plan.execution_key(),
             &plan.disclosure().digest,
@@ -755,6 +797,7 @@ mod tests {
     /// permit that authorizes another key, another disclosure, or another
     /// destination, without ever writing a permit field.
     fn gate(
+        authority: &ConsumptionAuthority<'_>,
         plan: &CallPlan,
         execution_key: &str,
         disclosure_digest: &DigestRef,
@@ -768,28 +811,30 @@ mod tests {
             disclosure_digest,
             &fence,
         );
-        let receipt = fixture::receipt_from(&reply);
-        crate::permit::authorize(
-            Some(fixture::attest(&receipt)),
-            &Expectation {
-                execution_key,
-                subject_digest: plan.subject_digest(),
-                disclosure_digest,
-                driver_audience: BROKER_DRIVER_AUDIENCE,
-                episode: Some(EpisodeFence {
-                    episode_ref: "ep-1",
-                    fence_digest: &fence,
-                    byom_fence_epoch: 7,
-                    kovee_invocation_fence: 1,
-                }),
-                endpoint_incarnation: "inst-1",
-                recovery_epoch: 0,
-                now: 1_800_000_000,
-                already_spent: false,
-                bound_origin: &bound_origin,
-            },
-        )
-        .unwrap()
+        let receipt = authority.admit(&reply).unwrap();
+        let consumed = authority.attest(&receipt, fixture::CONSUMPTION).unwrap();
+        authority
+            .authorize(
+                Some(consumed),
+                &Expectation {
+                    execution_key,
+                    subject_digest: plan.subject_digest(),
+                    disclosure_digest,
+                    driver_audience: BROKER_DRIVER_AUDIENCE,
+                    episode: Some(EpisodeFence {
+                        episode_ref: "ep-1",
+                        fence_digest: &fence,
+                        byom_fence_epoch: 7,
+                        kovee_invocation_fence: 1,
+                    }),
+                    endpoint_incarnation: "inst-1",
+                    recovery_epoch: 0,
+                    now: 1_800_000_000,
+                    already_spent: false,
+                    bound_origin: &bound_origin,
+                },
+            )
+            .unwrap()
     }
 
     /// A ledger that fails rather than answering: a use that cannot be
@@ -835,15 +880,16 @@ mod tests {
     #[test]
     fn a_dispatch_completes_and_meters() {
         let plan = planned();
-        let permit = permit_for(&plan);
         let transport = RecordingTransport::answering(REPLY);
         let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = permit_for(&authority, &plan);
         let outcome = dispatch(
             &plan,
             permit,
             &Egress::recording(&transport),
             &Credential::new("sk-ant-secret"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Completed);
@@ -871,17 +917,18 @@ mod tests {
     #[test]
     fn a_second_dispatch_under_one_consumption_sends_nothing() {
         let plan = planned();
-        let first = permit_for(&plan);
-        let second = permit_for(&plan);
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let first = permit_for(&authority, &plan);
+        let second = permit_for(&authority, &plan);
         assert_eq!(first.consumption_ref(), second.consumption_ref());
         let transport = RecordingTransport::answering(REPLY);
-        let ledger = MemorySpentLedger::default();
         let one = dispatch(
             &plan,
             first,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         let two = dispatch(
@@ -889,7 +936,7 @@ mod tests {
             second,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(one.state, EffectState::Completed);
@@ -913,16 +960,17 @@ mod tests {
     #[test]
     fn an_origin_changed_after_authorization_sends_nothing() {
         let plan = planned();
-        let permit = permit_for(&plan);
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = permit_for(&authority, &plan);
         let moved = planned().probe_with_origin(Origin::https("exfil.example", 443));
         let transport = RecordingTransport::answering(REPLY);
-        let ledger = MemorySpentLedger::default();
         let outcome = dispatch(
             &moved,
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -934,9 +982,55 @@ mod tests {
         assert_eq!(transport.send_count(), 0, "not one byte left");
         // And the use was NOT claimed: a refused dispatch does not burn the
         // permit, so the real destination can still be served.
-        let permit = permit_for(&plan);
         assert_eq!(
-            ledger.claim_single_use(&permit).unwrap(),
+            ledger
+                .claim_single_use(&permit_for(&authority, &plan))
+                .unwrap(),
+            crate::permit::Claim::Claimed
+        );
+    }
+
+    // R3's confirmation held a permit it minted itself. A permit is now
+    // SEALED to the authority that minted it, so one made anywhere else —
+    // however well formed, however opaque — buys nothing here.
+    #[test]
+    fn a_permit_sealed_by_another_authority_sends_nothing() {
+        let plan = planned();
+        let ledger = MemorySpentLedger::default();
+        let daemon = authority(&ledger);
+        // A second authority: another secret, and a ledger that forgets.
+        let forgetful = MemorySpentLedger::default();
+        let elsewhere = crate::permit::ConsumptionAuthority::new(
+            "kovee-consumption-object:mine",
+            [0xffu8; 32],
+            &forgetful,
+        );
+        let theirs = permit_for(&elsewhere, &plan);
+        let transport = RecordingTransport::answering(REPLY);
+        let outcome = dispatch(
+            &plan,
+            theirs,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &daemon,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(outcome.state, EffectState::Failed);
+        assert!(
+            outcome
+                .observation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("was not sealed by the consumption authority"),
+            "{:?}",
+            outcome.observation
+        );
+        assert_eq!(transport.send_count(), 0, "not one byte left");
+        // And the daemon's own ledger never saw the use at all.
+        assert_eq!(
+            ledger
+                .claim_single_use(&permit_for(&daemon, &plan))
+                .unwrap(),
             crate::permit::Claim::Claimed
         );
     }
@@ -944,15 +1038,16 @@ mod tests {
     #[test]
     fn an_uncertain_transport_failure_is_ambiguous_not_failed() {
         let plan = planned();
-        let permit = permit_for(&plan);
         let transport = RecordingTransport::uncertain("connection reset after write");
         let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = permit_for(&authority, &plan);
         let outcome = dispatch(
             &plan,
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Ambiguous);
@@ -964,9 +1059,10 @@ mod tests {
             .contains("may have been transmitted"));
         // The use is spent: bytes may have left, so no second attempt on this
         // authority — the ledger says so even though nothing was confirmed.
-        let permit = permit_for(&plan);
         assert_eq!(
-            ledger.claim_single_use(&permit).unwrap(),
+            ledger
+                .claim_single_use(&permit_for(&authority, &plan))
+                .unwrap(),
             crate::permit::Claim::AlreadySpent
         );
     }
@@ -974,14 +1070,15 @@ mod tests {
     #[test]
     fn a_ledger_that_cannot_record_the_use_refuses_the_dispatch() {
         let plan = planned();
-        let permit = permit_for(&plan);
+        let authority = authority(&BrokenLedger);
+        let permit = permit_for(&authority, &plan);
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
             &plan,
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &BrokenLedger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -997,8 +1094,10 @@ mod tests {
     fn a_permit_for_another_effect_stops_the_dispatch_before_egress() {
         let plan = planned();
         let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
         // A permit minted for another execution key.
         let elsewhere = gate(
+            &authority,
             &plan,
             "exec-someone-elses",
             &plan.disclosure().digest,
@@ -1010,13 +1109,19 @@ mod tests {
             elsewhere,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &ledger,
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
         assert_eq!(transport.send_count(), 0, "no byte left");
         // And the same for a permit bound to another disclosure.
-        let other_disclosure = gate(&plan, plan.execution_key(), &d(0xdd), plan.origin().clone());
+        let other_disclosure = gate(
+            &authority,
+            &plan,
+            plan.execution_key(),
+            &d(0xdd),
+            plan.origin().clone(),
+        );
         let transport = RecordingTransport::answering(REPLY);
         assert_eq!(
             dispatch(
@@ -1024,7 +1129,7 @@ mod tests {
                 other_disclosure,
                 &Egress::recording(&transport),
                 &Credential::new("k"),
-                &ledger,
+                &authority,
                 DEFAULT_TIMEOUT
             )
             .state,
@@ -1041,7 +1146,10 @@ mod tests {
             port: 80,
         };
         let plan = planned().probe_with_origin(plaintext.clone());
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
         let permit = gate(
+            &authority,
             &plan,
             plan.execution_key(),
             &plan.disclosure().digest,
@@ -1053,7 +1161,7 @@ mod tests {
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &MemorySpentLedger::default(),
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -1067,14 +1175,16 @@ mod tests {
         // digest. The last check before the socket catches it.
         let plan = planned()
             .probe_with_request_body(br#"{"model":"other","max_tokens":1,"messages":[]}"#.to_vec());
-        let permit = permit_for(&plan);
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = permit_for(&authority, &plan);
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
             &plan,
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &MemorySpentLedger::default(),
+            &authority,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -1089,7 +1199,9 @@ mod tests {
     #[test]
     fn a_provider_error_is_a_definite_failure_with_the_response_digest() {
         let plan = planned();
-        let permit = permit_for(&plan);
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = permit_for(&authority, &plan);
         let transport = RecordingTransport::responding(
             401,
             br#"{"error":{"type":"authentication_error","message":"invalid x-api-key"}}"#,
@@ -1099,7 +1211,7 @@ mod tests {
             permit,
             &Egress::recording(&transport),
             &Credential::new("k"),
-            &MemorySpentLedger::default(),
+            &authority,
             DEFAULT_TIMEOUT,
         );
         // The provider answered definitely, so this is `failed`, not
