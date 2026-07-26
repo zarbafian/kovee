@@ -37,3 +37,8 @@ thiserror = { workspace = true }
 # while a production build of this daemon has no such wire to offer (R3-B02).
 kovee-effects = { workspace = true, features = ["testing"] }
 sha2 = { workspace = true }
+[features]
+# A test-built daemon can serve its real operations over a no-network wire
+# (R3-I02). Production builds must NOT enable this: the seal is that the
+# recording transport and the daemon's egress override are not compiled at all.
+testing = ["kovee-effects/testing"]

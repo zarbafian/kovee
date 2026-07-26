@@ -94,6 +94,18 @@ pub struct Daemon {
     abort: Option<AbortSpec>,
     paths: ArtifactPaths,
     egress: HttpsTransport,
+    /// A no-network wire, selectable **only** under the `testing` feature.
+    ///
+    /// R3-I02: the I1 gate could not exercise koveed's own
+    /// `model_complete` for a *completing* dispatch, because the daemon
+    /// hardcoded the live transport and the recording double is
+    /// feature-gated — so the gate had to link kovee as a library and pick
+    /// the transport itself, bypassing the very op it meant to test. This
+    /// lets a test-built daemon serve the real op over a recording wire.
+    /// Production builds do not compile the field, so there is nothing to
+    /// misconfigure: the seal is the absence of the code, not a flag.
+    #[cfg(any(test, feature = "testing"))]
+    recording_egress: Option<kovee_effects::RecordingTransport>,
 }
 
 impl Daemon {
@@ -110,6 +122,18 @@ impl Daemon {
     ///
     /// It also seeds the two shipped provider bindings from the daemon's own
     /// environment; a provider whose key is absent is recorded `disabled`.
+    /// Serves every operation over a **no-network** wire instead of the live
+    /// transport. Test builds only — the field does not exist otherwise.
+    ///
+    /// This is what lets a conformance gate drive the daemon's own
+    /// `model_complete` to completion (R3-I02) rather than linking kovee as a
+    /// library and choosing a transport, which bypassed the op under test.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_recording_egress(mut self, transport: kovee_effects::RecordingTransport) -> Daemon {
+        self.recording_egress = Some(transport);
+        self
+    }
+
     pub fn new(store: Store, abort: Option<AbortSpec>, data_dir: &Path) -> Daemon {
         let paths = ArtifactPaths::new(data_dir);
         match kovee_artifacts::sweep_staging(&store, &paths) {
@@ -179,6 +203,8 @@ impl Daemon {
             abort,
             paths,
             egress: HttpsTransport::new(),
+            #[cfg(any(test, feature = "testing"))]
+            recording_egress: None,
         }
     }
 
@@ -1352,6 +1378,15 @@ impl Daemon {
         let completion = model_broker::complete(
             &mut store,
             &runtime,
+            // R3-I02: a test-built daemon may serve this very op over a
+            // no-network wire, so the gate exercises `model_complete`
+            // itself rather than linking kovee and choosing a transport.
+            #[cfg(any(test, feature = "testing"))]
+            match &self.recording_egress {
+                Some(r) => kovee_effects::Egress::recording(r),
+                None => kovee_effects::Egress::live(&self.egress),
+            },
+            #[cfg(not(any(test, feature = "testing")))]
             &self.egress,
             &request,
             &authorization,
