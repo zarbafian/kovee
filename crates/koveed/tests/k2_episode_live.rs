@@ -43,7 +43,7 @@ use kovee_byom::runtime::{self, Workload};
 use kovee_core::family::DigestRef;
 use kovee_core::problem::ProblemKind;
 use kovee_store::Store;
-use koveed::episode::{self, Notice, ParentItem, Runtime};
+use koveed::episode::{self, Notice, Runtime};
 use serde_json::{json, Value};
 
 const REALM: &str = "realm-personal";
@@ -123,6 +123,19 @@ impl Live {
             notice.resource_allocation_digest.class, "portable_public",
             "a cross-boundary digest is unkeyed so both sides recompute it"
         );
+        // R3-L02: and so is the PARENT BUDGET. Every reference, revision and
+        // parent item comes out of byom's own frozen fragment; nothing here
+        // names `rset-…`/`bridge-…`/`sub-…` by convention any more.
+        notice.parent_budget = requested
+            .parent_budget
+            .clone()
+            .expect("episode_request publishes the frozen parent-budget fragment");
+        koveed::budget::verify_parent_fragment(
+            &notice.parent_budget,
+            &notice.society_ref,
+            notice.recovery_epoch,
+        )
+        .expect("the published parent-budget fragment verifies on this side");
         (notice, requested.episode_ref)
     }
 
@@ -142,17 +155,10 @@ impl Live {
             // Filled from byom's committed row once stage 3 exists.
             resource_allocation_digest: DigestRef::portable_public("0".repeat(64)),
             mandate_use_refs: vec![],
-            byom_budget_reservation_ref: format!("rset-{allocation}"),
-            byom_reservation_set_revision: 1,
-            external_budget_bridge_ref: format!("bridge-{allocation}"),
-            stable_external_reservation_key: format!("sub-{allocation}"),
-            parent_reservation_items: vec![ParentItem {
-                account_ref: PARENT_ACCOUNT.to_owned(),
-                account_revision: 1,
-                dimension: "unit".to_owned(),
-                unit: "unit".to_owned(),
-                worst_case_amount: EPISODE_WORST_CASE,
-            }],
+            // Replaced by byom's own PUBLISHED fragment once
+            // `episode_request` answers (R3-L02); this placeholder keeps the
+            // notice constructible before stage 1.
+            parent_budget: serde_json::Value::Null,
             context_manifest_ref: "kovee-ctxman-live".to_owned(),
         }
     }
@@ -165,6 +171,17 @@ impl Live {
         let reply: Value = serde_json::from_slice(&bytes).unwrap();
         reply["result"]["bindings"][0].clone()
     }
+}
+
+/// byom's own published parent facts, verified — what the assertions below
+/// pin instead of a reference reconstructed from a name (R3-L02).
+fn parent_of(notice: &Notice) -> koveed::budget::Parent {
+    koveed::budget::verify_parent_fragment(
+        &notice.parent_budget,
+        &notice.society_ref,
+        notice.recovery_epoch,
+    )
+    .expect("the published parent-budget fragment verifies")
 }
 
 /// Boots both daemons, or `None` when this checkout is standalone.
@@ -180,6 +197,9 @@ fn live(tag: &str) -> Option<Live> {
     // The seam pins byomd's REAL Society and incarnation: every runtime
     // `meta` carries both, and byomd refuses a mismatch.
     koveed::budget::seam_fixture(&mut store, &agent.society_id, 0, &agent.incarnation);
+    // The realm's CAPACITY CEILING: a subordinate reservation is debited
+    // against a granted account, never against a fabricated name (R3-U03).
+    koveed::budget::provision_realm_capacity(&mut store, "realm-personal", 0).unwrap();
 
     let endpoint = Endpoint::at("local", &byomd.run_dir);
     let channels = byomd.channels_dir();
@@ -234,7 +254,7 @@ fn the_four_stage_activation_runs_across_both_daemons() {
     assert_eq!(
         live.byomd.row(
             "SELECT state FROM external_budget_bridges WHERE bridge_id = ?1",
-            &notice.external_budget_bridge_ref
+            &parent_of(&notice).external_budget_bridge_ref
         ),
         Some("requested".to_owned()),
         "the §11.4 bridge is persisted under its stable key BEFORE queueing (byom's record)"
@@ -331,10 +351,12 @@ fn the_four_stage_activation_runs_across_both_daemons() {
         .expect("byom stored Kovee's subordinate reservation");
     assert_eq!(sub_amount, (EPISODE_WORST_CASE / 2) as i64);
     // KOVEE's own record of the same saga row.
-    let kovee_sub =
-        koveed::budget::read(live.store.conn(), &notice.stable_external_reservation_key)
-            .unwrap()
-            .expect("Kovee's subordinate reservation");
+    let kovee_sub = koveed::budget::read(
+        live.store.conn(),
+        &parent_of(&notice).stable_external_reservation_key,
+    )
+    .unwrap()
+    .expect("Kovee's subordinate reservation");
     assert_eq!(
         kovee_sub.subordinate_reservation_ref,
         admitted.subordinate_reservation_ref
@@ -442,6 +464,51 @@ fn the_four_stage_activation_runs_across_both_daemons() {
     );
 
     // -- the measured settlement, on byom's METER channel ---------------
+    //
+    // **R3-U01, across the real inter-daemon boundary.** The narrowed
+    // subordinate is half the parent, so a charge between the two is below
+    // byom's parent and above kovee's own reservation. Remote-first execution
+    // let byom commit it and kovee refuse it; the local cap now precedes every
+    // byte, so byom never sees the number and the two ledgers cannot split.
+    let subordinate = koveed::budget::read(
+        live.store.conn(),
+        &parent_of(&notice).stable_external_reservation_key,
+    )
+    .unwrap()
+    .unwrap();
+    let narrowed = subordinate.reserved("unit");
+    assert_eq!(
+        narrowed,
+        EPISODE_WORST_CASE / 2,
+        "narrowed to half the parent"
+    );
+    let over = episode::settle(
+        &mut live.store,
+        &runtime,
+        &bound.stable_binding_key,
+        bound.fences,
+        narrowed + 1,
+        0,
+    )
+    .expect_err("subordinate + 1 is still <= parent and must be refused");
+    assert_eq!(over.kind, ProblemKind::BudgetExceeded, "{over:?}");
+    assert_eq!(
+        live.byomd.count("SELECT COUNT(*) FROM usage_settlements"),
+        0,
+        "byom never saw the over-charge: nothing left this side (R3-U01)"
+    );
+    assert_eq!(
+        live.byomd.ledger(PARENT_ACCOUNT).committed,
+        0,
+        "and byom's parent ledger did not move"
+    );
+    assert!(
+        koveed::budget::unresolved_sagas(live.store.conn())
+            .unwrap()
+            .is_empty(),
+        "a locally refused settlement records no saga row at all"
+    );
+
     let charge = 40;
     let settled = episode::settle(
         &mut live.store,
@@ -456,7 +523,7 @@ fn the_four_stage_activation_runs_across_both_daemons() {
     assert_eq!(
         live.byomd.row(
             "SELECT status FROM usage_settlements WHERE reservation_set_ref = ?1",
-            &notice.byom_budget_reservation_ref
+            &parent_of(&notice).byom_reservation_set_ref
         ),
         Some("measured".to_owned()),
         "byom recorded a MEASURED settlement, not a conservative maximum"
@@ -468,15 +535,57 @@ fn the_four_stage_activation_runs_across_both_daemons() {
         "byom committed exactly the measured charge (byom's record)"
     );
     // KOVEE's own settled row: monotonic, capped, stable-keyed.
-    let kovee_sub =
-        koveed::budget::read(live.store.conn(), &notice.stable_external_reservation_key)
-            .unwrap()
-            .unwrap();
+    let kovee_sub = koveed::budget::read(
+        live.store.conn(),
+        &parent_of(&notice).stable_external_reservation_key,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
         kovee_sub.state,
         kovee_byom::budget::ReservationState::Settled
     );
     assert!(kovee_sub.usage_settlement_ref.is_some());
+    // **R3-U02, across the real inter-daemon boundary.** The two sides carry
+    // the SAME number, and kovee's own capacity ledger really moved. The
+    // defect was byom charged while kovee stayed `confirmed, charged = 0,
+    // released_lifetime = 0`.
+    let (kovee_charged, kovee_released): (i64, i64) = live
+        .store
+        .conn()
+        .query_row(
+            "SELECT charged, released_lifetime FROM byom_subordinate_reservations
+             WHERE subordinate_reservation_ref = ?1",
+            [&kovee_sub.subordinate_reservation_ref],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        kovee_charged, charge as i64,
+        "kovee charged exactly what byom charged"
+    );
+    assert_eq!(kovee_released, (narrowed - charge) as i64);
+    let account = koveed::budget::account(
+        live.store.conn(),
+        &koveed::budget::realm_account_ref("realm-personal"),
+        "unit",
+    )
+    .unwrap()
+    .expect("kovee's capacity account");
+    assert!(account.conserves(), "{account:?}");
+    assert_eq!(
+        (account.reserved, account.committed),
+        (narrowed - charge, charge),
+        "the charge left kovee's `reserved` for `committed` (R3-U03)"
+    );
+    let saga = koveed::budget::saga_of(
+        live.store.conn(),
+        &format!("kovee-settle-{}", bound.stable_binding_key),
+    )
+    .unwrap()
+    .expect("the durable local saga record");
+    assert_eq!(saga.phase, koveed::budget::SagaPhase::Settled);
+    assert_eq!(saga.charge, charge);
 
     // -- the orderly close ----------------------------------------------
     let completed = episode::complete(
@@ -510,7 +619,7 @@ fn the_four_stage_activation_runs_across_both_daemons() {
     assert_eq!(
         live.byomd.row(
             "SELECT state FROM external_budget_bridges WHERE bridge_id = ?1",
-            &notice.external_budget_bridge_ref
+            &parent_of(&notice).external_budget_bridge_ref
         ),
         Some("released".to_owned())
     );
@@ -534,6 +643,44 @@ fn the_four_stage_activation_runs_across_both_daemons() {
     let kovee_row = live.kovee_binding(&bound.stable_binding_key);
     assert_eq!(kovee_row["state"], json!("released"));
     assert_eq!(kovee_row["episode_state"], json!("completed"));
+    // **R3-U02, the completion half.** Episode completion now settles and
+    // RELEASES kovee's subordinate too: the capacity returns to the ledger's
+    // `remaining` in the same accounting step. It used to release byom's
+    // parent and leave kovee's reservation confirmed forever.
+    assert_eq!(
+        completed["kovee_settlement"]["released_remainder"],
+        json!(narrowed - charge),
+        "{completed}"
+    );
+    let kovee_sub = koveed::budget::read(
+        live.store.conn(),
+        &parent_of(&notice).stable_external_reservation_key,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        kovee_sub.state,
+        kovee_byom::budget::ReservationState::Released
+    );
+    let closed_account = koveed::budget::account(
+        live.store.conn(),
+        &koveed::budget::realm_account_ref("realm-personal"),
+        "unit",
+    )
+    .unwrap()
+    .expect("kovee's capacity account");
+    assert!(closed_account.conserves(), "{closed_account:?}");
+    assert_eq!(
+        (closed_account.reserved, closed_account.committed),
+        (0, charge),
+        "only the measured charge stayed committed; the rest came back to \
+         `remaining` (R3-U03)"
+    );
+    assert_eq!(
+        closed_account.remaining,
+        closed_account.ceiling - charge,
+        "and the ceiling never moved"
+    );
     assert_eq!(
         episode::checkpoint(
             &mut live.store,

@@ -56,7 +56,6 @@
 use std::path::{Path, PathBuf};
 
 use kovee_byom::bpp::{self, Endpoint, Surface, BPP_VERSION};
-use kovee_byom::budget::Item;
 use kovee_byom::channel::Channel;
 use kovee_byom::episode::{
     local_commitments_are_closed, BindingState, ByomEpisodeBinding, FenceError, Fences,
@@ -197,26 +196,22 @@ pub struct Notice {
     pub resource_allocation_ref: String,
     pub resource_allocation_digest: DigestRef,
     pub mandate_use_refs: Vec<String>,
-    /// byom's §11.4 parent reservation set and the bridge it persisted
-    /// under its kernel-derived stable key BEFORE queueing.
-    pub byom_budget_reservation_ref: String,
-    pub byom_reservation_set_revision: u64,
-    pub external_budget_bridge_ref: String,
-    pub stable_external_reservation_key: String,
-    /// The parent §11.4 items a subordinate reservation may narrow but
-    /// never reshape or exceed.
-    pub parent_reservation_items: Vec<ParentItem>,
+    /// byom's FROZEN `portable_public` parent-budget fragment, exactly as the
+    /// `episode_request` reply published it (R3-L02, disposition D-R3-3): the
+    /// reservation-set and bridge references and revisions, the set's
+    /// portable digest, the kernel-derived stable key, and the exact parent
+    /// items — with the digest that covers them.
+    ///
+    /// Every parent fact the episode path uses comes out of here, through
+    /// [`crate::budget::verify_parent_fragment`]. There are deliberately no
+    /// `byom_budget_reservation_ref` / `external_budget_bridge_ref` /
+    /// `stable_external_reservation_key` / `parent_reservation_items` members
+    /// any more: those were the last out-of-band budget step — a driver
+    /// fabricated the three references from the wake intent's name and took
+    /// the parent account and worst case from its own caller's arguments, so
+    /// a wrong parent was undetectable on this side.
+    pub parent_budget: Value,
     pub context_manifest_ref: String,
-}
-
-/// One byom-owned §11.4 reservation item, as byom committed it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParentItem {
-    pub account_ref: String,
-    pub account_revision: u64,
-    pub dimension: String,
-    pub unit: String,
-    pub worst_case_amount: u64,
 }
 
 /// One authored placement.
@@ -241,6 +236,11 @@ pub struct Requested {
     /// compares against its own row. Unkeyed exactly so both sides can
     /// recompute it, which is what makes the pin a machine check.
     pub resource_allocation_digest: Option<DigestRef>,
+    /// The frozen `portable_public` parent-budget fragment the same reply
+    /// published (R3-L02). Absent means byom published none, and the
+    /// subordinate saga then refuses rather than reconstructing the parent
+    /// from a naming convention.
+    pub parent_budget: Option<Value>,
 }
 
 /// One admitted placement, as byom's adapter answered.
@@ -396,7 +396,24 @@ pub fn request(
             .get("resource_allocation_digest")
             .filter(|v| !v.is_null())
             .and_then(|d| serde_json::from_value(d.clone()).ok()),
+        // The parent-budget fragment, ECHOED verbatim: Kovee verifies it
+        // (`budget::verify_parent_fragment`) and never re-composes it.
+        parent_budget: reply
+            .result
+            .get("parent_budget")
+            .filter(|v| !v.is_null())
+            .cloned(),
     })
+}
+
+/// byom's published parent facts, VERIFIED. This is the only door the parent
+/// comes through on Kovee's side (R3-L02, D-R3-3).
+fn parent_of(notice: &Notice) -> Result<crate::budget::Parent, Problem> {
+    crate::budget::verify_parent_fragment(
+        &notice.parent_budget,
+        &notice.society_ref,
+        notice.recovery_epoch,
+    )
 }
 
 // ------------------------------------------------------- stage 4: place ----
@@ -576,23 +593,16 @@ pub fn admit(
     let realm = placed.realm_ref.clone();
     let seam = seam_of(store.conn(), &notice.society_ref, notice.recovery_epoch)?;
 
-    // Kovee's own subordinate reservation, committed durably before the
-    // confirmation is reported: a crash leaves a reservation Kovee can
-    // query, never an unrecorded charge.
-    let reservation = crate::budget::reserve(
-        store,
-        &realm,
-        &crate::budget::Parent {
-            byom_reservation_set_ref: notice.byom_budget_reservation_ref.clone(),
-            byom_reservation_set_revision: notice.byom_reservation_set_revision,
-            external_budget_bridge_ref: notice.external_budget_bridge_ref.clone(),
-            stable_external_reservation_key: notice.stable_external_reservation_key.clone(),
-            society_ref: notice.society_ref.clone(),
-            society_recovery_epoch: notice.recovery_epoch,
-        },
-        subordinate_items(&realm, notice),
-        now,
-    )?;
+    // The parent facts, verified from byom's published fragment before a
+    // single one of them is used (R3-L02).
+    let parent = parent_of(notice)?;
+    // Kovee's own subordinate reservation, committed durably — and DEBITED
+    // against its own capacity ledger — before the confirmation is reported:
+    // a crash leaves a reservation Kovee can query with the quantity held,
+    // never an unrecorded charge and never a confirmation the ledger does not
+    // back.
+    let items = crate::budget::subordinate_items(store.conn(), &realm, &parent)?;
+    let reservation = crate::budget::reserve(store, &realm, &parent, items, now)?;
     // byom pins the cross-boundary class for the reservation digest it
     // stores, so it is recomputed here in that class.
     let reservation_digest = portable(
@@ -629,7 +639,7 @@ pub fn admit(
         "kovee_invocation_ref": placed.record.kovee_invocation_ref,
         "kovee_fence_epoch": placed.record.kovee_fence_epoch,
         "subordinate_reservation": {
-            "stable_external_reservation_key": notice.stable_external_reservation_key,
+            "stable_external_reservation_key": parent.stable_external_reservation_key,
             "outcome": "confirmed",
             "subordinate_reservation_ref": reservation.subordinate_reservation_ref,
             "revision": reservation.revision,
@@ -695,28 +705,11 @@ pub fn admit(
     })
 }
 
-/// Kovee's subordinate items: one per byom parent item, NARROWED to what
-/// Kovee's own capacity account grants and never reshaped.
-fn subordinate_items(realm: &str, notice: &Notice) -> Vec<Item> {
-    notice
-        .parent_reservation_items
-        .iter()
-        .map(|parent| Item {
-            kovee_account_ref: format!("kovee-capacity-{realm}"),
-            dimension: parent.dimension.clone(),
-            unit: parent.unit.clone(),
-            // The narrowing this profile applies: half the parent worst
-            // case, so "narrow but never exceed" is observable.
-            amount: parent.worst_case_amount / 2,
-            parent_account_ref: parent.account_ref.clone(),
-            parent_account_revision: parent.account_revision,
-            parent_dimension: parent.dimension.clone(),
-            parent_unit: parent.unit.clone(),
-            parent_worst_case_amount: parent.worst_case_amount,
-            parent_delegation_ref: None,
-        })
-        .collect()
-}
+// Kovee's subordinate items now come from `budget::subordinate_items`, which
+// reads the account out of the LEDGER and narrows to what it really has. The
+// function that used to live here fabricated `kovee-capacity-{realm}` as a
+// string and halved a parent amount the caller had supplied — an account
+// nothing loaded, nothing debited and nothing could refuse (R3-U03).
 
 // ------------------------------------- the lease: request / claim / start ----
 
@@ -990,8 +983,9 @@ pub fn bind(
             "generation": notice.generation,
         }),
     )?;
+    let parent = parent_of(notice)?;
     let subordinate =
-        crate::budget::reservation_of_bridge(store.conn(), &notice.external_budget_bridge_ref)?;
+        crate::budget::reservation_of_bridge(store.conn(), &parent.external_budget_bridge_ref)?;
     let mut record = ByomEpisodeBinding {
         byom_endpoint_ref: binding_row.byom_endpoint_ref.clone(),
         endpoint_incarnation: binding_row.endpoint_incarnation.clone(),
@@ -1009,14 +1003,12 @@ pub fn bind(
         kovee_invocation_fence: fences.kovee,
         mandate_use_refs: notice.mandate_use_refs.clone(),
         context_source_digest: context_source,
-        byom_budget_reservation_ref: notice.byom_budget_reservation_ref.clone(),
-        byom_budget_reservation_digest: digests
-            .digest(
-                TAG_BINDING,
-                &json!({"byom_budget_reservation_ref": notice.byom_budget_reservation_ref}),
-            )
-            .map_err(|_| internal())?,
-        external_budget_bridge_ref: notice.external_budget_bridge_ref.clone(),
+        byom_budget_reservation_ref: parent.byom_reservation_set_ref.clone(),
+        // BYOM's own portable set digest, taken from the verified fragment.
+        // Kovee used to MINT this here under its own governance scope key and
+        // store it as byom's (R3-L02).
+        byom_budget_reservation_digest: parent.byom_reservation_set_digest.clone(),
+        external_budget_bridge_ref: parent.external_budget_bridge_ref.clone(),
         kovee_subordinate_reservation_ref: subordinate
             .as_ref()
             .map(|(r, _)| r.clone())
@@ -1246,36 +1238,12 @@ pub fn settle(
     now: i64,
 ) -> Result<Value, Problem> {
     let bound = fenced_mutation(store, stable_binding_key, presented, "usage_report", now)?;
-    let seam = seam_of(
-        store.conn(),
-        &bound.record.society_ref,
-        bound.record.recovery_epoch,
-    )?;
-    let token = runtime.token(Workload::Meter, &bound.episode_ref)?;
     let stable_settlement_key = format!("kovee-settle-{stable_binding_key}");
-    let result = runtime.call(
-        &token,
-        &json!({
-            "version": BPP_VERSION,
-            "op": "usage_report",
-            "meta": create_meta(&seam, "usg", &stable_settlement_key),
-            "episode_ref": bound.episode_ref,
-            "generation": bound.record.generation,
-            "byom_attempt_ref": bound.byom_attempt_ref,
-            "byom_fence_epoch": presented.byom,
-            "kovee_invocation_fence": presented.kovee,
-            "source": SOURCE_METER,
-            "stable_report_key": format!("kovee-report-{stable_binding_key}"),
-            "quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
-            "meter_ref": format!("kovee-meter-{}", bound.record.society_ref),
-            "meter_attestation_ref": format!("kovee-meter-attestation-{stable_binding_key}"),
-            "stable_settlement_key": stable_settlement_key,
-            "charged_quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
-        }),
-    )?;
-    // Kovee's own side of the same measured settlement: monotonic,
-    // stable-keyed, never above the reserved amount.
-    crate::budget::settle(
+    // STEP 1, local first: cap against Kovee's own confirmed items and its
+    // own ledger, and commit the durable saga record — before a byte leaves.
+    // The old order was the reverse, which is how a charge byom committed and
+    // Kovee refused split the two ledgers (R3-U01).
+    let pending = crate::budget::settle_begin(
         store,
         &bound.record.kovee_subordinate_reservation_ref,
         "unit",
@@ -1284,7 +1252,239 @@ pub fn settle(
         &stable_settlement_key,
         now,
     )?;
+    // STEP 2, the remote half, then STEP 3, the local apply.
+    let (result, settled) = report_and_resolve(store, runtime, &bound, presented, &pending, now)?;
+    match settled {
+        crate::budget::RemoteSettlement::Settled {
+            settlement_ref,
+            charged,
+        } => {
+            crate::budget::settle_commit(store, &pending, settlement_ref.as_deref(), charged, now)?;
+        }
+        crate::budget::RemoteSettlement::NotSettled { reason } => {
+            crate::budget::settle_denied(store, &pending, &reason, now)?;
+            return Err(forbidden(
+                "byom did not settle this usage report",
+                format!("{reason}; nothing is charged on either side"),
+            ));
+        }
+        crate::budget::RemoteSettlement::Unknown { detail } => {
+            crate::budget::settle_unknown(store, &pending, &detail, now)?;
+            return Err(Problem::new(
+                ProblemKind::Ambiguous,
+                "the remote half of the settlement is unresolved",
+            )
+            .with_detail(format!(
+                "{detail}; the durable saga record survives and reconcile_settlements resolves \
+                 it against byom under the same stable settlement key"
+            )));
+        }
+    }
     Ok(result)
+}
+
+/// The remote half of the saga: `usage_report` on byom's METER channel — the
+/// only channel byom lets settle — reporting exactly the charge this side
+/// already capped, and reading back what byom actually committed.
+fn report_and_resolve(
+    store: &mut Store,
+    runtime: &Runtime,
+    bound: &Bound,
+    presented: Fences,
+    pending: &crate::budget::Pending,
+    now: i64,
+) -> Result<(Value, crate::budget::RemoteSettlement), Problem> {
+    let seam = seam_of(
+        store.conn(),
+        &bound.record.society_ref,
+        bound.record.recovery_epoch,
+    )?;
+    let token = runtime.token(Workload::Meter, &bound.episode_ref)?;
+    let charge = pending.charge;
+    let key = &pending.stable_settlement_key;
+    let request = json!({
+        "version": BPP_VERSION,
+        "op": "usage_report",
+        "meta": create_meta(&seam, "usg", key),
+        "episode_ref": bound.episode_ref,
+        "generation": bound.record.generation,
+        "byom_attempt_ref": bound.byom_attempt_ref,
+        "byom_fence_epoch": presented.byom,
+        "kovee_invocation_fence": presented.kovee,
+        "source": SOURCE_METER,
+        "stable_report_key": format!("kovee-report-{}", bound.stable_binding_key),
+        "quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
+        "meter_ref": format!("kovee-meter-{}", bound.record.society_ref),
+        "meter_attestation_ref": format!("kovee-meter-attestation-{}", bound.stable_binding_key),
+        "stable_settlement_key": key,
+        "charged_quantities": [{"dimension": "unit", "unit": "unit", "amount": charge}],
+    });
+    let _ = now;
+    match runtime.call(&token, &request) {
+        Ok(result) => {
+            let outcome = remote_of(&result, charge);
+            Ok((result, outcome))
+        }
+        Err(problem) => {
+            // A typed refusal from byom is a DEFINITE answer; anything else
+            // leaves the remote outcome unknown, and unknown stays unknown.
+            let definite = matches!(
+                problem.kind,
+                ProblemKind::BudgetExceeded
+                    | ProblemKind::Forbidden
+                    | ProblemKind::Invalid
+                    | ProblemKind::StaleRevision
+                    | ProblemKind::StaleLease
+            );
+            let detail = format!(
+                "{}: {}",
+                problem.title,
+                problem.detail.clone().unwrap_or_default()
+            );
+            let outcome = if definite {
+                crate::budget::RemoteSettlement::NotSettled { reason: detail }
+            } else {
+                crate::budget::RemoteSettlement::Unknown { detail }
+            };
+            Ok((Value::Null, outcome))
+        }
+    }
+}
+
+/// What byom's `usage_report` reply says it committed. `charged` is byom's own
+/// number — read, never assumed — and a reply that does not carry one for a
+/// settlement byom claims to have applied is treated as unknown rather than as
+/// agreement with the ask.
+fn remote_of(result: &Value, asked: u64) -> crate::budget::RemoteSettlement {
+    let settlement = result.pointer("/settlement");
+    let settled = settlement
+        .and_then(|s| s.get("settled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !settled {
+        return crate::budget::RemoteSettlement::NotSettled {
+            reason: settlement
+                .and_then(|s| s.get("reason"))
+                .and_then(Value::as_str)
+                .unwrap_or("byom recorded the report as evidence only")
+                .to_owned(),
+        };
+    }
+    match settlement
+        .and_then(|s| s.get("charged"))
+        .and_then(Value::as_u64)
+    {
+        Some(charged) => crate::budget::RemoteSettlement::Settled {
+            settlement_ref: settlement
+                .and_then(|s| s.get("settlement_ref"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            charged,
+        },
+        None => crate::budget::RemoteSettlement::Unknown {
+            detail: format!(
+                "byom reported a settlement without its charge; {asked} was asked and this \
+                 side will not adopt its own number as byom's"
+            ),
+        },
+    }
+}
+
+/// Resolves the local half of one in-flight settlement from byom's own reply
+/// and returns what Kovee's ledger did. Shared by the episode meter path, the
+/// broker's metering, and reconciliation, so all three drive one saga.
+pub fn apply_remote_settlement(
+    store: &mut Store,
+    pending: &crate::budget::Pending,
+    reply: &Value,
+    now: i64,
+) -> Result<Value, Problem> {
+    match remote_of(reply, pending.charge) {
+        crate::budget::RemoteSettlement::Settled {
+            settlement_ref,
+            charged,
+        } => {
+            let settlement = crate::budget::settle_commit(
+                store,
+                pending,
+                settlement_ref.as_deref(),
+                charged,
+                now,
+            )?;
+            Ok(json!({
+                "settled_locally": true,
+                "charged": settlement.charged,
+                "remainder": settlement.remainder,
+                "peer_settlement_ref": settlement_ref,
+                "stable_settlement_key": pending.stable_settlement_key,
+            }))
+        }
+        crate::budget::RemoteSettlement::NotSettled { reason } => {
+            crate::budget::settle_denied(store, pending, &reason, now)?;
+            Ok(json!({"settled_locally": false, "peer_refused": reason}))
+        }
+        crate::budget::RemoteSettlement::Unknown { detail } => {
+            crate::budget::settle_unknown(store, pending, &detail, now)?;
+            Ok(json!({"settled_locally": false, "unresolved": detail,
+                      "reconciled_by": "reconcile_settlements under the same stable key"}))
+        }
+    }
+}
+
+/// **Crash recovery across the inter-daemon commit boundary** (R3-U02).
+///
+/// Every unresolved local settlement record is resolved by re-issuing byom's
+/// own idempotent `usage_report` under the SAME stable settlement key. byom
+/// answers with the settlement it really committed (`replayed: true`, with its
+/// charge), a definite refusal, or nothing usable — and Kovee then applies
+/// exactly that. A process that died between the two sides converges here; it
+/// never guesses.
+pub fn reconcile_settlements(
+    store: &mut Store,
+    runtime: &Runtime,
+    now: i64,
+) -> Result<crate::budget::Reconciled, Problem> {
+    let mut resolve = |store: &mut Store,
+                       pending: &crate::budget::Pending|
+     -> Result<crate::budget::RemoteSettlement, Problem> {
+        let Some(key) = binding_of_reservation(store.conn(), &pending.subordinate_reservation_ref)?
+        else {
+            return Ok(crate::budget::RemoteSettlement::Unknown {
+                detail: "no episode binding names this reservation, so byom cannot be asked"
+                    .to_owned(),
+            });
+        };
+        let Some(bound) = read_binding(store.conn(), &key)? else {
+            return Ok(crate::budget::RemoteSettlement::Unknown {
+                detail: "the episode binding is gone".to_owned(),
+            });
+        };
+        let fences = bound.fences;
+        let (_, outcome) = report_and_resolve(store, runtime, &bound, fences, pending, now)?;
+        Ok(outcome)
+    };
+    crate::budget::reconcile_settlements(store, now, &mut resolve)
+}
+
+/// The binding whose attempt one subordinate reservation belongs to.
+fn binding_of_reservation(
+    conn: &Connection,
+    reservation_ref: &str,
+) -> Result<Option<String>, Problem> {
+    let key: Option<String> = conn
+        .query_row(
+            "SELECT b.stable_binding_key FROM byom_episode_bindings b
+             JOIN byom_subordinate_reservations r
+               ON json_extract(b.record, '$.kovee_subordinate_reservation_ref')
+                  = r.subordinate_reservation_ref
+             WHERE r.subordinate_reservation_ref = ?1
+             ORDER BY b.created_at DESC LIMIT 1",
+            [reservation_ref],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| store_problem(e.into()))?;
+    Ok(key)
 }
 
 /// `episode_yield` (runtime, update) — honors both fences and hands the
@@ -1391,6 +1591,69 @@ pub fn complete(
             ],
         )
         .map_err(|e| store_problem(e.into()))?;
+    // KOVEE'S OWN SIDE of terminalization (R3-U02). Episode completion used to
+    // release the binding row and stop: byom settled and released its parent
+    // while Kovee's subordinate stayed `confirmed` with `charged = 0` and
+    // `released_lifetime = 0` forever. Now the subordinate is settled from the
+    // metered total if a settlement is still owed, and then released — so the
+    // capacity actually returns to the ledger.
+    let subordinate = bound.record.kovee_subordinate_reservation_ref.clone();
+    let mut local = json!({"subordinate_reservation_ref": subordinate});
+    if let Some(state) = crate::budget::state_of(store.conn(), &subordinate)? {
+        if state == kovee_byom::budget::ReservationState::Confirmed {
+            let metered = metered_total(store.conn(), &bound.episode_ref)?;
+            if metered > 0 {
+                let key = format!("kovee-settle-complete-{stable_binding_key}");
+                let pending = crate::budget::settle_begin(
+                    store,
+                    &subordinate,
+                    "unit",
+                    metered,
+                    kovee_byom::budget::Meter::TrustedBroker,
+                    &key,
+                    now,
+                )?;
+                let (_, outcome) =
+                    report_and_resolve(store, runtime, &bound, presented, &pending, now)?;
+                match outcome {
+                    crate::budget::RemoteSettlement::Settled {
+                        settlement_ref,
+                        charged,
+                    } => {
+                        crate::budget::settle_commit(
+                            store,
+                            &pending,
+                            settlement_ref.as_deref(),
+                            charged,
+                            now,
+                        )?;
+                        local["settled_charge"] = json!(charged);
+                    }
+                    crate::budget::RemoteSettlement::NotSettled { reason } => {
+                        crate::budget::settle_denied(store, &pending, &reason, now)?;
+                        local["settlement_refused"] = json!(reason);
+                    }
+                    crate::budget::RemoteSettlement::Unknown { detail } => {
+                        crate::budget::settle_unknown(store, &pending, &detail, now)?;
+                        local["settlement_unknown"] = json!(detail);
+                    }
+                }
+            }
+        }
+    }
+    // The release: only the demonstrably unspent remainder, and an
+    // `uncertain` reservation is left for the R38 seat rather than guessed
+    // away at completion.
+    match crate::budget::release(store, &subordinate, now) {
+        Ok(remainder) => local["released_remainder"] = json!(remainder),
+        Err(problem) if problem.kind == ProblemKind::Ambiguous => {
+            local["release_blocked"] = json!(problem.title);
+        }
+        Err(problem) if problem.kind == ProblemKind::NotFound => {
+            local["subordinate_absent"] = json!(true);
+        }
+        Err(problem) => return Err(problem),
+    }
     emit(
         store,
         &realm,
@@ -1399,12 +1662,31 @@ pub fn complete(
         json!({
             "episode_ref": bound.episode_ref,
             "byom_budget_reservation_ref": bound.record.byom_budget_reservation_ref,
-            "kovee_subordinate_reservation_ref": bound.record.kovee_subordinate_reservation_ref,
+            "kovee_subordinate_reservation_ref": subordinate,
             "byom_settlement": result.get("settlement").cloned().unwrap_or(Value::Null),
+            "kovee_settlement": local,
         }),
         now,
     )?;
+    let mut result = result;
+    if let Some(map) = result.as_object_mut() {
+        map.insert("kovee_settlement".to_owned(), local);
+    }
     Ok(result)
+}
+
+/// The measured `unit` total already reported to byom for one Episode — what
+/// the completion settles when the broker's metering has not settled yet.
+fn metered_total(conn: &Connection, episode_ref: &str) -> Result<u64, Problem> {
+    let total: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0)
+             FROM model_usage_reports WHERE episode_ref = ?1",
+            [episode_ref],
+            |r| r.get(0),
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    Ok(total.max(0) as u64)
 }
 
 // ------------------------------------------------------------ the seam ----

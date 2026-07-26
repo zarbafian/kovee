@@ -1419,6 +1419,26 @@ fn report_usage(
     {
         return Ok(true);
     }
+    let settlement_key = format!("kovee-model-settle-{effect_id}");
+    // STEP 1 of the saga: cap the measured charge against Kovee's OWN
+    // confirmed subordinate items and its own ledger, and commit the durable
+    // local record — before the meter channel is touched. A reservation that
+    // is already settled (SettleOnce) keeps the report as evidence and settles
+    // nothing further; the reason is recorded, never silently dropped.
+    let charge = usage.total();
+    let pending = match crate::budget::settle_begin(
+        store,
+        &bound.record.kovee_subordinate_reservation_ref,
+        "unit",
+        charge,
+        kovee_byom::budget::Meter::TrustedBroker,
+        &settlement_key,
+        now,
+    ) {
+        Ok(pending) => Some(pending),
+        Err(problem) if problem.kind == ProblemKind::Forbidden => None,
+        Err(problem) => return Err(problem),
+    };
     let token = runtime.token(Workload::Meter, &bound.episode_ref)?;
     let result = runtime.call(
         &token,
@@ -1444,12 +1464,39 @@ fn report_usage(
             ],
             "meter_ref": format!("kovee-model-broker-meter-{}", request.realm),
             "meter_attestation_ref": format!("kovee-model-meter-attestation-{attempt_id}"),
-            "stable_settlement_key": format!("kovee-model-settle-{effect_id}"),
+            "stable_settlement_key": settlement_key,
             "charged_quantities": [
-                {"dimension": "unit", "unit": "unit", "amount": usage.total()},
+                {"dimension": "unit", "unit": "unit", "amount": charge},
             ],
         }),
-    )?;
+    );
+    // The remote half answered (or did not). Resolve the LOCAL half from that
+    // answer before anything else is recorded: a crash from here on leaves a
+    // saga row the startup sweep reconciles under the same stable key.
+    let (result, local) = match (&result, pending.as_ref()) {
+        (Ok(reply), Some(pending)) => {
+            let applied = crate::episode::apply_remote_settlement(store, pending, reply, now)?;
+            (reply.clone(), applied)
+        }
+        (Ok(reply), None) => (
+            reply.clone(),
+            json!({"settled_locally": false,
+                   "reason": "the subordinate reservation is already settled (SettleOnce); this \
+                              report is evidence"}),
+        ),
+        (Err(problem), Some(pending)) => {
+            // Byom did not answer usably. Nothing is charged here, and the
+            // durable record survives for reconciliation.
+            crate::budget::settle_unknown(
+                store,
+                pending,
+                &format!("the metering call failed: {}", problem.title),
+                now,
+            )?;
+            return Err(problem.clone());
+        }
+        (Err(problem), None) => return Err(problem.clone()),
+    };
     let settled = result
         .pointer("/settlement/settled")
         .and_then(Value::as_bool)
@@ -1485,6 +1532,9 @@ fn report_usage(
             "input_tokens": usage.input_tokens,
             "output_tokens": usage.output_tokens,
             "settled_by_byom": settled,
+            // What KOVEE's own ledger did, which this path used to leave
+            // untouched entirely (R3-U02).
+            "kovee_settlement": local,
         }),
         now,
     )?;

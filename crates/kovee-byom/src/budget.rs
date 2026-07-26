@@ -106,6 +106,11 @@ pub struct Item {
     pub parent_delegation_ref: Option<String>,
 }
 
+/// One parent §11.4 reservation item's IDENTITY: the four coordinates plus
+/// the worst case. Two parent items sharing an identity are two distinct
+/// items, and each may be claimed by at most ONE subordinate item.
+pub type ParentIdentity = (String, u64, String, String, u64);
+
 impl Item {
     /// The three cross-member rules JSON Schema cannot express
     /// (`SubordinateReservation.tla` NeverAboveParent).
@@ -121,6 +126,84 @@ impl Item {
         }
         Ok(())
     }
+
+    /// The exact parent item this subordinate item claims.
+    pub fn parent_identity(&self) -> ParentIdentity {
+        (
+            self.parent_account_ref.clone(),
+            self.parent_account_revision,
+            self.parent_dimension.clone(),
+            self.parent_unit.clone(),
+            self.parent_worst_case_amount,
+        )
+    }
+}
+
+/// The SET-level never-above-parent rules — the ones a per-item loop cannot
+/// see, and whose absence let a duplicate pin amplify the parent (R3-U04).
+///
+/// ```
+/// use kovee_byom::budget::{check_items, Item, ReservationError};
+/// # fn item(amount: u64) -> Item { Item {
+/// #     kovee_account_ref: "acct-1".into(), dimension: "unit".into(),
+/// #     unit: "call".into(), amount,
+/// #     parent_account_ref: "byom-acct-1".into(), parent_account_revision: 3,
+/// #     parent_dimension: "unit".into(), parent_unit: "call".into(),
+/// #     parent_worst_case_amount: 100, parent_delegation_ref: None } }
+/// // Two 100-unit children against ONE 100-unit parent item is not 200 of
+/// // capacity — it is one parent item claimed twice.
+/// assert_eq!(
+///     check_items(&[item(100), item(100)]),
+///     Err(ReservationError::DuplicateParentItem),
+/// );
+/// check_items(&[item(100)]).unwrap();
+/// ```
+pub fn check_items(items: &[Item]) -> Result<(), ReservationError> {
+    for (index, item) in items.iter().enumerate() {
+        item.check().map_err(|e| ReservationError::Item(index, e))?;
+    }
+    // 1. Unique exact parent-item identity: a parent item is claimed once.
+    let mut claimed: Vec<ParentIdentity> = Vec::with_capacity(items.len());
+    for item in items {
+        let identity = item.parent_identity();
+        if claimed.contains(&identity) {
+            return Err(ReservationError::DuplicateParentItem);
+        }
+        claimed.push(identity);
+    }
+    // 2. Aggregate cap per (account, revision, dimension, unit): the
+    //    subordinate total never exceeds the total the distinct parent items
+    //    of that key carry.
+    let mut keys: Vec<(String, u64, String, String)> = Vec::new();
+    for item in items {
+        let key = (
+            item.parent_account_ref.clone(),
+            item.parent_account_revision,
+            item.parent_dimension.clone(),
+            item.parent_unit.clone(),
+        );
+        if !keys.contains(&key) {
+            keys.push(key);
+        }
+    }
+    for key in &keys {
+        let matching = |item: &&Item| {
+            item.parent_account_ref == key.0
+                && item.parent_account_revision == key.1
+                && item.parent_dimension == key.2
+                && item.parent_unit == key.3
+        };
+        let want: u64 = items.iter().filter(matching).map(|i| i.amount).sum();
+        let have: u64 = items
+            .iter()
+            .filter(matching)
+            .map(|i| i.parent_worst_case_amount)
+            .sum();
+        if want > have {
+            return Err(ReservationError::AboveParentTotal);
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -137,6 +220,13 @@ pub enum ReservationError {
     OverCharge,
     #[error("settlement is monotonic: a charge never decreases")]
     NonMonotonic,
+    #[error("two subordinate items pin the same parent §11.4 item: a parent item is claimed once")]
+    DuplicateParentItem,
+    #[error(
+        "the subordinate total exceeds the parent total for one \
+         account/revision/dimension/unit"
+    )]
+    AboveParentTotal,
 }
 
 /// `ByomSubordinateReservation` — the §11.4-derived Kovee-side record.
@@ -178,9 +268,9 @@ impl ByomSubordinateReservation {
         if self.items.is_empty() {
             return Err(ReservationError::Empty);
         }
-        for (index, item) in self.items.iter().enumerate() {
-            item.check().map_err(|e| ReservationError::Item(index, e))?;
-        }
+        // Per item AND across the set: a duplicate parent-item pin is not
+        // extra capacity (R3-U04).
+        check_items(&self.items)?;
         let settled = self.state == ReservationState::Settled;
         let paired = self.usage_settlement_ref.is_some() && self.usage_settlement_digest.is_some();
         let absent = self.usage_settlement_ref.is_none() && self.usage_settlement_digest.is_none();
@@ -200,13 +290,21 @@ impl ByomSubordinateReservation {
             .sum()
     }
 
-    /// The parent's worst-case ceiling for one dimension.
+    /// The parent's worst-case ceiling for one dimension, over the DISTINCT
+    /// parent items claimed. Summing every item's `parent_worst_case_amount`
+    /// blindly is exactly how a duplicate pin inflated the parent (R3-U04).
     pub fn parent_ceiling(&self, dimension: &str) -> u64 {
-        self.items
-            .iter()
-            .filter(|i| i.dimension == dimension)
-            .map(|i| i.parent_worst_case_amount)
-            .sum()
+        let mut seen: Vec<ParentIdentity> = Vec::new();
+        let mut total = 0;
+        for item in self.items.iter().filter(|i| i.dimension == dimension) {
+            let identity = item.parent_identity();
+            if seen.contains(&identity) {
+                continue;
+            }
+            seen.push(identity);
+            total += item.parent_worst_case_amount;
+        }
+        total
     }
 }
 
@@ -374,6 +472,58 @@ mod tests {
         assert_eq!(conservative_maximum(&row, "unit"), 40);
         let all = settle(&row, "unit", 10, 40, Meter::TrustedBroker).unwrap();
         assert_eq!(all.remainder, 0);
+    }
+
+    /// **R3-U04, kovee unit half.** The probe reported two 100-unit children
+    /// against ONE 100-unit parent item and both sides accepted it: each
+    /// validated its items independently, and kovee then SUMMED the duplicate
+    /// parents into a 200-unit ceiling. A parent item is claimed once.
+    #[test]
+    fn a_duplicate_parent_item_pin_is_not_extra_capacity() {
+        let duplicated = vec![item(100, 100), item(100, 100)];
+        assert_eq!(
+            check_items(&duplicated),
+            Err(ReservationError::DuplicateParentItem)
+        );
+        // And the record shape refuses it too, so no such row can be stored.
+        let row = reservation(duplicated.clone(), ReservationState::Confirmed);
+        assert_eq!(row.check(), Err(ReservationError::DuplicateParentItem));
+        // The old arithmetic is what made it look admissible: summing every
+        // item's parent worst case reported 200 of parent capacity where the
+        // parent had 100.
+        assert_eq!(
+            row.parent_ceiling("unit"),
+            100,
+            "the parent ceiling counts DISTINCT parent items"
+        );
+        assert_eq!(row.reserved("unit"), 200, "the ask really was 200");
+
+        // Two DISTINCT parent items are a real 200 of parent capacity.
+        let mut second = item(100, 100);
+        second.parent_account_revision = 4;
+        let distinct = vec![item(100, 100), second];
+        check_items(&distinct).unwrap();
+        assert_eq!(
+            reservation(distinct, ReservationState::Confirmed).parent_ceiling("unit"),
+            200
+        );
+
+        // The aggregate rule bites even without a duplicate identity: same
+        // account/revision/dimension/unit, two parent items of 100, an ask
+        // of 201 in total.
+        let mut a = item(101, 100);
+        a.amount = 100;
+        let mut b = item(100, 100);
+        b.parent_worst_case_amount = 100;
+        b.amount = 100;
+        b.parent_account_revision = 3;
+        // `a` and `b` now share an identity, so uniqueness answers first —
+        // which is the point: there is no arrangement of duplicate pins that
+        // reaches the aggregate rule and passes it.
+        assert_eq!(
+            check_items(&[a, b]),
+            Err(ReservationError::DuplicateParentItem)
+        );
     }
 
     #[test]

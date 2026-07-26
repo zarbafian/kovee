@@ -37,7 +37,7 @@ use kovee_core::family::DigestRef;
 use kovee_core::problem::ProblemKind;
 use kovee_effects::{EffectState, RecordingTransport, Transport};
 use kovee_store::Store;
-use koveed::episode::{self, Notice, ParentItem, Runtime};
+use koveed::episode::{self, Notice, Runtime};
 use koveed::model_broker::{self, ActAuthorization, CompleteRequest, Fault};
 use serde_json::{json, Value};
 
@@ -161,6 +161,9 @@ fn live(tag: &str) -> Option<Live> {
     let mut store = Store::open(&base.join("kovee.sqlite3")).unwrap();
     store.bootstrap(0).unwrap();
     koveed::budget::seam_fixture(&mut store, &agent.society_id, 0, &agent.incarnation);
+    // The realm's CAPACITY CEILING: a subordinate reservation is debited
+    // against a granted account, never against a fabricated name (R3-U03).
+    koveed::budget::provision_realm_capacity(&mut store, "realm-personal", 0).unwrap();
     let endpoint = Endpoint::at("local", &byomd.run_dir);
     let channels = byomd.channels_dir();
 
@@ -227,17 +230,20 @@ fn notice(agent: &AgentSociety, wake: &str) -> Notice {
         resource_allocation_ref: allocation.clone(),
         resource_allocation_digest: DigestRef::portable_public("0".repeat(64)),
         mandate_use_refs: vec![],
-        byom_budget_reservation_ref: format!("rset-{allocation}"),
-        byom_reservation_set_revision: 1,
-        external_budget_bridge_ref: format!("bridge-{allocation}"),
-        stable_external_reservation_key: format!("sub-{allocation}"),
-        parent_reservation_items: vec![ParentItem {
-            account_ref: PARENT_ACCOUNT.to_owned(),
-            account_revision: 1,
-            dimension: "unit".to_owned(),
-            unit: "unit".to_owned(),
-            worst_case_amount: EPISODE_WORST_CASE,
-        }],
+        parent_budget: koveed::budget::doc_fragment(
+            &format!("rset-{allocation}"),
+            1,
+            &format!("bridge-{allocation}"),
+            1,
+            &format!("sub-{allocation}"),
+            serde_json::json!([{
+                "account_ref": PARENT_ACCOUNT,
+                "account_revision": 1,
+                "dimension": "unit",
+                "unit": "unit",
+                "worst_case_amount": EPISODE_WORST_CASE,
+            }]),
+        ),
         context_manifest_ref: "kovee-ctxman-broker".to_owned(),
     }
 }

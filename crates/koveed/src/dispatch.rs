@@ -128,6 +128,52 @@ impl Daemon {
         {
             eprintln!("koveed: model provider bindings: {}", e.title);
         }
+        // 3. the realm's CAPACITY CEILING. A subordinate reservation is
+        //    debited against this account, so it has to exist before any
+        //    episode can be placed — and it is granted here, once, rather
+        //    than conjured by the code that wants to spend it (R3-U03).
+        match crate::budget::provision_realm_capacity(&mut store, PERSONAL_REALM_ID, unix_now()) {
+            Ok(account) => {
+                if !account.conserves() {
+                    eprintln!(
+                        "koveed: capacity ledger does NOT conserve on {}/{}: ceiling {} vs buckets",
+                        account.account_ref, account.dimension, account.ceiling
+                    );
+                }
+            }
+            Err(e) => eprintln!("koveed: realm capacity ledger: {}", e.title),
+        }
+        // 4. the SETTLEMENT-SAGA sweep (R3-U02). A process that died between
+        //    the two sides of a settlement left a durable local record; the
+        //    sweep asks byom what it really committed under the same stable
+        //    settlement key and applies exactly that. Unknown stays unknown.
+        match crate::budget::unresolved_sagas(store.conn()) {
+            Ok(rows) if rows.is_empty() => {}
+            Ok(rows) => {
+                eprintln!(
+                    "koveed: {} settlement saga row(s) unresolved; reconciling against byom",
+                    rows.len()
+                );
+                let endpoint = Endpoint::local("local");
+                match episode::Runtime::configured(&endpoint) {
+                    Ok(runtime) => {
+                        match episode::reconcile_settlements(&mut store, &runtime, unix_now()) {
+                            Ok(done) => eprintln!(
+                                "koveed: settlement reconciliation: {} settled, {} denied, {} \
+                                 still unknown of {}",
+                                done.settled, done.denied, done.still_unknown, done.examined
+                            ),
+                            Err(e) => eprintln!("koveed: settlement reconciliation: {}", e.title),
+                        }
+                    }
+                    Err(e) => eprintln!(
+                        "koveed: settlement reconciliation deferred, no byom runtime: {}",
+                        e.title
+                    ),
+                }
+            }
+            Err(e) => eprintln!("koveed: settlement saga sweep: {}", e.title),
+        }
         Daemon {
             store: Mutex::new(store),
             abort,

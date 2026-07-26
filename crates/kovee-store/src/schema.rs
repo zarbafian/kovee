@@ -1175,6 +1175,94 @@ CREATE TABLE model_usage_reports (
 ) STRICT;
 "#;
 
+/// Version 9: the **capacity ledger** and the two-sided settlement saga
+/// (R3-U01/U02/U03/L02; dispositions D-R3-2, D-R3-3).
+///
+/// Before this version `kovee_account_ref` on a subordinate reservation named
+/// an account that did not exist: nothing loaded it, nothing debited it, and
+/// the only durable numbers were the `charged` / `released_lifetime` audit
+/// scalars on the reservation row itself. "Conservation" could therefore only
+/// ever be row arithmetic — a reservation compared against itself.
+///
+/// - `kovee_capacity_accounts` — the NORMATIVE ledger, one row per
+///   `(account, dimension)`, carrying the five buckets whose sum is the
+///   ceiling: `ceiling = remaining + reserved + committed + uncertain +
+///   delegated_to_children`. Every transition moves a quantity BETWEEN
+///   buckets of one row inside one transaction, so the identity holds at
+///   every observable instant and a crash cannot land between two halves of
+///   a move. A ceiling only ever rises through an explicit grant, and a
+///   reservation is refused (`budget_exceeded`) when `remaining` cannot
+///   cover it — which is what makes narrowing real rather than decorative.
+/// - `kovee_capacity_reservations` — one row per `(holder, account,
+///   dimension)`, so the ledger knows WHICH open reservation each held
+///   quantity belongs to and a settle/release moves exactly that quantity
+///   back. `UNIQUE(holder_kind, holder_ref, account_ref, dimension)` makes
+///   the reserve idempotent per holder.
+/// - `kovee_settlement_saga` — the durable LOCAL record of the two-sided
+///   settlement saga. The row is committed BEFORE the remote half is
+///   attempted and resolved after it answers, so a process that dies between
+///   the two sides restarts holding evidence that a settlement is in flight
+///   under a known stable key. Reconciliation then QUERIES the peer under
+///   that key and applies what the peer really committed; there is no phase
+///   from which a charge can be guessed.
+/// - `byom_subordinate_reservations` gains the verified parent-budget
+///   fragment. byom publishes it `portable_public`; kovee re-derives its
+///   digest, refuses a fragment that does not agree, and stores the exact
+///   bytes it verified — so the parent facts are auditable and no reference
+///   is ever reconstructed from a naming convention again (R3-L02).
+const V9: &str = r#"
+CREATE TABLE kovee_capacity_accounts (
+    account_ref           TEXT NOT NULL,
+    dimension             TEXT NOT NULL,
+    realm_ref             TEXT NOT NULL REFERENCES realms(realm_id),
+    unit                  TEXT NOT NULL,
+    ceiling               INTEGER NOT NULL,
+    remaining             INTEGER NOT NULL,
+    reserved              INTEGER NOT NULL,
+    committed             INTEGER NOT NULL,
+    uncertain             INTEGER NOT NULL,
+    delegated_to_children INTEGER NOT NULL,
+    parent_account_ref    TEXT,
+    revision              INTEGER NOT NULL,
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL,
+    PRIMARY KEY (account_ref, dimension)
+) STRICT;
+
+CREATE TABLE kovee_capacity_reservations (
+    capacity_reservation_id TEXT PRIMARY KEY,
+    realm_ref               TEXT NOT NULL REFERENCES realms(realm_id),
+    account_ref             TEXT NOT NULL,
+    dimension               TEXT NOT NULL,
+    holder_kind             TEXT NOT NULL,
+    holder_ref              TEXT NOT NULL,
+    amount                  INTEGER NOT NULL,
+    charged                 INTEGER NOT NULL,
+    state                   TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    UNIQUE(holder_kind, holder_ref, account_ref, dimension)
+) STRICT;
+
+CREATE TABLE kovee_settlement_saga (
+    stable_settlement_key       TEXT PRIMARY KEY,
+    realm_ref                   TEXT NOT NULL REFERENCES realms(realm_id),
+    subordinate_reservation_ref TEXT NOT NULL,
+    dimension                   TEXT NOT NULL,
+    charge                      INTEGER NOT NULL,
+    meter                       TEXT NOT NULL,
+    phase                       TEXT NOT NULL,
+    remote_settlement_ref       TEXT,
+    remote_charged              INTEGER,
+    detail                      TEXT,
+    created_at                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+) STRICT;
+
+ALTER TABLE byom_subordinate_reservations ADD COLUMN parent_budget_fragment TEXT;
+ALTER TABLE byom_subordinate_reservations ADD COLUMN parent_budget_digest TEXT;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1),
@@ -1185,6 +1273,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (6, V6),
     (7, V7),
     (8, V8),
+    (9, V9),
 ];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting

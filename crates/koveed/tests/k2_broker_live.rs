@@ -35,7 +35,7 @@ use kovee_effects::{
     EffectState, HttpsTransport, ProviderClaims, ProviderKind, RequestLimits, Transport,
 };
 use kovee_store::Store;
-use koveed::episode::{self, Notice, ParentItem, Runtime};
+use koveed::episode::{self, Notice, Runtime};
 use koveed::model_broker::{self, ActAuthorization, CompleteRequest, Fault};
 use serde_json::{json, Value};
 
@@ -356,6 +356,9 @@ fn boot(tag: &str) -> Option<Live> {
     let mut store = Store::open(&base.join("kovee.sqlite3")).unwrap();
     store.bootstrap(0).unwrap();
     koveed::budget::seam_fixture(&mut store, &agent.society_id, 0, &agent.incarnation);
+    // The realm's CAPACITY CEILING: a subordinate reservation is debited
+    // against a granted account, never against a fabricated name (R3-U03).
+    koveed::budget::provision_realm_capacity(&mut store, "realm-personal", 0).unwrap();
     let endpoint = Endpoint::at("local", &byomd.run_dir);
     let channels = byomd.channels_dir();
     let runtime = Runtime::new(&endpoint, &channels);
@@ -411,17 +414,9 @@ fn notice(agent: &AgentSociety, wake: &str) -> Notice {
         resource_allocation_ref: allocation.clone(),
         resource_allocation_digest: DigestRef::portable_public("0".repeat(64)),
         mandate_use_refs: vec![],
-        byom_budget_reservation_ref: format!("rset-{allocation}"),
-        byom_reservation_set_revision: 1,
-        external_budget_bridge_ref: format!("bridge-{allocation}"),
-        stable_external_reservation_key: format!("sub-{allocation}"),
-        parent_reservation_items: vec![ParentItem {
-            account_ref: PARENT_ACCOUNT.to_owned(),
-            account_revision: 1,
-            dimension: "unit".to_owned(),
-            unit: "unit".to_owned(),
-            worst_case_amount: EPISODE_WORST_CASE,
-        }],
+        // Replaced by byom's own PUBLISHED fragment once `episode_request`
+        // answers (R3-L02).
+        parent_budget: serde_json::Value::Null,
         context_manifest_ref: "kovee-ctxman-live".to_owned(),
     }
 }

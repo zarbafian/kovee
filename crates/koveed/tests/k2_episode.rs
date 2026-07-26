@@ -54,7 +54,7 @@ use kovee_byom::episode::Fences;
 use kovee_core::family::DigestRef;
 use kovee_core::problem::ProblemKind;
 use kovee_store::Store;
-use koveed::episode::{self, Notice, ParentItem, Runtime};
+use koveed::episode::{self, Notice, Runtime};
 use serde_json::{json, Value};
 
 const REALM: &str = "realm-personal";
@@ -78,17 +78,23 @@ fn notice() -> Notice {
             "a".repeat(64),
         ),
         mandate_use_refs: vec!["mu-1".to_owned()],
-        byom_budget_reservation_ref: "brs-alloc-wi-1-r1".to_owned(),
-        byom_reservation_set_revision: 1,
-        external_budget_bridge_ref: "bridge-alloc-wi-1-r1".to_owned(),
-        stable_external_reservation_key: "sub-alloc-wi-1-r1".to_owned(),
-        parent_reservation_items: vec![ParentItem {
-            account_ref: "budget-mandate-1".to_owned(),
-            account_revision: 1,
-            dimension: "unit".to_owned(),
-            unit: "unit".to_owned(),
-            worst_case_amount: 256,
-        }],
+        // byom's FROZEN portable_public parent-budget fragment, composed
+        // with byom's own $domain tags — the ONLY door the parent facts come
+        // through now (R3-L02).
+        parent_budget: koveed::budget::doc_fragment(
+            "rset-alloc-wi-1-r1",
+            1,
+            "bridge-alloc-wi-1-r1",
+            1,
+            "sub-alloc-wi-1-r1",
+            serde_json::json!([{
+                "account_ref": "budget-mandate-1",
+                "account_revision": 1,
+                "dimension": "unit",
+                "unit": "unit",
+                "worst_case_amount": 256,
+            }]),
+        ),
         context_manifest_ref: "cm-1".to_owned(),
     }
 }
