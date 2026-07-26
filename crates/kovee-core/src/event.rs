@@ -70,6 +70,29 @@ pub const EVENT_GOVERNANCE_BINDINGS_CREATED: &str = "dev.kovee.governance.bindin
 pub const EVENT_GOVERNANCE_ACTIVATED: &str = "dev.kovee.governance.activated.v1";
 pub const EVENT_GOVERNANCE_ROLLED_BACK: &str = "dev.kovee.governance.rolled-back.v1";
 pub const EVENT_GOVERNANCE_DISABLED: &str = "dev.kovee.governance.disabled.v1";
+// K2 slice 2: one type per `events` entry of the three Kovee-owned
+// governed-work descriptors. The formation types are the intent states
+// themselves — the machine's own word for what happened
+// (`byom/spec/descriptors/endeavor-formation.json`).
+pub const EVENT_FORMATION_PREPARED: &str = "dev.kovee.endeavor-formation.prepared.v1";
+pub const EVENT_FORMATION_SUBMITTING: &str = "dev.kovee.endeavor-formation.submitting.v1";
+pub const EVENT_FORMATION_REMOTE_UNKNOWN: &str = "dev.kovee.endeavor-formation.remote-unknown.v1";
+pub const EVENT_FORMATION_AWAITING_PRINCIPAL: &str =
+    "dev.kovee.endeavor-formation.awaiting-principal.v1";
+pub const EVENT_FORMATION_BYOM_COMMITTED: &str = "dev.kovee.endeavor-formation.byom-committed.v1";
+pub const EVENT_FORMATION_LINKING: &str = "dev.kovee.endeavor-formation.linking.v1";
+pub const EVENT_FORMATION_LINKED: &str = "dev.kovee.endeavor-formation.linked.v1";
+pub const EVENT_FORMATION_AMBIGUOUS: &str = "dev.kovee.endeavor-formation.ambiguous.v1";
+pub const EVENT_FORMATION_CANCELED: &str = "dev.kovee.endeavor-formation.canceled.v1";
+pub const EVENT_EPISODE_BINDING_BOUND: &str = "dev.kovee.byom-episode-binding.bound.v1";
+pub const EVENT_EPISODE_BINDING_FENCED: &str = "dev.kovee.byom-episode-binding.fenced.v1";
+pub const EVENT_EPISODE_BINDING_RELEASED: &str = "dev.kovee.byom-episode-binding.released.v1";
+pub const EVENT_SUBORDINATE_REQUESTED: &str = "dev.kovee.subordinate-reservation.requested.v1";
+pub const EVENT_SUBORDINATE_CONFIRMED: &str = "dev.kovee.subordinate-reservation.confirmed.v1";
+pub const EVENT_SUBORDINATE_DENIED: &str = "dev.kovee.subordinate-reservation.denied.v1";
+pub const EVENT_SUBORDINATE_UNCERTAIN: &str = "dev.kovee.subordinate-reservation.uncertain.v1";
+pub const EVENT_SUBORDINATE_SETTLED: &str = "dev.kovee.subordinate-reservation.settled.v1";
+pub const EVENT_SUBORDINATE_RELEASED: &str = "dev.kovee.subordinate-reservation.released.v1";
 /// The reserved Kovee event namespace (§11.3): application events may
 /// never emit under it.
 pub const RESERVED_EVENT_NAMESPACE: &str = "dev.kovee.";

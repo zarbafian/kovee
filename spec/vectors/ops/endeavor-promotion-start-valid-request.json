@@ -1,0 +1,23 @@
+{
+  "name": "ops/endeavor-promotion-start-valid-request",
+  "description": "the exact submit: one formation, one FRESH authentication observation for this attempt (§16.3 table row 2 — the semantic command bytes are unchanged)",
+  "input": {
+    "schema": "endeavor-promotion-start-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_start",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "authentication_observation_ref": "authobs-0002"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "ops/endeavor-promotion-start-invalid-replay-unkeyed",
+  "description": "replay negative: a mutation without meta has no idempotency key, so a retry could not resume the saga and might submit twice (§11.2)",
+  "input": {
+    "schema": "endeavor-promotion-start-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_start",
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "authentication_observation_ref": "authobs-0002"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta is required on a mutation"
+  }
+}

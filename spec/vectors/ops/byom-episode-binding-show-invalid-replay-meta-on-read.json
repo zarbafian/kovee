@@ -1,0 +1,23 @@
+{
+  "name": "ops/byom-episode-binding-show-invalid-replay-meta-on-read",
+  "description": "replay negative: a read carries no meta at all (§11.2, R0 KENV-01)",
+  "input": {
+    "schema": "byom-episode-binding-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "byom_episode_binding_show",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "episode_ref": "epi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "reads carry no meta member"
+  }
+}

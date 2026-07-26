@@ -63,6 +63,19 @@ impl DigestRef {
         }
     }
 
+    /// A `portable_public` ref (unkeyed SHA-256; PROFILE §6.2). The
+    /// CROSS-BOUNDARY class: unkeyed exactly so a counterparty can
+    /// recompute it, which is what makes "the request field can only
+    /// match the server value" a machine check rather than trust.
+    pub fn portable_public(value_hex: String) -> DigestRef {
+        DigestRef {
+            class: "portable_public".to_owned(),
+            algorithm: "sha-256".to_owned(),
+            key_ref: None,
+            value_hex,
+        }
+    }
+
     /// A `local_erasure_safe` ref (random per-object secret; PROFILE
     /// §6.1, amendment A5 content addressing for erasable plaintext).
     pub fn local_erasure_safe(key_ref: &str, value_hex: String) -> DigestRef {
@@ -117,6 +130,13 @@ pub fn hex(bytes: &[u8]) -> String {
         out.push_str(&format!("{b:02x}"));
     }
     out
+}
+
+/// SHA-256 as lowercase hex — the `portable_public` construction.
+pub fn sha256_hex(data: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(data);
+    hex(&h.finalize())
 }
 
 /// The exact PROFILE §7 preimage member list, all required. The record's

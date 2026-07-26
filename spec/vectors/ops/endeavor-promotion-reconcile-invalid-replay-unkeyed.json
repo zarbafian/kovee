@@ -1,0 +1,19 @@
+{
+  "name": "ops/endeavor-promotion-reconcile-invalid-replay-unkeyed",
+  "description": "replay negative: reconciliation commits machine rows and a terminalization, so it is a mutation and requires meta (§11.2)",
+  "input": {
+    "schema": "endeavor-promotion-reconcile-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_reconcile",
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "meta is required on a mutation"
+  }
+}

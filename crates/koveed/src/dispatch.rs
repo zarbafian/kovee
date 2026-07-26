@@ -20,6 +20,8 @@ use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::unix_now;
 use kovee_store::{CrashHooks, Store, PERSONAL_REALM_ID};
 
+use crate::episode;
+use crate::formation;
 use crate::governance;
 use crate::handlers::{self, AppendAuthor};
 use crate::invoke;
@@ -1017,6 +1019,70 @@ impl Daemon {
                     now,
                     hooks,
                 )
+            }
+            // -------------------- K2 slice 2: the formation saga client ----
+            // Same operator-surface resolution as the binding half: in the
+            // personal profile the owner principal over this UID-checked
+            // local socket (registry-README resolutions 5/6).
+            ("endeavor_promotion_prepare", OpKind::Mutation) => {
+                let args = ops::PromotionPrepareArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                formation::endeavor_promotion_prepare(
+                    &mut *self.lock_store()?,
+                    scope,
+                    realm,
+                    args,
+                    now,
+                    hooks,
+                )
+            }
+            ("endeavor_promotion_start", OpKind::Mutation) => {
+                let args = ops::PromotionStartArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let resolver = |endpoint_ref: &str| Endpoint::local(endpoint_ref);
+                formation::endeavor_promotion_start(
+                    &mut *self.lock_store()?,
+                    &resolver,
+                    scope,
+                    realm,
+                    args,
+                    now,
+                    |op| self.hooks(op),
+                )
+            }
+            ("endeavor_promotion_show", _) => {
+                let args = ops::PromotionShowArgs::from_args(&cmd.args)?;
+                formation::endeavor_promotion_show(&*self.lock_store()?, &realm, &args)
+            }
+            ("endeavor_promotion_cancel", OpKind::Mutation) => {
+                let args = ops::PromotionCancelArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                formation::endeavor_promotion_cancel(
+                    &mut *self.lock_store()?,
+                    scope,
+                    realm,
+                    args,
+                    now,
+                    hooks,
+                )
+            }
+            ("endeavor_promotion_reconcile", OpKind::Mutation) => {
+                let args = ops::PromotionReconcileArgs::from_args(&cmd.args)?;
+                let scope = handlers::scope_for(cmd, &realm)?;
+                let resolver = |endpoint_ref: &str| Endpoint::local(endpoint_ref);
+                formation::endeavor_promotion_reconcile(
+                    &mut *self.lock_store()?,
+                    &resolver,
+                    scope,
+                    realm,
+                    args,
+                    now,
+                    |op| self.hooks(op),
+                )
+            }
+            ("byom_episode_binding_show", _) => {
+                let args = ops::EpisodeBindingShowArgs::from_args(&cmd.args)?;
+                episode::byom_episode_binding_show(&*self.lock_store()?, &realm, &args)
             }
             // `application_event_emit` has ONLY a worker-surface registry
             // entry — the external fallback answers unknown-op (§11.6.1).

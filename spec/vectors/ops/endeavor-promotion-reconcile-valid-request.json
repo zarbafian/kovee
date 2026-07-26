@@ -1,0 +1,22 @@
+{
+  "name": "ops/endeavor-promotion-reconcile-valid-request",
+  "description": "the read-only five-fact recovery query (R42), with no terminalization asked for",
+  "input": {
+    "schema": "endeavor-promotion-reconcile-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_reconcile",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/endeavor-promotion-start-request.schema.json",
+  "title": "KCP endeavor_promotion_start request (amendment A5 wire name; byom §16.3 table row 2)",
+  "description": "Mutation (meta required; §11.2). Acquires the durable slot for a send and submits: the pair moves prepared|awaiting_principal → submitting and COMMITS before any byte leaves Kovee, so a crash mid-send is recoverable from byom's own signed fact rather than indistinguishable from 'never sent'. The stable semantic command bytes are unchanged; only the expiring per-attempt authentication envelope is fresh, so a resubmission rides the SAME byom idempotency domain and cannot form a second Endeavor. Resuming from byom_committed or linking finishes the ExternalLink instead of re-sending. Registry (governed_work_binding_v1): surface operator / human realm-owner principal only — never a service identity, session, assistant, or connector. Surface and actor kind are registry-enforced, not schema-expressible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "endeavor_promotion_start"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formation_id",
+        "authentication_observation_ref"
+      ],
+      "properties": {
+        "formation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "authentication_observation_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The FRESH human authentication observation this attempt proves. §16.3 requires a fresh authentication attempt per send: reusing the previous attempt's observation is refused, which is what makes an awaiting_principal resubmission a real re-authentication."
+        }
+      },
+      "description": "Which formation, and this attempt's fresh authentication."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

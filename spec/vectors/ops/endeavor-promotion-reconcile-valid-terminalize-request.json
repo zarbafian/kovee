@@ -1,0 +1,25 @@
+{
+  "name": "ops/endeavor-promotion-reconcile-valid-terminalize-request",
+  "description": "the liveness mutation after an ambiguous formation: the SAME source human, freshly authenticated, denying future execution (R40)",
+  "input": {
+    "schema": "endeavor-promotion-reconcile-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_reconcile",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "terminalize": true,
+        "authentication_observation_ref": "authobs-0003",
+        "reason": "the principal denies future execution"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

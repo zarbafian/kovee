@@ -24,7 +24,12 @@
 //! - the failure arm is `{"outcome":"problem","problem":{…}}` whose
 //!   `type` is `https://byom.dev/problems/<snake_kind>` — explicitly NOT
 //!   substitutable with kovee's `urn:kovee:error:<kebab-kind>`;
-//! - the governance and projection sockets take no token preamble.
+//! - every surface takes an OPTIONAL first preamble line that does not
+//!   open a JSON object: on governance it is the Kovee
+//!   `DelegatedPrincipalCredential` (`dpc1.<hex>`, R39/R40 channel
+//!   material), on projection the narrow R42 recovery-workload token. A
+//!   preamble-free connection is the ordinary same-UID channel, which is
+//!   what the K2 slice-1 binding half uses.
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
@@ -53,6 +58,11 @@ pub enum Surface {
     Candidate,
     Participant,
     Projection,
+    /// The R30/R33 runtime surface (placement admission and the Episode
+    /// lease operations). Named by byom's registry; byomd does not serve
+    /// it yet, so a call here answers `unavailable` and the Kovee-side
+    /// pipeline holds rather than proceeding (see `crate::episode`).
+    Runtime,
 }
 
 impl Surface {
@@ -62,14 +72,16 @@ impl Surface {
             Surface::Candidate => "candidate.sock",
             Surface::Participant => "participant.sock",
             Surface::Projection => "projection.sock",
+            Surface::Runtime => "runtime.sock",
         }
     }
 
-    /// Whether this surface reads a token preamble line before the
-    /// request. Governance and projection never do; writing a preamble
-    /// there makes byomd parse the token AS the request.
+    /// Whether this surface REQUIRES a token preamble line before the
+    /// request. Only the candidate surface does; everywhere else the
+    /// preamble is optional (`call_with_preamble`), and writing one where
+    /// byomd expects none would make it parse the token AS the request.
     pub fn takes_preamble(self) -> bool {
-        matches!(self, Surface::Candidate | Surface::Participant)
+        matches!(self, Surface::Candidate)
     }
 }
 
@@ -110,6 +122,19 @@ impl Endpoint {
 
     /// One request line to one reply line, on this surface's socket.
     pub fn call(&self, surface: Surface, request: &Value) -> Result<Reply, BppError> {
+        self.call_with_preamble(surface, None, request)
+    }
+
+    /// The same call with an optional transport preamble line — the
+    /// delegated-principal credential on governance, the recovery-workload
+    /// token on projection. The preamble is written first, then the
+    /// request, on the SAME connection.
+    pub fn call_with_preamble(
+        &self,
+        surface: Surface,
+        preamble: Option<&str>,
+        request: &Value,
+    ) -> Result<Reply, BppError> {
         let path = self.socket_path(surface);
         let mut stream = UnixStream::connect(&path)
             .map_err(|e| BppError::Transport(format!("connect {}: {e}", path.display())))?;
@@ -117,8 +142,15 @@ impl Endpoint {
             .set_read_timeout(Some(CALL_TIMEOUT))
             .and_then(|()| stream.set_write_timeout(Some(CALL_TIMEOUT)))
             .map_err(|e| BppError::Transport(e.to_string()))?;
-        let mut line = serde_json::to_string(request)
-            .map_err(|e| BppError::Malformed(format!("request is not JSON: {e}")))?;
+        let mut line = String::new();
+        if let Some(token) = preamble {
+            line.push_str(token.trim());
+            line.push('\n');
+        }
+        line.push_str(
+            &serde_json::to_string(request)
+                .map_err(|e| BppError::Malformed(format!("request is not JSON: {e}")))?,
+        );
         line.push('\n');
         stream
             .write_all(line.as_bytes())
@@ -208,9 +240,9 @@ impl Reply {
                     .and_then(Value::as_str)
                     .map(str::to_owned),
             }),
-            Some("problem") => Err(BppError::Problem(ByomProblem::from_value(
+            Some("problem") => Err(BppError::Problem(Box::new(ByomProblem::from_value(
                 parsed.get("problem").unwrap_or(&Value::Null),
-            ))),
+            )))),
             _ => Err(BppError::Malformed("reply carries no outcome".to_owned())),
         }
     }
@@ -226,6 +258,11 @@ pub struct ByomProblem {
     pub title: String,
     pub status: Option<u16>,
     pub detail: Option<String>,
+    /// byom's own `dev.byom.*` problem extensions, carried verbatim. The
+    /// formation client needs them: a definite pre-commit rejection names
+    /// the tombstone it installed over the exact IdempotencyDomain
+    /// (`dev.byom.tombstone_ref`/`_digest`), and Kovee may not invent one.
+    pub extensions: std::collections::BTreeMap<String, Value>,
 }
 
 impl ByomProblem {
@@ -246,6 +283,15 @@ impl ByomProblem {
                 .unwrap_or_default()
                 .to_owned(),
         };
+        let extensions = problem
+            .as_object()
+            .map(|map| {
+                map.iter()
+                    .filter(|(k, _)| k.starts_with("dev.byom."))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         ByomProblem {
             type_uri,
             kind,
@@ -258,7 +304,13 @@ impl ByomProblem {
                 .get("detail")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            extensions,
         }
+    }
+
+    /// One `dev.byom.*` extension, if the arm carried it.
+    pub fn extension(&self, name: &str) -> Option<&Value> {
+        self.extensions.get(&format!("dev.byom.{name}"))
     }
 
     /// The body-free passthrough detail a KCP client sees: byom's type
@@ -281,8 +333,10 @@ pub enum BppError {
     Transport(String),
     #[error("byom reply: {0}")]
     Malformed(String),
+    /// Boxed: the problem carries byom's `dev.byom.*` extensions, and a
+    /// fat error variant would make every `Result` on this surface fat.
     #[error("byom problem: {}", .0.kind)]
-    Problem(ByomProblem),
+    Problem(Box<ByomProblem>),
     #[error("byom offers no common protocol version (offered {offered})")]
     VersionMismatch { offered: String },
 }
@@ -336,6 +390,13 @@ pub fn passthrough(error: &BppError) -> Problem {
                 "idempotency_mismatch" => ProblemKind::IdempotencyMismatch,
                 "budget_exceeded" => ProblemKind::BudgetExceeded,
                 "effect_ambiguous" => ProblemKind::Ambiguous,
+                // A DEFINITE pre-commit rejection of a formation: byom
+                // claimed the exact IdempotencyDomain with a
+                // non-reexecuting tombstone. Kovee's formation client
+                // reads the tombstone off the arm's `dev.byom.*`
+                // extensions; a caller who sees this kind sees a refusal.
+                "formation_requires_participation" => ProblemKind::Forbidden,
+                "external_command_not_terminalizable" => ProblemKind::Ambiguous,
                 "cursor_expired" => ProblemKind::CursorExpired,
                 // feature_unavailable, endpoint_sealed, unavailable, and
                 // every byom-governance kind kovee does not own.
@@ -353,13 +414,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn socket_files_are_the_four_byomd_surfaces() {
+    fn socket_files_are_the_byomd_surfaces() {
         assert_eq!(Surface::Governance.socket_file(), "governance.sock");
         assert_eq!(Surface::Projection.socket_file(), "projection.sock");
-        // Governance and projection take no token preamble.
+        assert_eq!(Surface::Runtime.socket_file(), "runtime.sock");
+        // Only the candidate surface REQUIRES a preamble; governance,
+        // projection, and participant take an optional one.
+        assert!(Surface::Candidate.takes_preamble());
         assert!(!Surface::Governance.takes_preamble());
         assert!(!Surface::Projection.takes_preamble());
-        assert!(Surface::Participant.takes_preamble());
+        assert!(!Surface::Participant.takes_preamble());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 {
-  "title": "Kovee KCP operation registry — K0 frozen (K1 bundles) + K2 slice 1 (governed_work_binding_v1 binding half)",
-  "registry_version": "k2-1",
+  "title": "Kovee KCP operation registry — K0 frozen (K1 bundles) + K2 slices 1-2 (governed_work_binding_v1 binding + formation halves)",
+  "registry_version": "k2-2",
   "bundles": [
     "core_v1",
     "shared_space_v1",
@@ -10,7 +10,7 @@
   "sources": {
     "design": "DESIGN.md §11.6 (feature bundles) and §11.6.1 (normative authority matrix), with §9.2 as the AuthorizationDependencySet category key",
     "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)",
-    "revision": "k2-1: the governed_work_binding_v1 greenfield-binding rows (governance_enable/show/disable) added for K2 slice 1, extracted from the frozen family-contract §2.A authority row; the k0-2 rows are unchanged (spec/registry-README.md)"
+    "revision": "k2-2: the governed_work_binding_v1 formation rows (endeavor_promotion_prepare/start/show/cancel/reconcile, byom_episode_binding_show) added for K2 slice 2, extracted from byom DESIGN.md §16.3/§16.6 item 3 and the Kovee-owned descriptors endeavor-formation.json / byom-episode-binding.json; the k2-1 rows are unchanged (spec/registry-README.md)"
   },
   "dependency_category_tokens": [
     "principal_status",
@@ -47,14 +47,38 @@
     {
       "pinned": "personal_governed_work_disable",
       "resolved": "governance_disable"
+    },
+    {
+      "pinned": "mission_promotion_prepare",
+      "resolved": "endeavor_promotion_prepare"
+    },
+    {
+      "pinned": "mission_promotion_start",
+      "resolved": "endeavor_promotion_start"
+    },
+    {
+      "pinned": "mission_promotion_show",
+      "resolved": "endeavor_promotion_show"
+    },
+    {
+      "pinned": "mission_promotion_cancel",
+      "resolved": "endeavor_promotion_cancel"
+    },
+    {
+      "pinned": "mission_promotion_reconcile",
+      "resolved": "endeavor_promotion_reconcile"
+    },
+    {
+      "pinned": "sage_turn_binding_show",
+      "resolved": "byom_episode_binding_show"
     }
   ],
-  "a5_note": "No A5 wire-name rename applies to the three K1 bundles. K2 slice 1 extracts the greenfield-binding half of governed_work_binding_v1 and applies the A5 renames personal_governed_work_enable/show/disable → governance_enable/show/disable; the bundle's remaining operations (endeavor_promotion_*, byom_episode_binding_show, collaboration_context_bundle_*, workspace_*) are reserved for K2 slice 2 and are NOT in this registry. The bundle is therefore incomplete and is not advertised by hello/protocol_info (§11.6: bundles are atomic). See spec/registry-README.md.",
+  "a5_note": "No A5 wire-name rename applies to the three K1 bundles. K2 slice 1 extracted the greenfield-binding half of governed_work_binding_v1 (personal_governed_work_enable/show/disable → governance_enable/show/disable); K2 slice 2 extracts the formation half (mission_promotion_prepare/start/show/cancel/reconcile → endeavor_promotion_*, sage_turn_binding_show → byom_episode_binding_show). The bundle's remaining operations (collaboration_context_bundle_prepare/show, workspace_provider_manifest_show/list, workspace_allocation_binding_show) are NOT in this registry, so the bundle is still incomplete and is not advertised by hello/protocol_info (§11.6: bundles are atomic). The byom_subordinate reservation saga (byom §16.6 item 4) has no KCP row at all: byom's kernel initiates it at resource_allocate, so Kovee executes it as a host transaction, never as a client-callable operation. See spec/registry-README.md.",
   "entry_counts": {
     "core_v1": 3,
     "shared_space_v1": 65,
     "developer_assistant_v1": 22,
-    "governed_work_binding_v1": 3
+    "governed_work_binding_v1": 9
   },
   "entries": [
     {
@@ -2741,6 +2765,207 @@
       "assurance": "always step-up",
       "offline": "no",
       "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/design/2026-07-25-family-contract.md §2.A (the frozen governance_enable authority row, field-complete) + byom/spec/governed-work/greenfield-saga.md (D10)"
+    },
+    {
+      "operation": "endeavor_promotion_prepare",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact formation-preparation action over one client_formation_key",
+        "the pinned SpaceFrontier and the ContextAssembly taken at it",
+        "target society_ref and Society recovery epoch, read from the active mapping",
+        "byomd endpoint identity and incarnation, read from the active binding",
+        "the stable KoveeEndeavorFormCommand bytes and their canonical command digest",
+        "the exact IdempotencyDomain digest and byom command idempotency key"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "authentication_binding_security_epoch",
+        "current_authentication_observation",
+        "installation_recovery_epoch",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "branch_status_frontier",
+        "context_item_visibility",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "no external contact at all: every byom fact the intent pins is read from the ACTIVE KoveeRealmByomBinding/KoveeSocietyMapping, never asserted by the caller",
+        "UNIQUE(realm_id, requested_by_principal, client_formation_key) deduplicates one explicit human formation command; it does not imply one Endeavor per Branch, frontier, purpose, or Society (byom §16.3)",
+        "the context bundle must be assembled AT the pinned frontier",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "paired intent/slot create under slot generation 1; an exact retry of the same client_formation_key returns the identical pair",
+      "assurance": "explicit confirmation in personal mode; fresh step-up/challenge in team mode",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.3 (the frozen EndeavorFormationIntent/Slot/Attempt machine and the five-fact ExternalCommandResultQuery union) + byom/spec/descriptors/endeavor-formation.json"
+    },
+    {
+      "operation": "endeavor_promotion_start",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact formation-submission action over one prepared or awaiting_principal intent",
+        "the unchanged stable command bytes and their canonical command digest",
+        "one fresh EndeavorFormationAttempt: nonce, recovery-binding quadruple, authentication observation, and attempt proof",
+        "the minted DelegatedPrincipalCredential's (issuer_ref, nonce) consume pair"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "authentication_binding_security_epoch",
+        "current_authentication_observation",
+        "installation_recovery_epoch",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "source-qualified human via the exact Kovee delegated-principal channel, personally filling the sole computed formation seat (R39); it never bootstraps a Society and never manufactures membership",
+        "the pair moves to submitting and COMMITS before any byte leaves Kovee",
+        "a fresh human authentication attempt per send: reusing the previous attempt's observation is refused (byom §16.3 table row 2)",
+        "the command endpoint incarnation and Society recovery epoch must still be active; binding rotation fences the send and never releases the slot",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "paired intent/slot CAS under the slot generation at the read revision; one immutable attempt per send, UNIQUE(formation_id, attempt_ordinal) and UNIQUE(attempt_nonce); a lost reply becomes remote_unknown and never releases the slot",
+      "assurance": "always step-up",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.3 (the frozen EndeavorFormationIntent/Slot/Attempt machine and the five-fact ExternalCommandResultQuery union) + byom/spec/descriptors/endeavor-formation.json"
+    },
+    {
+      "operation": "endeavor_promotion_show",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact formation-state read over the realm's intents, slots, attempts, and external links",
+        "recorded saga state and slot generation (query-first restore resolution)"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "a read: it never prepares, submits, cancels, reconciles, or terminalizes, and makes no byom call at all",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "none",
+      "assurance": "current login",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.3 (the frozen EndeavorFormationIntent/Slot/Attempt machine and the five-fact ExternalCommandResultQuery union) + byom/spec/descriptors/endeavor-formation.json"
+    },
+    {
+      "operation": "endeavor_promotion_cancel",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact pre-send cancel over one prepared intent with a still-held slot",
+        "the recorded cancel reason"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "authentication_binding_security_epoch",
+        "current_authentication_observation",
+        "installation_recovery_epoch",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "the ONE pre-send release: the local cancel must durably precede the first send (byom §16.3 table row 1)",
+        "after bytes may have left Kovee, cancel is not a row of this machine and the slot has no timeout-based release",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "paired intent/slot CAS under the slot generation; slot released with released_at set",
+      "assurance": "explicit confirmation in personal mode; fresh step-up/challenge in team mode",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.3 (the frozen EndeavorFormationIntent/Slot/Attempt machine and the five-fact ExternalCommandResultQuery union) + byom/spec/descriptors/endeavor-formation.json"
+    },
+    {
+      "operation": "endeavor_promotion_reconcile",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact recovery action over one non-terminal intent",
+        "the read-only external_command_result_query against the exact IdempotencyDomain and canonical command digest (R42)",
+        "optionally external_command_terminalize over the exact original domain and command bytes, same source human, freshly authenticated through the current recovery binding (R40)"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "authentication_binding_security_epoch",
+        "current_authentication_observation",
+        "installation_recovery_epoch",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "the query is read-only: it cannot submit, terminalize, modify, or impersonate the original human (R42), and it rides the narrow byomd recovery workload, never the delegated-principal credential",
+        "exactly one of five facts drives exactly one row; a verified live `absent` never releases the slot and `unknown` is a conservative hold, never a guess",
+        "missing or incomplete RestoreLineage is unknown, never live absent",
+        "terminalization exists exactly where the descriptor's tombstone_verified row does — any state whose outcome is still ambiguous, never one with a verified committed result — and only for the same source human freshly authenticated through the current recovery binding; another principal, service, controller, or successor Participant cannot terminalize",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "paired intent/slot CAS under the slot generation per verified fact; the slot is released only by a verified non-reexecuting tombstone, a verified historically_fenced_absent, or the committed ExternalLink",
+      "assurance": "always step-up",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.3 (the frozen EndeavorFormationIntent/Slot/Attempt machine and the five-fact ExternalCommandResultQuery union) + byom/spec/descriptors/endeavor-formation.json"
+    },
+    {
+      "operation": "byom_episode_binding_show",
+      "bundle": "governed_work_binding_v1",
+      "surface": "operator",
+      "allowed_actor_kinds": [
+        "human realm-owner principal only"
+      ],
+      "action_scope": [
+        "exact hosted-Episode binding read over the realm's ByomEpisodeBinding rows",
+        "both fence epochs (byom_fence_epoch and kovee_invocation_fence) per row",
+        "retained fenced rows for audit and orphan-result diagnostics"
+      ],
+      "dependency_categories": [
+        "principal_status",
+        "current_authentication_observation",
+        "realm_status_kill_epoch",
+        "target_resource_revision",
+        "realm_authority_binding",
+        "external_visibility_proof"
+      ],
+      "constraints": [
+        "a human realm-owner principal only — never a service identity, session, assistant, or connector; personal-mode bootstrap is owner-only over the UID-checked local socket",
+        "a read: it never binds, fences, releases, or advances an Episode; the Episode/EpisodeLease lifecycle is byom-owned and referenced, never re-owned",
+        "recovery-only service authority: a service may query saga state (external_command_result_query pattern), never submit, terminalize, modify, or impersonate the original human (R42)"
+      ],
+      "fence": "none",
+      "assurance": "current login",
+      "offline": "no",
+      "source": "DESIGN.md §11.6 (governed_work_binding_v1 row) + design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) + byom/DESIGN.md §16.6 item 3 + byom/spec/descriptors/byom-episode-binding.json"
     }
   ]
 }

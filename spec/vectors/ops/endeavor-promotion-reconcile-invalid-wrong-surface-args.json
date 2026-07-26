@@ -1,0 +1,25 @@
+{
+  "name": "ops/endeavor-promotion-reconcile-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the five-fact status is byom's SIGNED answer, not a caller assertion — Kovee verifies a fact, it never accepts one",
+  "input": {
+    "schema": "endeavor-promotion-reconcile-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_reconcile",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "status": "absent",
+        "tombstone_ref": "tomb-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown members status, tombstone_ref"
+  }
+}

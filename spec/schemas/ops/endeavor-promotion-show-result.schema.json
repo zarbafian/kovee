@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/endeavor-promotion-show-result.schema.json",
+  "title": "KCP endeavor_promotion_show result",
+  "description": "CommandResult.result payload (§11.2 ok arm). One promotion when formation_id was named, else the realm's recorded set.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/promotion"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "realm_id",
+        "promotions"
+      ],
+      "properties": {
+        "realm_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "promotions": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/promotion"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digestHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256/HMAC value of a §11.8 typed digest; the digest type/domain is fixed by the schema field holding it (§11.8: a bare 32-byte value cannot be substituted across digest fields)."
+    },
+    "digestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "algorithm",
+        "value_hex"
+      ],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": [
+            "structural_public",
+            "portable_public",
+            "local_erasure_safe",
+            "scope_erasure_safe",
+            "disclosed_party",
+            "ciphertext_public"
+          ],
+          "description": "Family digest class (byom family-vectors PROFILE §6, D-R0-1). Governed-work host records use scope_erasure_safe: one protected per-realm governance key, so destroying it erases verifiability of the whole governance scope, never one row."
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "sha-256",
+            "hmac-sha-256"
+          ]
+        },
+        "key_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "Key id for the keyed erasure classes; raw HMAC keys, per-object secrets, and salts are never part of a DigestRef."
+        },
+        "value_hex": {
+          "$ref": "#/$defs/digestHex"
+        }
+      },
+      "description": "Typed family DigestRef (PROFILE §6.1), never an unlabelled hash. The class/algorithm pairing and the key_ref-presence rule for the keyed classes are enforced in code (they are a cross-member constraint the closed object cannot express here)."
+    },
+    "externalLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link_ref",
+        "endeavor_ref",
+        "endeavor_revision",
+        "endeavor_digest",
+        "result_digest",
+        "source_cursor",
+        "created_at"
+      ],
+      "properties": {
+        "link_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "endeavor_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "byom's Endeavor id, carried verbatim and never re-owned."
+        },
+        "endeavor_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "endeavor_digest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digestRef"
+            }
+          ]
+        },
+        "result_digest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digestRef"
+            }
+          ]
+        },
+        "source_cursor": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "byom's own continuation cursor, preserved verbatim."
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "The Kovee ExternalLink committing the exact result digest (§16.3 table row 13); idempotent over its own digest."
+    },
+    "formationAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_id",
+        "attempt_ordinal",
+        "attempt_nonce",
+        "state",
+        "authentication_observation_ref",
+        "prepared_at"
+      ],
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "attempt_ordinal": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "attempt_nonce": {
+          "$ref": "#/$defs/identifier",
+          "description": "Globally unique per attempt, and EXCLUDED from the canonical command digest — so a retry preserves the semantic bytes and the idempotency domain while replacing only the expiring proof/binding envelope (§16.3)."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "prepared",
+            "sent",
+            "reply_received",
+            "transport_unknown",
+            "reconciled",
+            "canceled"
+          ],
+          "description": "EndeavorFormationAttempt.state, §16.3 verbatim. reply_received, reconciled, and canceled are terminal."
+        },
+        "authentication_observation_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "prepared_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "sent_at": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/timestamp"
+            }
+          ],
+          "description": "Set the moment bytes MAY first leave Kovee. prepared and canceled carry none — a cancel happens only before that point."
+        },
+        "observed_at": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/timestamp"
+            }
+          ]
+        }
+      },
+      "description": "One immutable authentication/transport envelope per send."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "promotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formation_id",
+        "revision",
+        "state",
+        "slot",
+        "society_ref",
+        "society_recovery_epoch",
+        "byom_endpoint_ref",
+        "command_endpoint_incarnation",
+        "client_formation_key",
+        "byom_command_idempotency_key",
+        "canonical_byom_command_digest",
+        "idempotency_domain_digest",
+        "project_id",
+        "space_id",
+        "branch_id",
+        "attempts",
+        "external_link",
+        "byom_result"
+      ],
+      "properties": {
+        "formation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "prepared",
+            "submitting",
+            "remote_unknown",
+            "awaiting_principal",
+            "byom_committed",
+            "linking",
+            "linked",
+            "ambiguous",
+            "canceled"
+          ],
+          "description": "EndeavorFormationIntent.state, byom §16.3 verbatim. linked and canceled are terminal; timeout, absence, authentication expiry, binding rotation, an unverified historical lookup, or ambiguous never releases the paired slot."
+        },
+        "slot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "slot_ref",
+            "state",
+            "generation"
+          ],
+          "properties": {
+            "slot_ref": {
+              "$ref": "#/$defs/identifier"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "held",
+                "submitting",
+                "remote_unknown",
+                "awaiting_principal",
+                "byom_committed",
+                "linking",
+                "ambiguous",
+                "released"
+              ],
+              "description": "EndeavorFormationSlot.state, §16.3 verbatim. Exactly four things release a slot: a pre-send cancel, a verified non-reexecuting tombstone, a verified historically fenced absence, and a committed ExternalLink. There is no timeout release."
+            },
+            "generation": {
+              "$ref": "#/$defs/safeNonNegativeInteger",
+              "description": "The slot generation every paired intent/slot CAS runs under."
+            }
+          },
+          "description": "The paired uniqueness slot. UNIQUE(realm_id, requested_by_principal, client_formation_key) WHERE state != released, enforced in code as a partial index."
+        },
+        "society_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "society_recovery_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "byom_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "command_endpoint_incarnation": {
+          "$ref": "#/$defs/identifier"
+        },
+        "client_formation_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "byom_command_idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "canonical_byom_command_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "Covers ONLY the stable KoveeEndeavorFormCommand bytes — never attempt id/nonce, authentication observation/proof, transport request id, or send time (§16.3). Class portable_public: both parties recompute it, which is what makes 'the request field can only match the server value' a machine check."
+        },
+        "idempotency_domain_digest": {
+          "$ref": "#/$defs/digestRef",
+          "description": "The IdempotencyDomain digest, always the keyed scope_erasure_safe class over the per-Society index key (§14.2; PROFILE §5, D-R0-1)."
+        },
+        "project_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "space_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "branch_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "attempts": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/formationAttempt"
+          },
+          "description": "The APPEND-ONLY per-send envelopes: resolving an intent never rewrites an earlier attempt's send or authentication evidence (§16.3)."
+        },
+        "external_link": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/externalLink"
+            }
+          ],
+          "description": "Present once the ExternalLink committed the exact result digest; link creation is idempotent over that digest."
+        },
+        "byom_result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ],
+          "description": "The UNMODIFIED KoveeEndeavorFormResult envelope byom signed. SQL loss after byom's commit is recovered from exactly these bytes."
+        }
+      },
+      "description": "One endeavor promotion: the paired intent/slot state, the append-only attempts, and the committed link."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

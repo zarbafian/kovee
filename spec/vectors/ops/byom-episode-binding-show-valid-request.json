@@ -1,0 +1,18 @@
+{
+  "name": "ops/byom-episode-binding-show-valid-request",
+  "description": "the recorded hosted-Episode bindings of one Episode — including the FENCED predecessor attempt, retained for audit and orphan-result diagnostics",
+  "input": {
+    "schema": "byom-episode-binding-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "byom_episode_binding_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "episode_ref": "epi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

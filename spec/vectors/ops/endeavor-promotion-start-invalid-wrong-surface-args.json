@@ -1,0 +1,26 @@
+{
+  "name": "ops/endeavor-promotion-start-invalid-wrong-surface-args",
+  "description": "wrong-surface args: the attempt nonce, the recovery-binding quadruple, and the attempt proof are minted by Kovee inside the attempt commit — a caller supplying them could ride another attempt's envelope",
+  "input": {
+    "schema": "endeavor-promotion-start-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_start",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "authentication_observation_ref": "authobs-0002",
+        "attempt_nonce": "efn-0001",
+        "authentication_proof": "ap1.3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown members attempt_nonce, authentication_proof"
+  }
+}

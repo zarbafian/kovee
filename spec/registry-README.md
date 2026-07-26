@@ -1,9 +1,9 @@
-# Operation registry — extraction notes (K0, extended at K2 slice 1)
+# Operation registry — extraction notes (K0, extended at K2 slices 1-2)
 
 `registry.json` is the machine-readable operation registry. It carries the
 three K0-frozen K1 bundles — `core_v1`, `shared_space_v1`,
 `developer_assistant_v1` — plus, from K2 slice 1, the greenfield-binding
-half of `governed_work_binding_v1`. It resolves the pinned `DESIGN.md` §11.6
+half of `governed_work_binding_v1` and, from slice 2, its formation half. It resolves the pinned `DESIGN.md` §11.6
 (feature-bundle command/query sets) and §11.6.1 (normative authority matrix)
 together with amendment A5
 (`design/2026-07-25-amendment-governance-owner.md`), and for the K2 rows the
@@ -412,14 +412,11 @@ operations ("`governance_enable` (and `governance_show` read;
 dependency set, and scope material; only the assurance and fence cells split
 per operation.
 
-**Bundle completeness.** These three operations are the binding half only.
-The bundle's formation half (`endeavor_promotion_*`,
-`byom_episode_binding_show`, `collaboration_context_bundle_*`, `workspace_*`)
-arrives with K2 slice 2 and has **no entry here** — an operation missing an
-entry is not callable (§11.6.1). Because §11.6 makes bundles atomic,
-`governed_work_binding_v1` is deliberately **not advertised** by
-`hello`/`protocol_info` until it is complete; `crates/koveed/tests/
-k1_bundles.rs::the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch`
+**Bundle completeness.** These three operations are the binding half only;
+the formation half arrives with slice 2 (below). Because §11.6 makes bundles
+atomic, `governed_work_binding_v1` is deliberately **not advertised** by
+`hello`/`protocol_info` until every one of its operations is callable;
+`crates/koveed/tests/k1_bundles.rs::the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch`
 asserts both halves of that statement.
 
 ### Surface (rule 3 applied)
@@ -502,6 +499,64 @@ the frozen row names no separate read assurance, resolved as for `diagnose`
    pre-CAS re-verification gets a DEFINITE contradiction, and it is not
    callable. No registry row exists for it.
 
+## K2 slice 2 — the `governed_work_binding_v1` formation half
+
+Six entries, extracted from byom DESIGN.md §16.3 (the
+`EndeavorFormationIntent`/`Slot`/`Attempt` machine, the
+`KoveeEndeavorFormCommand` stable-command/fresh-attempt split, and the
+five-fact `ExternalCommandResultQuery` union) and §16.6 item 3
+(`ByomEpisodeBinding`), read against the Kovee-owned descriptors
+`byom/spec/descriptors/endeavor-formation.json` and
+`byom/spec/descriptors/byom-episode-binding.json`.
+
+### A5 wire names (rule 1 applied)
+
+| Pinned in §11.6 | Resolved wire name |
+|---|---|
+| `mission_promotion_prepare` | `endeavor_promotion_prepare` |
+| `mission_promotion_start` | `endeavor_promotion_start` |
+| `mission_promotion_show` | `endeavor_promotion_show` |
+| `mission_promotion_cancel` | `endeavor_promotion_cancel` |
+| `mission_promotion_reconcile` | `endeavor_promotion_reconcile` |
+| `sage_turn_binding_show` | `byom_episode_binding_show` |
+
+Amendment A1 retargets the governance owner from Sage to byom, so the
+Sage-named row becomes the byom-named one; there is no `sage_*` operation in
+this stack.
+
+### Surface and placement
+
+Same "KCP admin" → `operator` normalization as slice 1 (resolutions 5/6). All
+six are **realm-scoped and project-free**: a promotion's project, space, and
+branch are read from the pinned `SpaceFrontier`, never from the envelope, so
+one command cannot name one project and pin another's frontier.
+
+### Resolutions this slice adds
+
+7. **No operation for the `byom_subordinate` reservation saga.** §16.6 item 4
+   names the reservation set and the reserve/query/settle/uncertain/release
+   steps, but the byom kernel initiates it internally at
+   `resource_allocate`, and §11.4 is explicit that Kovee platform capacity
+   lives under another owner and is never part of the byom transaction.
+   Resolved: Kovee executes the saga as a host transaction inside the episode
+   pipeline; there is deliberately **no KCP row** for it, and none for
+   `placement_admit`/`episode_*` either (those are byom runtime-surface
+   operations Kovee CALLS, not operations it serves).
+8. **One assurance cell for `endeavor_promotion_reconcile`.** The recovery
+   query alone would be `current login`, but the same entry may drive
+   `external_command_terminalize`, which is always step-up with a fresh
+   challenge. A registry entry carries ONE assurance cell, so the row takes
+   the stronger of the two and the split is stated in its constraints.
+
+### Bundle completeness (still incomplete)
+
+The bundle's remaining operations —
+`collaboration_context_bundle_prepare/show`,
+`workspace_provider_manifest_show/list`, and
+`workspace_allocation_binding_show` — have **no entry here**, so
+`governed_work_binding_v1` is still not advertised. The formation half's own
+operations are live and dispatch.
+
 ## Counts (frozen)
 
 | Bundle | Operations | Entries (operation × surface) |
@@ -509,9 +564,9 @@ the frozen row names no separate read assurance, resolved as for `diagnose`
 | `core_v1` | 3 | 3 |
 | `shared_space_v1` | 62 | 65 |
 | `developer_assistant_v1` | 21 | 22 |
-| `governed_work_binding_v1` (binding half; K2 slice 1) | 3 | 3 |
-| **Total** | **89** | **93** |
+| `governed_work_binding_v1` (binding + formation halves; K2 slices 1-2) | 9 | 9 |
+| **Total** | **95** | **99** |
 
 Dual-surface operations: `contribution_append`, `relation_assert`,
 `context_assembly_create` (external + worker), `invocation_cancel`
-(external + worker). The three K2 entries are single-surface.
+(external + worker). The nine K2 entries are single-surface.

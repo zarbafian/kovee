@@ -749,8 +749,227 @@ UPDATE artifacts SET object_secret = NULL WHERE object_secret IS NOT NULL;
 UPDATE contributions SET object_secret = NULL WHERE object_secret IS NOT NULL;
 "#;
 
+/// Version 6: the K2 slice-2 governed-work tables — the formation saga's
+/// paired recovery records, the hosted-episode binding, and the
+/// `byom_subordinate` budget bridge (byom §16.3/§16.6 as frozen in
+/// `byom/spec/governed-work/*.schema.json`).
+///
+/// The uniqueness rules ARE the safety properties, so they are indexes
+/// rather than code:
+///
+/// - `endeavor_formation_intents`: `UNIQUE(realm_ref,
+///   requested_by_principal, client_formation_key)` — one explicit human
+///   formation command deduplicated. The scope says nothing about one
+///   Endeavor per Branch, frontier, purpose, or Society (§16.3).
+/// - `endeavor_formation_slots`: the same triple, but `WHERE state !=
+///   'released'` (a partial index) — a released slot leaves the intent
+///   in place, and only a pre-send cancel, a verified tombstone, a
+///   verified historically fenced absence, or a committed ExternalLink
+///   releases one. There is deliberately no timeout release.
+/// - `endeavor_formation_attempts`: `UNIQUE(formation_id,
+///   attempt_ordinal)` and `UNIQUE(attempt_nonce)`. Rows are APPEND-ONLY:
+///   resolving an intent never rewrites an earlier attempt's send or
+///   authentication evidence, so a crash mid-send stays visible.
+/// - `external_links`: `UNIQUE(formation_id)` and `UNIQUE(link_digest_hex)`
+///   — link creation is idempotent over its digest (§16.3 table row 13).
+/// - `byom_placement_bindings`: `UNIQUE(resource_allocation_ref,
+///   revision)`; the admission columns stay NULL until byom's runtime
+///   adapter answers, which is what makes "no episode work before
+///   placement admission" checkable.
+/// - `byom_episode_bindings`: `UNIQUE(stable_binding_key)` AND
+///   `UNIQUE(episode_ref, byom_attempt_ref, kovee_invocation_ref)` — the
+///   L22 idempotent create in both directions, so a different key for the
+///   same triple conflicts instead of double-binding.
+/// - `byom_subordinate_reservations`:
+///   `UNIQUE(stable_external_reservation_key)` — CreateOnce.
+const V6: &str = r#"
+CREATE TABLE endeavor_formation_intents (
+    formation_id                        TEXT PRIMARY KEY,
+    revision                            INTEGER NOT NULL,
+    realm_ref                           TEXT NOT NULL REFERENCES realms(realm_id),
+    project_id                          TEXT NOT NULL,
+    space_id                            TEXT NOT NULL,
+    branch_id                           TEXT NOT NULL,
+    frontier_ref                        TEXT NOT NULL,
+    frontier_digest                     TEXT NOT NULL,
+    collaboration_context_bundle_ref    TEXT NOT NULL,
+    context_bundle_digest               TEXT NOT NULL,
+    society_ref                         TEXT NOT NULL,
+    society_recovery_epoch              INTEGER NOT NULL,
+    endeavor_proposal_ref               TEXT NOT NULL,
+    endeavor_proposal_digest            TEXT NOT NULL,
+    byom_endpoint_ref                   TEXT NOT NULL,
+    command_endpoint_incarnation        TEXT NOT NULL,
+    realm_byom_binding_ref              TEXT NOT NULL,
+    realm_byom_binding_revision         INTEGER NOT NULL,
+    realm_byom_binding_epoch            INTEGER NOT NULL,
+    realm_byom_binding_digest           TEXT NOT NULL,
+    requested_by_principal              TEXT NOT NULL,
+    bound_participant_ref               TEXT NOT NULL,
+    participant_binding_epoch           INTEGER NOT NULL,
+    source_actor_binding_digest         TEXT NOT NULL,
+    delegated_principal_subject_digest  TEXT NOT NULL,
+    client_formation_key                TEXT NOT NULL,
+    byom_command_idempotency_key        TEXT NOT NULL,
+    idempotency_domain_digest           TEXT NOT NULL,
+    canonical_byom_command_digest       TEXT NOT NULL,
+    canonical_command_digest_hex        TEXT NOT NULL,
+    formation_slot_ref                  TEXT NOT NULL,
+    formation_slot_generation           INTEGER NOT NULL,
+    authorization_dependency_set_ref    TEXT NOT NULL,
+    authority_digest                    TEXT NOT NULL,
+    latest_attempt_ref                  TEXT,
+    latest_authentication_observation_ref TEXT,
+    byom_result_ref                     TEXT,
+    byom_result_digest                  TEXT,
+    external_link_ref                   TEXT,
+    state                               TEXT NOT NULL,
+    created_at                          TEXT NOT NULL,
+    terminal_at                         TEXT,
+    digest                              TEXT NOT NULL,
+    command_bytes                       TEXT NOT NULL,
+    result_envelope                     TEXT,
+    UNIQUE(realm_ref, requested_by_principal, client_formation_key)
+) STRICT;
+
+CREATE TABLE endeavor_formation_slots (
+    slot_id                       TEXT PRIMARY KEY,
+    realm_ref                     TEXT NOT NULL REFERENCES realms(realm_id),
+    requested_by_principal        TEXT NOT NULL,
+    client_formation_key          TEXT NOT NULL,
+    holder_formation_id           TEXT NOT NULL
+        REFERENCES endeavor_formation_intents(formation_id),
+    generation                    INTEGER NOT NULL,
+    revision                      INTEGER NOT NULL,
+    society_ref                   TEXT NOT NULL,
+    society_recovery_epoch        INTEGER NOT NULL,
+    source_actor_binding_digest   TEXT NOT NULL,
+    realm_byom_binding_ref        TEXT NOT NULL,
+    realm_byom_binding_revision   INTEGER NOT NULL,
+    realm_byom_binding_epoch      INTEGER NOT NULL,
+    realm_byom_binding_digest     TEXT NOT NULL,
+    canonical_byom_command_digest TEXT NOT NULL,
+    byom_command_idempotency_key  TEXT NOT NULL,
+    idempotency_domain_digest     TEXT NOT NULL,
+    state                         TEXT NOT NULL,
+    byom_result_ref               TEXT,
+    byom_result_digest            TEXT,
+    external_link_ref             TEXT,
+    acquired_at                   TEXT NOT NULL,
+    released_at                   TEXT,
+    digest                        TEXT NOT NULL
+) STRICT;
+
+CREATE UNIQUE INDEX endeavor_formation_slots_live
+    ON endeavor_formation_slots (realm_ref, requested_by_principal, client_formation_key)
+    WHERE state != 'released';
+
+CREATE TABLE endeavor_formation_attempts (
+    attempt_id                          TEXT PRIMARY KEY,
+    formation_id                        TEXT NOT NULL
+        REFERENCES endeavor_formation_intents(formation_id),
+    attempt_ordinal                     INTEGER NOT NULL,
+    canonical_byom_command_digest       TEXT NOT NULL,
+    idempotency_domain_digest           TEXT NOT NULL,
+    attempt_recovery_binding_ref        TEXT NOT NULL,
+    attempt_recovery_binding_revision   INTEGER NOT NULL,
+    attempt_recovery_binding_epoch      INTEGER NOT NULL,
+    attempt_recovery_binding_digest     TEXT NOT NULL,
+    authentication_observation_ref      TEXT NOT NULL,
+    authentication_observation_digest   TEXT NOT NULL,
+    attempt_nonce                       TEXT NOT NULL,
+    authentication_proof_digest         TEXT NOT NULL,
+    state                               TEXT NOT NULL,
+    reply_digest                        TEXT,
+    reconciliation_digest               TEXT,
+    prepared_at                         TEXT NOT NULL,
+    sent_at                             TEXT,
+    observed_at                         TEXT,
+    digest                              TEXT NOT NULL,
+    UNIQUE(formation_id, attempt_ordinal),
+    UNIQUE(attempt_nonce)
+) STRICT;
+
+CREATE TABLE external_links (
+    link_ref        TEXT PRIMARY KEY,
+    formation_id    TEXT NOT NULL
+        REFERENCES endeavor_formation_intents(formation_id),
+    realm_ref       TEXT NOT NULL REFERENCES realms(realm_id),
+    endeavor_ref    TEXT NOT NULL,
+    endeavor_revision INTEGER NOT NULL,
+    endeavor_digest TEXT NOT NULL,
+    result_digest   TEXT NOT NULL,
+    link_digest_hex TEXT NOT NULL,
+    source_cursor   TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE(formation_id),
+    UNIQUE(link_digest_hex)
+) STRICT;
+
+CREATE TABLE byom_placement_bindings (
+    placement_id                  TEXT PRIMARY KEY,
+    realm_ref                     TEXT NOT NULL REFERENCES realms(realm_id),
+    owner_protocol                TEXT NOT NULL,
+    revision                      INTEGER NOT NULL,
+    resource_allocation_ref       TEXT NOT NULL,
+    resource_allocation_digest    TEXT NOT NULL,
+    selected_manifestation_ref    TEXT NOT NULL,
+    selected_manifestation_digest TEXT NOT NULL,
+    host_runtime_binding          TEXT NOT NULL,
+    kovee_invocation_ref          TEXT NOT NULL,
+    placement_constraint_digest   TEXT NOT NULL,
+    kovee_fence_epoch             INTEGER NOT NULL,
+    state                         TEXT NOT NULL,
+    admission_ref                 TEXT,
+    admission_digest              TEXT,
+    admitted_at                   TEXT,
+    created_at                    TEXT NOT NULL,
+    digest                        TEXT NOT NULL,
+    UNIQUE(resource_allocation_ref, revision)
+) STRICT;
+
+CREATE TABLE byom_episode_bindings (
+    binding_id                          TEXT PRIMARY KEY,
+    realm_ref                           TEXT NOT NULL REFERENCES realms(realm_id),
+    stable_binding_key                  TEXT NOT NULL,
+    placement_id                        TEXT NOT NULL
+        REFERENCES byom_placement_bindings(placement_id),
+    episode_ref                         TEXT NOT NULL,
+    byom_attempt_ref                    TEXT NOT NULL,
+    kovee_invocation_ref                TEXT NOT NULL,
+    byom_fence_epoch                    INTEGER NOT NULL,
+    kovee_invocation_fence              INTEGER NOT NULL,
+    state                               TEXT NOT NULL,
+    episode_state                       TEXT NOT NULL,
+    record                              TEXT NOT NULL,
+    fenced_reason                       TEXT,
+    created_at                          TEXT NOT NULL,
+    updated_at                          TEXT NOT NULL,
+    UNIQUE(stable_binding_key),
+    UNIQUE(episode_ref, byom_attempt_ref, kovee_invocation_ref)
+) STRICT;
+
+CREATE TABLE byom_subordinate_reservations (
+    subordinate_reservation_ref     TEXT PRIMARY KEY,
+    realm_ref                       TEXT NOT NULL REFERENCES realms(realm_id),
+    stable_external_reservation_key TEXT NOT NULL,
+    external_budget_bridge_ref      TEXT NOT NULL,
+    byom_reservation_set_ref        TEXT NOT NULL,
+    realm_byom_binding_ref          TEXT NOT NULL,
+    realm_byom_binding_epoch        INTEGER NOT NULL,
+    revision                        INTEGER NOT NULL,
+    state                           TEXT NOT NULL,
+    charged                         INTEGER NOT NULL,
+    released_lifetime               INTEGER NOT NULL,
+    record                          TEXT NOT NULL,
+    created_at                      TEXT NOT NULL,
+    updated_at                      TEXT NOT NULL,
+    UNIQUE(stable_external_reservation_key)
+) STRICT;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4), (5, V5)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6)];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting
 /// journal mode so the caller can fail closed when WAL did not take

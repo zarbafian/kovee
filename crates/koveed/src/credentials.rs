@@ -6,6 +6,7 @@
 //! # use koveed::credentials::{issue, consume, Consumed};
 //! # use kovee_byom::credential::{Delegation, DpcMint, SenderConstraint};
 //! # use kovee_core::family::DigestRef;
+//! # use kovee_byom::hostint;
 //! # let mut store = kovee_store::Store::open_in_memory().unwrap();
 //! # store.bootstrap(0).unwrap();
 //! # let binding = koveed::credentials::doc_binding(&mut store);
@@ -13,7 +14,7 @@
 //!     issuer_ref: "kovee-gateway:realm-personal",
 //!     nonce: "nonce-0001",
 //!     sender_constraint: SenderConstraint::channel_exporter(
-//!         DigestRef::scope_erasure_safe("k", "a".repeat(64))),
+//!         DigestRef::portable_public("a".repeat(64))),
 //!     delegation: Delegation {
 //!         source_principal_ref: "prin-owner",
 //!         bound_participant_ref: "part-1",
@@ -22,7 +23,7 @@
 //!         authentication_observation_ref: "authobs-1",
 //!         assurance_level: "personal-uds-owner",
 //!     },
-//!     subject_projection: serde_json::json!({"endeavor_proposal_digest": "abc"}),
+//!     subject_digest: hostint::command_digest(&serde_json::json!({"n": 1})).unwrap(),
 //!     issued_at: 1_800_000_000,
 //!     lifetime_seconds: 120,
 //! };
@@ -46,7 +47,7 @@
 //! channels.
 
 use kovee_byom::credential::{CredentialError, DelegatedPrincipalCredential, DpcMint, MintContext};
-use kovee_byom::records::{GovernanceDigests, KoveeRealmByomBinding};
+use kovee_byom::records::KoveeRealmByomBinding;
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_store::Store;
 use rusqlite::{params, OptionalExtension as _};
@@ -81,14 +82,12 @@ pub fn issue(
     society_recovery_epoch: u64,
     mint: &DpcMint<'_>,
 ) -> Result<DelegatedPrincipalCredential, Problem> {
-    let key = store.governance_scope_key().map_err(store_problem)?;
-    let digests = GovernanceDigests::new(&key, realm);
     let context = MintContext {
         binding,
         society_ref: society_ref.to_owned(),
         society_recovery_epoch,
     };
-    let dpc = mint.issue(&context, &digests).map_err(credential_problem)?;
+    let dpc = mint.issue(&context).map_err(credential_problem)?;
     dpc.check_against(binding).map_err(credential_problem)?;
     store
         .conn()
@@ -119,6 +118,86 @@ pub fn issue(
             }
         })?;
     Ok(dpc)
+}
+
+/// Records one already-minted credential INSIDE an open transaction — the
+/// formation saga mints its per-attempt credential in the same commit that
+/// makes the attempt durable, so no credential can exist for a send that
+/// is not itself recorded.
+pub fn record(
+    conn: &rusqlite::Connection,
+    realm: &str,
+    binding_ref: &str,
+    dpc: &DelegatedPrincipalCredential,
+) -> Result<(), Problem> {
+    conn.execute(
+        "INSERT INTO delegated_principal_credentials (credential_id, issuer_ref, nonce,
+             realm_ref, binding_ref, record, digest_hex, issued_at, expires_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![
+            dpc.credential_id,
+            dpc.issuer_ref,
+            dpc.nonce,
+            realm,
+            binding_ref,
+            serde_json::to_string(dpc).map_err(|_| internal())?,
+            dpc.digest.value_hex,
+            dpc.issued_at,
+            dpc.expires_at,
+        ],
+    )
+    .map_err(|e| {
+        if is_unique_violation(&e) {
+            Problem::new(
+                ProblemKind::IdempotencyMismatch,
+                "this (issuer, nonce) pair is already minted",
+            )
+        } else {
+            store_problem(e.into())
+        }
+    })?;
+    Ok(())
+}
+
+/// The recorded credential of one `(issuer, nonce)` pair.
+pub fn read(
+    conn: &rusqlite::Connection,
+    issuer_ref: &str,
+    nonce: &str,
+) -> Result<Option<DelegatedPrincipalCredential>, Problem> {
+    let text: Option<String> = conn
+        .query_row(
+            "SELECT record FROM delegated_principal_credentials
+             WHERE issuer_ref = ?1 AND nonce = ?2",
+            params![issuer_ref, nonce],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| store_problem(e.into()))?;
+    text.map(|t| serde_json::from_str(&t).map_err(|_| internal()))
+        .transpose()
+}
+
+/// Marks a pair consumed with the exact bytes a replay must return, inside
+/// an open transaction.
+pub fn mark_consumed(
+    conn: &rusqlite::Connection,
+    dpc: &DelegatedPrincipalCredential,
+    operation: &str,
+    now: i64,
+    result: &[u8],
+) -> Result<(), Problem> {
+    let (issuer, nonce) = dpc.consume_key();
+    conn.execute(
+        "UPDATE delegated_principal_credentials
+         SET consumed_at = COALESCE(consumed_at, ?3),
+             consumed_operation = COALESCE(consumed_operation, ?4),
+             consumed_result = COALESCE(consumed_result, ?5)
+         WHERE issuer_ref = ?1 AND nonce = ?2",
+        params![issuer, nonce, now, operation, result],
+    )
+    .map_err(|e| store_problem(e.into()))?;
+    Ok(())
 }
 
 /// Consumes the credential exactly once. `execute` runs only on the first
@@ -219,8 +298,14 @@ pub fn doc_binding(store: &mut Store) -> KoveeRealmByomBinding {
                  recovery_authorization_policy_digest, status, dependency_digest, digest,
                  created_at)
              VALUES (?1,'realm-personal','00',2,1,'local','inc-1','byom_governed_work_v1',
-                 ?2,'aud-x','disabled','pol','{}','active','{}','{}','1970-01-01T00:00:00Z')",
-            params![binding.binding_ref, binding.delegated_principal_audience],
+                 ?2,'aud-x','disabled','pol',?3,'active',?3,?3,'1970-01-01T00:00:00Z')",
+            params![
+                binding.binding_ref,
+                binding.delegated_principal_audience,
+                // A well-formed typed DigestRef: the fixture must be
+                // readable by the row readers, not just insertable.
+                serde_json::to_string(&binding.digest).unwrap_or_default(),
+            ],
         )
         .expect("insert binding fixture");
     binding
@@ -237,8 +322,7 @@ mod tests {
         DpcMint {
             issuer_ref: "kovee-gateway:realm-personal",
             nonce,
-            sender_constraint: SenderConstraint::channel_exporter(DigestRef::scope_erasure_safe(
-                "k",
+            sender_constraint: SenderConstraint::channel_exporter(DigestRef::portable_public(
                 "a".repeat(64),
             )),
             delegation: Delegation {
@@ -249,7 +333,8 @@ mod tests {
                 authentication_observation_ref: "authobs-1",
                 assurance_level: "personal-uds-owner",
             },
-            subject_projection: serde_json::json!({"endeavor_proposal_digest": "abc"}),
+            subject_digest: kovee_byom::hostint::command_digest(&serde_json::json!({"n": 1}))
+                .unwrap(),
             issued_at: 1_800_000_000,
             lifetime_seconds: 120,
         }

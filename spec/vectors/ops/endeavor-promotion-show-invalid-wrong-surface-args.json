@@ -1,0 +1,20 @@
+{
+  "name": "ops/endeavor-promotion-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: a read cannot ask to be reconciled or terminalized — those are mutations with their own authority rows (R42/R40)",
+  "input": {
+    "schema": "endeavor-promotion-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "terminalize": true
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member terminalize"
+  }
+}

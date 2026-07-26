@@ -1,0 +1,23 @@
+{
+  "name": "ops/endeavor-promotion-reconcile-invalid-missing-required",
+  "description": "missing required args member formation_id: reconciliation is always over ONE exact formation intent and its exact IdempotencyDomain",
+  "input": {
+    "schema": "endeavor-promotion-reconcile-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_reconcile",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "terminalize": false
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "args.formation_id is required"
+  }
+}

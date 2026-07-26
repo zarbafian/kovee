@@ -95,10 +95,10 @@ fn k1_op_request_vectors_round_trip() {
             negatives += 1;
         }
     }
-    // 89 ops × 3 negatives (missing-required, wrong-surface-args,
+    // 95 ops × 3 negatives (missing-required, wrong-surface-args,
     // replay) plus the positive requests.
-    assert!(checked >= 292, "only {checked} op vectors found");
-    assert!(negatives >= 264, "only {negatives} negatives found");
+    assert!(checked >= 310, "only {checked} op vectors found");
+    assert!(negatives >= 282, "only {negatives} negatives found");
 }
 
 #[test]
@@ -149,12 +149,14 @@ fn ops_table_matches_the_frozen_registry_exactly() {
     );
     assert_eq!(
         table_ops.len(),
-        89,
-        "86 K1 operations plus the 3 K2 slice-1 greenfield-binding ones"
+        95,
+        "86 K1 operations, the 3 K2 slice-1 greenfield-binding ones, and the 6 slice-2 \
+         formation/episode-binding ones"
     );
-    // The bundles the registry pins: the three K1 bundles plus K2 slice
-    // 1's governed_work_binding_v1 (the binding half only — its
-    // formation operations arrive with slice 2).
+    // The bundles the registry pins: the three K1 bundles plus
+    // governed_work_binding_v1 — still INCOMPLETE after slice 2
+    // (collaboration_context_bundle_* and workspace_* are unbuilt), so
+    // `hello` does not advertise it.
     let bundles: Vec<&str> = registry["bundles"]
         .as_array()
         .unwrap()

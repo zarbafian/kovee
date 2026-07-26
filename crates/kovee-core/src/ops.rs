@@ -53,9 +53,12 @@ pub struct OpSpec {
 /// registry-README resolutions 5/6) is enforced by the daemon's
 /// per-socket dispatch tables, not here.
 ///
-/// The three K1 bundles close at 86 operations; K2 slice 1 adds the
-/// three `governed_work_binding_v1` greenfield-binding operations (89).
-pub const KCP_OPS: [OpSpec; 89] = [
+/// The three K1 bundles close at 86 operations; K2 slice 1 adds the three
+/// `governed_work_binding_v1` greenfield-binding operations (89) and slice
+/// 2 the six formation/episode-binding ones (95). The bundle is still
+/// INCOMPLETE — `collaboration_context_bundle_*` and `workspace_*` are
+/// unbuilt — so `hello` does not advertise it (§11.6: bundles are atomic).
+pub const KCP_OPS: [OpSpec; 95] = [
     OpSpec {
         name: "hello",
         kind: OpKind::Read,
@@ -593,6 +596,48 @@ pub const KCP_OPS: [OpSpec; 89] = [
     OpSpec {
         name: "governance_disable",
         kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    // ------------------------- K2 slice 2: governed_work_binding_v1 ----
+    // The formation half (amendment A5 wire names for §11.6's
+    // `mission_promotion_*` and `sage_turn_binding_show` rows). A
+    // promotion is realm-scoped: the project, space, and branch it forms
+    // over are read from the pinned frontier, never from the envelope, so
+    // one command cannot name one project and pin another's frontier.
+    OpSpec {
+        name: "endeavor_promotion_prepare",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "endeavor_promotion_start",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "endeavor_promotion_show",
+        kind: OpKind::Read,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "endeavor_promotion_cancel",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "endeavor_promotion_reconcile",
+        kind: OpKind::Mutation,
+        realm_id: FieldRule::Required,
+        project_id: FieldRule::Forbidden,
+    },
+    OpSpec {
+        name: "byom_episode_binding_show",
+        kind: OpKind::Read,
         realm_id: FieldRule::Required,
         project_id: FieldRule::Forbidden,
     },
@@ -2746,6 +2791,185 @@ impl GovernanceDisableArgs {
     }
 }
 
+// ------------------------------------ K2 slice 2: endeavor promotion ----
+
+/// `endeavor_promotion_prepare` args. Everything byom-facing is DERIVED —
+/// the endpoint incarnation, the Society recovery epoch, the binding
+/// quadruple, and the project/space/branch come from the active seam and
+/// the pinned frontier, so a caller cannot name a stale fact and have it
+/// believed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionPrepareArgs {
+    pub byom_endpoint_ref: String,
+    pub society_ref: String,
+    /// An already pinned `SpaceFrontier` — the exact frontier this
+    /// formation forms at.
+    pub frontier_ref: String,
+    /// A Kovee `ContextAssembly` taken AT that frontier.
+    pub collaboration_context_bundle_ref: String,
+    /// The admitted human byom Participant the principal acts for.
+    pub bound_participant_ref: String,
+    pub participant_binding_epoch: u64,
+    /// The §16.3 uniqueness scope: one explicit human formation command.
+    pub client_formation_key: String,
+    pub endeavor_proposal_ref: String,
+    /// The canonical EndeavorProposal subject body (shape owned by byom's
+    /// B0.1 `endeavor_propose` subject; carried opaque here).
+    pub endeavor_proposal: JsonMap,
+    /// The principal's OWN explicit Position filling the sole computed
+    /// formation seat. The operation cannot import an offline Position or
+    /// fill another Participant's seat.
+    pub source_principal_position: JsonMap,
+}
+
+impl PromotionPrepareArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PromotionPrepareArgs, Problem> {
+        let parsed: PromotionPrepareArgs = parse_args(args)?;
+        for (field, value) in [
+            ("byom_endpoint_ref", &parsed.byom_endpoint_ref),
+            ("society_ref", &parsed.society_ref),
+            ("frontier_ref", &parsed.frontier_ref),
+            (
+                "collaboration_context_bundle_ref",
+                &parsed.collaboration_context_bundle_ref,
+            ),
+            ("bound_participant_ref", &parsed.bound_participant_ref),
+            ("client_formation_key", &parsed.client_formation_key),
+            ("endeavor_proposal_ref", &parsed.endeavor_proposal_ref),
+        ] {
+            check_identifier(field, value)?;
+        }
+        check_safe(
+            "participant_binding_epoch",
+            parsed.participant_binding_epoch,
+        )?;
+        if parsed.endeavor_proposal.is_empty() {
+            return Err(invalid("endeavor_proposal must be the proposal object"));
+        }
+        if parsed.source_principal_position.is_empty() {
+            return Err(invalid(
+                "source_principal_position must be the Position object",
+            ));
+        }
+        Ok(parsed)
+    }
+}
+
+/// `endeavor_promotion_start` args: which formation, and the FRESH
+/// authentication observation this attempt proves. §16.3 requires a fresh
+/// human authentication attempt per send, so the observation is required
+/// and must differ from the previous attempt's.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionStartArgs {
+    pub formation_id: String,
+    pub authentication_observation_ref: String,
+}
+
+impl PromotionStartArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PromotionStartArgs, Problem> {
+        let parsed: PromotionStartArgs = parse_args(args)?;
+        check_identifier("formation_id", &parsed.formation_id)?;
+        check_identifier(
+            "authentication_observation_ref",
+            &parsed.authentication_observation_ref,
+        )?;
+        Ok(parsed)
+    }
+}
+
+/// `endeavor_promotion_show` args: one promotion, or the realm's whole
+/// recorded set.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionShowArgs {
+    #[serde(default)]
+    pub formation_id: Option<String>,
+}
+
+impl PromotionShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PromotionShowArgs, Problem> {
+        let parsed: PromotionShowArgs = parse_args(args)?;
+        check_opt_identifier("formation_id", &parsed.formation_id)?;
+        Ok(parsed)
+    }
+}
+
+/// `endeavor_promotion_cancel` args. Admissible ONLY before the first
+/// send — the one pre-send release of the uniqueness slot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionCancelArgs {
+    pub formation_id: String,
+    pub reason: String,
+}
+
+impl PromotionCancelArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PromotionCancelArgs, Problem> {
+        let parsed: PromotionCancelArgs = parse_args(args)?;
+        check_identifier("formation_id", &parsed.formation_id)?;
+        check_display("reason", &parsed.reason)?;
+        Ok(parsed)
+    }
+}
+
+/// `endeavor_promotion_reconcile` args. The query is always run; the
+/// terminalization is opt-in and needs the same source human freshly
+/// authenticated (§16.3).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionReconcileArgs {
+    pub formation_id: String,
+    #[serde(default)]
+    pub terminalize: bool,
+    #[serde(default)]
+    pub authentication_observation_ref: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl PromotionReconcileArgs {
+    pub fn from_args(args: &JsonMap) -> Result<PromotionReconcileArgs, Problem> {
+        let parsed: PromotionReconcileArgs = parse_args(args)?;
+        check_identifier("formation_id", &parsed.formation_id)?;
+        check_opt_identifier(
+            "authentication_observation_ref",
+            &parsed.authentication_observation_ref,
+        )?;
+        if let Some(reason) = &parsed.reason {
+            check_display("reason", reason)?;
+        }
+        if parsed.terminalize && parsed.authentication_observation_ref.is_none() {
+            return Err(invalid(
+                "terminalize requires authentication_observation_ref: only the same source \
+                 human, freshly authenticated, may deny future execution",
+            ));
+        }
+        Ok(parsed)
+    }
+}
+
+/// `byom_episode_binding_show` args: one binding by its stable key, one
+/// Episode's bindings, or the realm's whole set.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EpisodeBindingShowArgs {
+    #[serde(default)]
+    pub stable_binding_key: Option<String>,
+    #[serde(default)]
+    pub episode_ref: Option<String>,
+}
+
+impl EpisodeBindingShowArgs {
+    pub fn from_args(args: &JsonMap) -> Result<EpisodeBindingShowArgs, Problem> {
+        let parsed: EpisodeBindingShowArgs = parse_args(args)?;
+        check_opt_identifier("stable_binding_key", &parsed.stable_binding_key)?;
+        check_opt_identifier("episode_ref", &parsed.episode_ref)?;
+        Ok(parsed)
+    }
+}
+
 fn check_selector(field: &str, value: &str) -> Result<(), Problem> {
     if limits::is_selector(value) {
         Ok(())
@@ -2860,6 +3084,12 @@ pub fn validate_op_args(op: &str, args: &JsonMap) -> Result<(), Problem> {
         "governance_enable" => GovernanceEnableArgs::from_args(args).map(drop),
         "governance_show" => GovernanceShowArgs::from_args(args).map(drop),
         "governance_disable" => GovernanceDisableArgs::from_args(args).map(drop),
+        "endeavor_promotion_prepare" => PromotionPrepareArgs::from_args(args).map(drop),
+        "endeavor_promotion_start" => PromotionStartArgs::from_args(args).map(drop),
+        "endeavor_promotion_show" => PromotionShowArgs::from_args(args).map(drop),
+        "endeavor_promotion_cancel" => PromotionCancelArgs::from_args(args).map(drop),
+        "endeavor_promotion_reconcile" => PromotionReconcileArgs::from_args(args).map(drop),
+        "byom_episode_binding_show" => EpisodeBindingShowArgs::from_args(args).map(drop),
         other => Err(Problem::new(
             ProblemKind::UnknownOp,
             format!("operation {other} is not in the K1 table"),

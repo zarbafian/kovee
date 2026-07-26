@@ -1,0 +1,52 @@
+{
+  "name": "ops/endeavor-promotion-prepare-invalid-missing-required",
+  "description": "the uniqueness scope is not optional: without client_formation_key there is no deduplication of the one explicit human formation command (byom §16.3)",
+  "input": {
+    "schema": "endeavor-promotion-prepare-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_prepare",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "frontier_ref": "front-0001",
+        "collaboration_context_bundle_ref": "asm-0001",
+        "bound_participant_ref": "part-0001",
+        "participant_binding_epoch": 1,
+        "endeavor_proposal_ref": "prop-0001",
+        "endeavor_proposal": {
+          "purpose_ref": "purp-0001",
+          "purpose_digest": {
+            "class": "portable_public",
+            "algorithm": "sha-256",
+            "value_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "sponsor_participant_refs": [
+            "part-0001"
+          ],
+          "governance_rule_set_ref": "rules-0001",
+          "outcome_schema_refs": [
+            "outcome-0001"
+          ],
+          "acceptance_rule_ref": "accept-0001",
+          "classification_join_ref": "class-join-0001",
+          "budget_account_set_ref": "budget-0001"
+        },
+        "source_principal_position": {
+          "participant_ref": "part-0001",
+          "value": "assent",
+          "assent_mode": "direct_participant"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "args.client_formation_key is required"
+  }
+}

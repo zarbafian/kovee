@@ -1,0 +1,18 @@
+{
+  "name": "ops/endeavor-promotion-show-valid-request",
+  "description": "the query-first restore read of one promotion: the RECORDED state, never a guess",
+  "input": {
+    "schema": "endeavor-promotion-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

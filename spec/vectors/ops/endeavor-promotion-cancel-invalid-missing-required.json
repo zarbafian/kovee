@@ -1,0 +1,23 @@
+{
+  "name": "ops/endeavor-promotion-cancel-invalid-missing-required",
+  "description": "the recorded reason is not optional: a released slot must say why it released",
+  "input": {
+    "schema": "endeavor-promotion-cancel-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_cancel",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001"
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "args.reason is required"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ops/endeavor-promotion-show-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "endeavor-promotion-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_show",
+      "realm_id": "realm-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}

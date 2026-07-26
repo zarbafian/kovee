@@ -1,0 +1,21 @@
+{
+  "name": "ops/byom-episode-binding-show-invalid-wrong-surface-args",
+  "description": "wrong-surface args: a read cannot present fences. Presenting the DUAL fences is what a runtime mutation does, and this operation advances nothing (family contract L21/R30)",
+  "input": {
+    "schema": "byom-episode-binding-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "byom_episode_binding_show",
+      "realm_id": "realm-0001",
+      "args": {
+        "episode_ref": "epi-0001",
+        "byom_fence_epoch": 7,
+        "kovee_invocation_fence": 3
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown members byom_fence_epoch, kovee_invocation_fence"
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/endeavor-promotion-reconcile-request.schema.json",
+  "title": "KCP endeavor_promotion_reconcile request (byom §16.3 five-fact recovery; R42 query, R40 terminalization)",
+  "description": "Mutation (meta required; §11.2). Reads byom's own signed fact through external_command_result_query — the read-only recovery query a service reconciler may use, which cannot submit, terminalize, modify, or impersonate the original human — and commits the ONE machine row that fact authorizes: committed → byom_committed, absent → awaiting_principal (never a release), historically_fenced_absent → canceled with the slot released, non_reexecuting_tombstone → canceled with the slot released, unknown → ambiguous (conservative hold). Optionally terminalizes: the only liveness mutation available while the outcome is still ambiguous, admissible exactly where the descriptor's tombstone_verified row is and never over a verified committed result, and requiring the same source human freshly authenticated. Registry (governed_work_binding_v1): surface operator / human realm-owner principal only — never a service identity, session, assistant, or connector. Surface and actor kind are registry-enforced, not schema-expressible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "endeavor_promotion_reconcile"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formation_id"
+      ],
+      "properties": {
+        "formation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "terminalize": {
+          "type": "boolean",
+          "description": "Also call external_command_terminalize. Admissible while the outcome is still ambiguous (prepared, submitting, remote_unknown, awaiting_principal, ambiguous) and never over a verified committed result. It requires authentication_observation_ref: another principal, service, controller, or successor Participant cannot terminalize."
+        },
+        "authentication_observation_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The fresh authentication of the SAME source human; required when terminalize is true."
+        },
+        "reason": {
+          "$ref": "#/$defs/displayName",
+          "description": "The tombstone reason the human gives for denying future execution."
+        }
+      },
+      "description": "Which formation, and whether to terminalize."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

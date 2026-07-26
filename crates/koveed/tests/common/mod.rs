@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+pub mod byomd;
 pub mod byomstub;
 
 pub struct DaemonProc {

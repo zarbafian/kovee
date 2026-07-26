@@ -22,7 +22,7 @@ use std::path::Path;
 
 /// The frozen exact `(bundle, operation, surface)` set — one row per
 /// expected (operation, surface) clause (K0 milestone sheet).
-const EXPECTED: [(&str, &str, &str); 93] = [
+const EXPECTED: [(&str, &str, &str); 99] = [
     ("core_v1", "hello", "external_client"),
     ("core_v1", "protocol_info", "external_client"),
     ("core_v1", "diagnose", "operator"),
@@ -285,6 +285,40 @@ const EXPECTED: [(&str, &str, &str); 93] = [
     ("governed_work_binding_v1", "governance_enable", "operator"),
     ("governed_work_binding_v1", "governance_show", "operator"),
     ("governed_work_binding_v1", "governance_disable", "operator"),
+    // K2 slice 2 — the governed_work_binding_v1 formation half, under the
+    // same "KCP admin" → `operator` normalization. The bundle is STILL
+    // incomplete (collaboration_context_bundle_* and workspace_* are
+    // unbuilt), so `hello` does not advertise it.
+    (
+        "governed_work_binding_v1",
+        "endeavor_promotion_prepare",
+        "operator",
+    ),
+    (
+        "governed_work_binding_v1",
+        "endeavor_promotion_start",
+        "operator",
+    ),
+    (
+        "governed_work_binding_v1",
+        "endeavor_promotion_show",
+        "operator",
+    ),
+    (
+        "governed_work_binding_v1",
+        "endeavor_promotion_cancel",
+        "operator",
+    ),
+    (
+        "governed_work_binding_v1",
+        "endeavor_promotion_reconcile",
+        "operator",
+    ),
+    (
+        "governed_work_binding_v1",
+        "byom_episode_binding_show",
+        "operator",
+    ),
 ];
 
 /// Per-bundle entry counts implied by `EXPECTED` (registry-README table).
@@ -292,7 +326,7 @@ const EXPECTED_COUNTS: [(&str, usize); 4] = [
     ("core_v1", 3),
     ("shared_space_v1", 65),
     ("developer_assistant_v1", 22),
-    ("governed_work_binding_v1", 3),
+    ("governed_work_binding_v1", 9),
 ];
 
 /// The closed §9.2 dependency-kind enum, tokenized in §9.2 order
@@ -346,7 +380,7 @@ const ACTOR_KINDS: [&str; 16] = [
     "principal only",
 ];
 
-/// Closed list of the exact assurance values used by the 93 entries.
+/// Closed list of the exact assurance values used by the 99 entries.
 const ASSURANCES: [&str; 15] = [
     "always step-up",
     "current assurance required by policy",

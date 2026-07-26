@@ -122,8 +122,12 @@ COVERED_READS = frozenset({
     "artifact_show",
     "disclosure_manifest_show",
     # governed_work_binding_v1 (K2 slice 1): the query-first restore read
-    # of the greenfield saga (greenfield-saga §5).
+    # of the greenfield saga (greenfield-saga §5). K2 slice 2 adds the
+    # formation saga's own restore read and the hosted-episode binding read
+    # (byom §16.3/§16.6 item 3) — both make no byom call at all.
     "governance_show",
+    "endeavor_promotion_show",
+    "byom_episode_binding_show",
 })
 
 

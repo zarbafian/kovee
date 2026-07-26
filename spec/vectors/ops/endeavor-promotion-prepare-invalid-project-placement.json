@@ -1,0 +1,54 @@
+{
+  "name": "ops/endeavor-promotion-prepare-invalid-project-placement",
+  "description": "a promotion is realm-scoped: the project, space, and branch come from the pinned frontier, so naming project_id in the envelope is refused rather than silently preferred",
+  "input": {
+    "schema": "endeavor-promotion-prepare-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_prepare",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "project_id": "proj-0001",
+      "args": {
+        "byom_endpoint_ref": "local",
+        "society_ref": "soc-0001",
+        "frontier_ref": "front-0001",
+        "collaboration_context_bundle_ref": "asm-0001",
+        "bound_participant_ref": "part-0001",
+        "participant_binding_epoch": 1,
+        "client_formation_key": "form-key-0001",
+        "endeavor_proposal_ref": "prop-0001",
+        "endeavor_proposal": {
+          "purpose_ref": "purp-0001",
+          "purpose_digest": {
+            "class": "portable_public",
+            "algorithm": "sha-256",
+            "value_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "sponsor_participant_refs": [
+            "part-0001"
+          ],
+          "governance_rule_set_ref": "rules-0001",
+          "outcome_schema_refs": [
+            "outcome-0001"
+          ],
+          "acceptance_rule_ref": "accept-0001",
+          "classification_join_ref": "class-join-0001",
+          "budget_account_set_ref": "budget-0001"
+        },
+        "source_principal_position": {
+          "participant_ref": "part-0001",
+          "value": "assent",
+          "assent_mode": "direct_participant"
+        }
+      }
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "unknown member project_id"
+  }
+}

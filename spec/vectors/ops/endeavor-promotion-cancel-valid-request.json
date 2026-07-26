@@ -1,0 +1,23 @@
+{
+  "name": "ops/endeavor-promotion-cancel-valid-request",
+  "description": "the ONE pre-send release: a local cancel that durably precedes the first send (byom §16.3 table row 1)",
+  "input": {
+    "schema": "endeavor-promotion-cancel-request",
+    "value": {
+      "version": "0.1",
+      "op": "endeavor_promotion_cancel",
+      "meta": {
+        "request_id": "req-0001",
+        "idempotency_key": "idem-0001"
+      },
+      "realm_id": "realm-0001",
+      "args": {
+        "formation_id": "efi-0001",
+        "reason": "the human abandoned the formation"
+      }
+    }
+  },
+  "expected": {
+    "valid": true
+  }
+}

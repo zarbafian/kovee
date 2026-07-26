@@ -1093,6 +1093,33 @@ pub fn governance_show(
     )
 }
 
+// ---------------------------------------------- the active governed seam ----
+
+/// The realm's ACTIVE governed-work seam: the `KoveeRealmByomBinding` and
+/// the `KoveeSocietyMapping` an `active` enablement slot points at. Every
+/// slice-2 operation starts here — a pending, void, or frozen binding is
+/// not a seam, and `None` means this realm has no governed work at all.
+pub fn active_seam(
+    conn: &Connection,
+    realm: &str,
+) -> Result<Option<(KoveeRealmByomBinding, KoveeSocietyMapping)>, Problem> {
+    for slot in all_live_slots(conn, realm)? {
+        if slot.state != STATE_ACTIVE {
+            continue;
+        }
+        let Some(binding) = read_binding(conn, &slot.binding_ref)? else {
+            continue;
+        };
+        let Some(mapping) = read_mapping(conn, &slot.mapping_id)? else {
+            continue;
+        };
+        if binding.status == "active" && mapping.status == "active" {
+            return Ok(Some((binding, mapping)));
+        }
+    }
+    Ok(None)
+}
+
 // ------------------------------------------------------------- row access ----
 
 fn realm_revision(conn: &Connection, realm: &str) -> Result<u64, Problem> {

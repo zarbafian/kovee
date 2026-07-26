@@ -6,15 +6,17 @@
 //! What you write:
 //! ```
 //! use kovee_byom::credential::{Delegation, DpcMint, MintContext, SenderConstraint};
-//! use kovee_byom::records::GovernanceDigests;
+//! use kovee_byom::hostint;
 //! use kovee_core::family::DigestRef;
 //! # let binding = kovee_byom::records::sample_active_binding();
-//! let digests = GovernanceDigests::new(&[9u8; 32], "realm-personal");
+//! // The exact prepared subject: for kovee_endeavor_form it IS the
+//! // canonical command digest byomd recomputes from the command bytes.
+//! let subject = hostint::command_digest(&serde_json::json!({"society_ref": "soc-1"}))?;
 //! let mint = DpcMint {
-//!     issuer_ref: "kovee-gateway:realm-personal",
+//!     issuer_ref: "kovee-gateway",
 //!     nonce: "nonce-0001",
 //!     sender_constraint: SenderConstraint::channel_exporter(
-//!         DigestRef::scope_erasure_safe("kovee-governance:realm-personal", "a".repeat(64))),
+//!         DigestRef::portable_public("a".repeat(64))),
 //!     delegation: Delegation {
 //!         source_principal_ref: "prin-owner",
 //!         bound_participant_ref: "part-1",
@@ -23,7 +25,7 @@
 //!         authentication_observation_ref: "authobs-1",
 //!         assurance_level: "personal-uds-owner",
 //!     },
-//!     subject_projection: serde_json::json!({"endeavor_proposal_digest": "…"}),
+//!     subject_digest: subject,
 //!     issued_at: 1_800_000_000,
 //!     lifetime_seconds: 120,
 //! };
@@ -32,35 +34,40 @@
 //!     society_ref: "soc-1".to_owned(),
 //!     society_recovery_epoch: 0,
 //! };
-//! let dpc = mint.issue(&context, &digests).unwrap();
+//! let dpc = mint.issue(&context)?;
 //! assert_eq!(dpc.surface, "governance");
 //! assert_eq!(dpc.audience, binding.delegated_principal_audience);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Plumbing: the credential binds — per §14.4's two normative sentences —
 //! a proof key, the Participant and its binding epoch, the endpoint
 //! incarnation, the Society recovery epoch, the audience, the surface,
 //! the operation family, the exact prepared subject, a nonce, an issue
-//! time, and a short expiry. The `(issuer_ref, nonce)` pair is atomic: the
-//! consume record lives in the host store, a replay under the same pair
-//! returns the stored result, and a generic Kovee service credential can
-//! never become a principal.
+//! time, and a short expiry. Every digest is `portable_public`
+//! (`crate::hostint`): byomd re-derives the credential's own digest from
+//! its exact bytes, so a forged or edited credential fails at the
+//! endpoint rather than at a trust boundary. The `(issuer_ref, nonce)`
+//! pair is atomic: the consume record lives in the host store, a replay
+//! under the same pair returns the stored result, and a generic Kovee
+//! service credential can never become a principal.
 
 use kovee_core::family::DigestRef;
 use kovee_core::time::rfc3339_utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::records::{GovernanceDigests, KoveeRealmByomBinding, RecordError};
-
-/// Byom type tags for the credential preimages.
-pub const TAG_CREDENTIAL: &str = "kovee-delegated-principal-credential-v1";
-pub const TAG_SUBJECT: &str = "kovee-delegated-principal-subject-v1";
-pub const TAG_ACTOR_BINDING: &str = "kovee-source-actor-binding-v1";
-pub const TAG_AUTH_OBSERVATION: &str = "kovee-authentication-observation-v1";
+use crate::hostint::{self, HostIntError};
+use crate::records::KoveeRealmByomBinding;
 
 /// The credential's only surface (R39/R40 are governance-surface rows).
 pub const CREDENTIAL_SURFACE: &str = "governance";
+
+/// The one Kovee delegated-principal gateway of this profile. byomd
+/// accepts a credential only from an issuer its installed binding names
+/// (`delegated_principal_issuers`), so this constant appears on both
+/// sides of the seam and nowhere else.
+pub const GATEWAY_ISSUER_REF: &str = "kovee-gateway";
 
 /// The closed operation family a delegated principal may drive.
 pub const DELEGATED_OPERATIONS: [&str; 2] = ["kovee_endeavor_form", "external_command_terminalize"];
@@ -87,8 +94,8 @@ pub enum CredentialError {
     Digest(String),
 }
 
-impl From<RecordError> for CredentialError {
-    fn from(e: RecordError) -> CredentialError {
+impl From<HostIntError> for CredentialError {
+    fn from(e: HostIntError) -> CredentialError {
         CredentialError::Digest(e.to_string())
     }
 }
@@ -131,9 +138,10 @@ pub struct DpcMint<'a> {
     pub nonce: &'a str,
     pub sender_constraint: SenderConstraint,
     pub delegation: Delegation<'a>,
-    /// The exact prepared subject or preparation scope (§14.4); the
-    /// formation intent pins the same digest.
-    pub subject_projection: Value,
+    /// The exact prepared subject (§14.4). For `kovee_endeavor_form` this
+    /// IS the `canonical_command_digest`: byomd refuses a credential that
+    /// is "not bound to this exact prepared command".
+    pub subject_digest: DigestRef,
     pub issued_at: i64,
     pub lifetime_seconds: u64,
 }
@@ -144,7 +152,6 @@ impl DpcMint<'_> {
     pub fn issue(
         &self,
         context: &MintContext,
-        digests: &GovernanceDigests,
     ) -> Result<DelegatedPrincipalCredential, CredentialError> {
         if context.binding.compatibility_bundle != crate::records::COMPATIBILITY_BUNDLE
             || context.binding.status != "active"
@@ -166,23 +173,20 @@ impl DpcMint<'_> {
             return Err(CredentialError::Lifetime);
         }
 
-        let subject_digest = digests.digest(TAG_SUBJECT, &self.subject_projection)?;
-        let source_actor_binding_digest = digests.digest(
-            TAG_ACTOR_BINDING,
-            &serde_json::json!({
-                "realm_ref": context.binding.realm_ref,
-                "source_principal_ref": self.delegation.source_principal_ref,
-                "bound_participant_ref": self.delegation.bound_participant_ref,
-                "participant_binding_epoch": self.delegation.participant_binding_epoch,
-            }),
+        // The pin byomd checks: taken from the WIRE projection, because
+        // that is the row it has installed (`host-binding.json`).
+        let pin = hostint::BindingPin::of(&hostint::wire_binding(context.binding)?)?;
+        let issued_at = rfc3339_utc(self.issued_at);
+        let source_actor_binding_digest = hostint::actor_binding_digest(
+            &context.binding.realm_ref,
+            self.delegation.source_principal_ref,
+            self.delegation.bound_participant_ref,
+            self.delegation.participant_binding_epoch,
         )?;
-        let authentication_observation_digest = digests.digest(
-            TAG_AUTH_OBSERVATION,
-            &serde_json::json!({
-                "authentication_observation_ref": self.delegation.authentication_observation_ref,
-                "assurance_level": self.delegation.assurance_level,
-                "observed_at": rfc3339_utc(self.issued_at),
-            }),
+        let authentication_observation_digest = hostint::observation_digest(
+            self.delegation.authentication_observation_ref,
+            self.delegation.assurance_level,
+            &issued_at,
         )?;
 
         let mut credential = DelegatedPrincipalCredential {
@@ -197,25 +201,25 @@ impl DpcMint<'_> {
             society_ref: context.society_ref.clone(),
             society_recovery_epoch: context.society_recovery_epoch,
             endpoint_incarnation: context.binding.endpoint_incarnation.clone(),
-            realm_byom_binding_ref: context.binding.binding_ref.clone(),
-            realm_byom_binding_revision: context.binding.binding_revision,
-            realm_byom_binding_epoch: context.binding.binding_epoch,
-            realm_byom_binding_digest: context.binding.digest.clone(),
+            realm_byom_binding_ref: pin.binding_ref.clone(),
+            realm_byom_binding_revision: pin.binding_revision,
+            realm_byom_binding_epoch: pin.binding_epoch,
+            realm_byom_binding_digest: pin.digest.clone(),
             audience: context.binding.delegated_principal_audience.clone(),
             surface: CREDENTIAL_SURFACE.to_owned(),
             allowed_operations: ops.iter().map(|o| (*o).to_owned()).collect(),
-            delegated_principal_subject_digest: subject_digest,
+            delegated_principal_subject_digest: self.subject_digest.clone(),
             authentication_observation_ref: self
                 .delegation
                 .authentication_observation_ref
                 .to_owned(),
             authentication_observation_digest,
             assurance_level: self.delegation.assurance_level.to_owned(),
-            issued_at: rfc3339_utc(self.issued_at),
+            issued_at,
             expires_at: rfc3339_utc(self.issued_at + self.lifetime_seconds as i64),
-            digest: DigestRef::scope_erasure_safe(digests.key_ref(), "0".repeat(64)),
+            digest: DigestRef::portable_public("0".repeat(64)),
         };
-        credential.digest = credential.compute_digest(digests)?;
+        credential.digest = credential.compute_digest()?;
         Ok(credential)
     }
 
@@ -266,12 +270,24 @@ pub struct DelegatedPrincipalCredential {
 }
 
 impl DelegatedPrincipalCredential {
-    pub fn compute_digest(&self, digests: &GovernanceDigests) -> Result<DigestRef, RecordError> {
-        let mut projection = serde_json::to_value(self).unwrap_or(Value::Null);
-        if let Some(map) = projection.as_object_mut() {
-            map.remove("digest");
-        }
-        digests.digest(TAG_CREDENTIAL, &projection)
+    /// The credential's own `portable_public` digest, over every member
+    /// except `digest` — the one byomd re-derives from the bytes it
+    /// received.
+    pub fn compute_digest(&self) -> Result<DigestRef, HostIntError> {
+        let projection = serde_json::to_value(self).unwrap_or(Value::Null);
+        hostint::self_digest(hostint::CREDENTIAL_TAG, &projection)
+    }
+
+    /// The transport preamble line byomd's governance socket reads
+    /// (`dpc1.<hex of the credential JSON>`; hex keeps the line free of
+    /// `{`, so a preamble is never mistaken for a request).
+    pub fn preamble(&self) -> String {
+        let bytes = serde_json::to_vec(self).unwrap_or_default();
+        format!(
+            "{}{}",
+            hostint::DPC_PREAMBLE_PREFIX,
+            kovee_core::family::hex(&bytes)
+        )
     }
 
     /// Every binding-bound invariant the schema pins but JSON Schema
@@ -305,10 +321,7 @@ impl DelegatedPrincipalCredential {
 mod tests {
     use super::*;
     use crate::records::sample_active_binding;
-
-    fn digests() -> GovernanceDigests {
-        GovernanceDigests::new(&[9u8; 32], "realm-personal")
-    }
+    use serde_json::json;
 
     fn context(binding: &KoveeRealmByomBinding) -> MintContext<'_> {
         MintContext {
@@ -320,10 +333,9 @@ mod tests {
 
     fn mint<'a>(ops: &'a [&'a str], lifetime: u64) -> DpcMint<'a> {
         DpcMint {
-            issuer_ref: "kovee-gateway:realm-personal",
+            issuer_ref: "kovee-gateway",
             nonce: "nonce-0001",
-            sender_constraint: SenderConstraint::channel_exporter(DigestRef::scope_erasure_safe(
-                "kovee-governance:realm-personal",
+            sender_constraint: SenderConstraint::channel_exporter(DigestRef::portable_public(
                 "a".repeat(64),
             )),
             delegation: Delegation {
@@ -334,7 +346,7 @@ mod tests {
                 authentication_observation_ref: "authobs-1",
                 assurance_level: "personal-uds-owner",
             },
-            subject_projection: serde_json::json!({"endeavor_proposal_digest": "abc"}),
+            subject_digest: hostint::command_digest(&json!({"n": 1})).unwrap(),
             issued_at: 1_800_000_000,
             lifetime_seconds: lifetime,
         }
@@ -344,14 +356,15 @@ mod tests {
     fn a_minted_credential_is_audience_workload_realm_command_and_authorization_bound() {
         let binding = sample_active_binding();
         let context = context(&binding);
-        let dpc = mint(&["kovee_endeavor_form"], 120)
-            .issue(&context, &digests())
-            .unwrap();
+        let dpc = mint(&["kovee_endeavor_form"], 120).issue(&context).unwrap();
         // Audience: exactly the binding's.
         assert_eq!(dpc.audience, "byom:local:governance");
-        // Workload/realm: the binding ref, revision, epoch, incarnation.
-        assert_eq!(dpc.realm_byom_binding_ref, "krbb-1");
-        assert_eq!(dpc.realm_byom_binding_epoch, 1);
+        // Workload/realm: the WIRE binding quadruple byomd has installed.
+        let pin = hostint::BindingPin::of(&hostint::wire_binding(&binding).unwrap()).unwrap();
+        assert_eq!(dpc.realm_byom_binding_ref, pin.binding_ref);
+        assert_eq!(dpc.realm_byom_binding_revision, pin.binding_revision);
+        assert_eq!(dpc.realm_byom_binding_epoch, pin.binding_epoch);
+        assert_eq!(dpc.realm_byom_binding_digest, pin.digest);
         assert_eq!(dpc.endpoint_incarnation, "inc-1");
         assert_eq!(dpc.society_ref, "soc-1");
         // Command: the closed operation family, governance surface only.
@@ -367,6 +380,50 @@ mod tests {
     }
 
     #[test]
+    fn every_cross_boundary_member_is_portable_and_the_digest_covers_the_bytes() {
+        let binding = sample_active_binding();
+        let dpc = mint(&["kovee_endeavor_form"], 120)
+            .issue(&context(&binding))
+            .unwrap();
+        for digest in [
+            &dpc.source_actor_binding_digest,
+            &dpc.realm_byom_binding_digest,
+            &dpc.delegated_principal_subject_digest,
+            &dpc.authentication_observation_digest,
+            &dpc.digest,
+        ] {
+            assert_eq!(digest.class, "portable_public");
+            assert_eq!(digest.algorithm, "sha-256");
+        }
+        // Recomputable from the exact bytes — an edited credential fails.
+        assert_eq!(dpc.compute_digest().unwrap(), dpc.digest);
+        let mut edited = dpc.clone();
+        edited.source_principal_ref = "prin-someone-else".to_owned();
+        assert_ne!(edited.compute_digest().unwrap(), edited.digest);
+    }
+
+    #[test]
+    fn the_preamble_is_hex_so_it_never_looks_like_a_request() {
+        let binding = sample_active_binding();
+        let dpc = mint(&["kovee_endeavor_form"], 120)
+            .issue(&context(&binding))
+            .unwrap();
+        let preamble = dpc.preamble();
+        assert!(preamble.starts_with("dpc1."));
+        assert!(!preamble.trim_start().starts_with('{'));
+        let body = preamble.strip_prefix("dpc1.").unwrap();
+        assert!(body.bytes().all(|b| b.is_ascii_hexdigit()));
+        let bytes: Vec<u8> = (0..body.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&body[i..i + 2], 16).unwrap())
+            .collect();
+        assert_eq!(
+            serde_json::from_slice::<DelegatedPrincipalCredential>(&bytes).unwrap(),
+            dpc
+        );
+    }
+
+    #[test]
     fn a_credential_outside_the_closed_operation_family_is_refused() {
         let binding = sample_active_binding();
         let context = context(&binding);
@@ -376,7 +433,7 @@ mod tests {
             &["kovee_endeavor_form", "kovee_endeavor_form"][..],
         ] {
             assert_eq!(
-                mint(ops, 120).issue(&context, &digests()).unwrap_err(),
+                mint(ops, 120).issue(&context).unwrap_err(),
                 CredentialError::Operations
             );
         }
@@ -388,13 +445,13 @@ mod tests {
         let context = context(&binding);
         assert_eq!(
             mint(&["kovee_endeavor_form"], 0)
-                .issue(&context, &digests())
+                .issue(&context)
                 .unwrap_err(),
             CredentialError::Lifetime
         );
         assert_eq!(
             mint(&["kovee_endeavor_form"], MAX_LIFETIME_SECONDS + 1)
-                .issue(&context, &digests())
+                .issue(&context)
                 .unwrap_err(),
             CredentialError::Lifetime
         );
@@ -406,10 +463,9 @@ mod tests {
         // channel, credential, or permit may be issued from them.
         let mut pending = sample_active_binding();
         pending.status = "pending".to_owned();
-        let context = context(&pending);
         assert_eq!(
             mint(&["kovee_endeavor_form"], 120)
-                .issue(&context, &digests())
+                .issue(&context(&pending))
                 .unwrap_err(),
             CredentialError::Binding
         );
@@ -418,9 +474,8 @@ mod tests {
     #[test]
     fn an_audience_or_binding_mismatch_is_caught_on_use() {
         let binding = sample_active_binding();
-        let context = context(&binding);
         let dpc = mint(&["external_command_terminalize"], 60)
-            .issue(&context, &digests())
+            .issue(&context(&binding))
             .unwrap();
         let mut other = sample_active_binding();
         other.delegated_principal_audience = "byom:other:governance".to_owned();
@@ -439,22 +494,17 @@ mod tests {
     #[test]
     fn the_consume_key_is_the_atomic_issuer_nonce_pair() {
         let binding = sample_active_binding();
-        let context = context(&binding);
         let dpc = mint(&["kovee_endeavor_form"], 120)
-            .issue(&context, &digests())
+            .issue(&context(&binding))
             .unwrap();
-        assert_eq!(
-            dpc.consume_key(),
-            ("kovee-gateway:realm-personal", "nonce-0001")
-        );
+        assert_eq!(dpc.consume_key(), ("kovee-gateway", "nonce-0001"));
     }
 
     #[test]
     fn the_credential_round_trips_through_its_closed_shape() {
         let binding = sample_active_binding();
-        let context = context(&binding);
         let dpc = mint(&["kovee_endeavor_form"], 120)
-            .issue(&context, &digests())
+            .issue(&context(&binding))
             .unwrap();
         let json = serde_json::to_value(&dpc).unwrap();
         assert_eq!(

@@ -1,0 +1,16 @@
+{
+  "name": "ops/byom-episode-binding-show-invalid-missing-required",
+  "description": "missing required envelope member args",
+  "input": {
+    "schema": "byom-episode-binding-show-request",
+    "value": {
+      "version": "0.1",
+      "op": "byom_episode_binding_show",
+      "realm_id": "realm-0001"
+    }
+  },
+  "expected": {
+    "valid": false,
+    "reason": "missing required args"
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/endeavor-promotion-prepare-request.schema.json",
+  "title": "KCP endeavor_promotion_prepare request (amendment A5 wire name for DESIGN.md §11.6's mission_promotion_prepare; byom §16.3 EndeavorFormationIntent/Slot)",
+  "description": "Mutation (meta required; §11.2). Step 0 of the §16.3 formation saga: the collaboration bundle plus ONE durable formation intent and uniqueness slot, with NO external contact at all. Every byom fact the intent pins — the endpoint incarnation, the Society recovery epoch, and the KoveeRealmByomBinding quadruple — is read from the ACTIVE seam governance_enable committed, never asserted by the caller; the project, space, and branch come from the pinned frontier. UNIQUE(realm_id, requested_by_principal, client_formation_key) deduplicates one explicit human formation command — it does not imply one Endeavor per Branch, frontier, purpose, or Society. Registry (governed_work_binding_v1): surface operator / human realm-owner principal only — never a service identity, session, assistant, or connector. Surface and actor kind are registry-enforced, not schema-expressible.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "op",
+    "meta",
+    "realm_id",
+    "args"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/protocolVersion"
+    },
+    "op": {
+      "const": "endeavor_promotion_prepare"
+    },
+    "meta": {
+      "$ref": "#/$defs/commandMeta"
+    },
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "args": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byom_endpoint_ref",
+        "society_ref",
+        "frontier_ref",
+        "collaboration_context_bundle_ref",
+        "bound_participant_ref",
+        "participant_binding_epoch",
+        "client_formation_key",
+        "endeavor_proposal_ref",
+        "endeavor_proposal",
+        "source_principal_position"
+      ],
+      "properties": {
+        "byom_endpoint_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "society_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The already-active Society the active KoveeSocietyMapping covers (byom's society_id, verbatim). This operation never bootstraps one."
+        },
+        "frontier_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "An already pinned SpaceFrontier — the exact frontier this formation forms at."
+        },
+        "collaboration_context_bundle_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "A Kovee ContextAssembly taken AT that frontier; a bundle assembled at another frontier is refused."
+        },
+        "bound_participant_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The already admitted human byom Participant the delegated principal acts for. R39 never manufactures membership."
+        },
+        "participant_binding_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "client_formation_key": {
+          "$ref": "#/$defs/identifier",
+          "description": "The §16.3 uniqueness scope: one explicit human formation command."
+        },
+        "endeavor_proposal_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "endeavor_proposal": {
+          "type": "object",
+          "description": "The canonical EndeavorProposal subject body, carried opaque; its shape is normatively owned by byom's B0.1 endeavor_propose subject. The server recomputes the canonical Endeavor subject — this can only match it."
+        },
+        "source_principal_position": {
+          "type": "object",
+          "description": "The source principal's OWN explicit Position filling the sole computed formation seat. The operation cannot import an offline Position, fill another Participant's seat, or invoke an automatic assent policy."
+        }
+      },
+      "description": "The bundle and intent arguments. Everything byom-facing is derived, not asserted."
+    },
+    "ext": {
+      "$ref": "#/$defs/ext"
+    }
+  },
+  "$defs": {
+    "commandMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/identifier"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger"
+        },
+        "causation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "traceparent": {
+          "$ref": "#/$defs/traceparent"
+        }
+      },
+      "description": "Command.meta (§11.2). Required on every mutation; idempotency keys are scoped by authenticated actor, operation, and realm; expected_revision drives optimistic concurrency (mismatch is stale-revision)."
+    },
+    "ext": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9-]+)+$"
+      },
+      "description": "Extensions keyed by a reverse-domain namespace (§11.9); never interpreted as identity, authorization, budget, or policy."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "protocolVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Negotiated KCP major.minor version; the initial protocol version is \"0.1\" (§11)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context traceparent header value; excluded from the idempotency request digest (§11.2)."
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kovee.example/kcp/v0/ops/byom-episode-binding-show-result.schema.json",
+  "title": "KCP byom_episode_binding_show result",
+  "description": "CommandResult.result payload (§11.2 ok arm): the realm's ByomEpisodeBinding rows, each carrying both fences.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "realm_id",
+    "bindings"
+  ],
+  "properties": {
+    "realm_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "bindings": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/episodeBinding"
+      }
+    }
+  },
+  "$defs": {
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Display name bounded by the §11.8 cap of 256 Unicode scalar values, length-bounded again at admission."
+    },
+    "episodeBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stable_binding_key",
+        "episode_ref",
+        "byom_attempt_ref",
+        "kovee_invocation_ref",
+        "byom_fence_epoch",
+        "kovee_invocation_fence",
+        "state",
+        "episode_state",
+        "fenced_reason",
+        "record",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "stable_binding_key": {
+          "$ref": "#/$defs/identifier",
+          "description": "L22 idempotent-create key: an exact retry returns the identical row, and UNIQUE(episode_ref, byom_attempt_ref, kovee_invocation_ref) makes a different key for the same triple conflict instead of double-binding."
+        },
+        "episode_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "byom_attempt_ref": {
+          "$ref": "#/$defs/identifier",
+          "description": "The exact EpisodeAttempt. Its lifecycle is byom's (spec/descriptors/episode.json) — referenced here, never re-owned."
+        },
+        "kovee_invocation_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "byom_fence_epoch": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "One of the DUAL fences every runtime mutation must present (family contract L21/R30)."
+        },
+        "kovee_invocation_fence": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "The other of the DUAL fences. A mutation carrying only one fence is invalid; either fence advancing invalidates the binding for every further mutation."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "bound",
+            "fenced",
+            "released"
+          ],
+          "description": "ByomEpisodeBinding state (spec/descriptors/byom-episode-binding.json). fenced and released are terminal; a fenced row is RETAINED for audit and orphan-result diagnostics — a stale worker keeps bytes as local evidence but cannot advance any head."
+        },
+        "episode_state": {
+          "$ref": "#/$defs/statusToken"
+        },
+        "fenced_reason": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/displayName"
+            }
+          ],
+          "description": "Which fence advanced, recorded for the audit closure."
+        },
+        "record": {
+          "type": "object",
+          "description": "The ByomEpisodeBinding record, byom §16.6 item 3 field list verbatim plus the four recorded-gap field groups."
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "description": "One Kovee-side hosted-Episode binding row."
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[\\x21-\\x7e]{1,128}$",
+      "description": "Opaque identifier, at most 128 bytes (§11.8); visible-ASCII alphabet is a K0 extraction decision (spec/schemas/README.md)."
+    },
+    "safeNonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "I-JSON safe integer (§11.8 rejects unsafe integers)."
+    },
+    "statusToken": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Lower-snake status token; the Episode lifecycle itself is byom-owned (spec/descriptors/episode.json)."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "format": "date-time",
+      "description": "RFC 3339 date-time (recorded K0 extraction decision, spec/schemas/README.md item 7); format: date-time additionally requires semantic calendar validity (R0 KENV-05)."
+    }
+  }
+}

@@ -49,10 +49,11 @@ fn hello_and_protocol_info_advertise_the_three_complete_bundles() {
 #[test]
 fn the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch() {
     // §11.6: bundles are atomic — every operation of a LISTED bundle
-    // dispatches, or the bundle is not listed. K2 slice 1 implements only
-    // the binding half of `governed_work_binding_v1` (the formation
-    // operations arrive with slice 2), so the bundle must not appear in
-    // `hello`/`protocol_info` even though its three operations are live.
+    // dispatches, or the bundle is not listed. After K2 slice 2 the
+    // `governed_work_binding_v1` binding AND formation halves are live
+    // (nine operations), but `collaboration_context_bundle_*` and
+    // `workspace_*` are still unbuilt, so the bundle must not appear in
+    // `hello`/`protocol_info`.
     let base = tmp("k1-bundles-k2-honesty");
     let daemon = DaemonProc::start(&base.join("data"), &base.join("run"), None);
     let hello = daemon.expect_ok(&hello_cmd());
@@ -68,8 +69,17 @@ fn the_incomplete_k2_bundle_is_not_advertised_but_its_operations_dispatch() {
         show["result"]["compatibility_bundle"],
         json!("byom_governed_work_v1")
     );
-    // And the reserved slice-2 names are still not callable.
-    for op in ["endeavor_promotion_prepare", "byom_episode_binding_show"] {
+    // The slice-2 names ARE callable now — a shape-valid read reaches its
+    // handler and answers the recorded (empty) state.
+    let promotions = daemon.expect_ok(&read_cmd("endeavor_promotion_show", None, json!({})));
+    assert_eq!(promotions["result"]["promotions"], json!([]));
+    let bindings = daemon.expect_ok(&read_cmd("byom_episode_binding_show", None, json!({})));
+    assert_eq!(bindings["result"]["bindings"], json!([]));
+    // And the names still reserved for the bundle's unbuilt half are not.
+    for op in [
+        "collaboration_context_bundle_prepare",
+        "workspace_allocation_binding_show",
+    ] {
         daemon.expect_problem(&read_cmd(op, None, json!({})), "unknown-op");
     }
 }
@@ -91,8 +101,9 @@ fn every_registry_entry_has_a_dispatch_arm_on_its_surface() {
     let entries = registry["entries"].as_array().unwrap();
     assert_eq!(
         entries.len(),
-        93,
-        "the frozen registry holds 90 K1 entries plus the 3 K2 slice-1 ones"
+        99,
+        "the frozen registry holds 90 K1 entries, the 3 K2 slice-1 binding ones, and the 6 \
+         slice-2 formation/episode-binding ones"
     );
 
     let base = tmp("k1-bundles-parity");
