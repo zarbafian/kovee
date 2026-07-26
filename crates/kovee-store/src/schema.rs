@@ -968,8 +968,37 @@ CREATE TABLE byom_subordinate_reservations (
 ) STRICT;
 "#;
 
+/// Version 7: what driving byom's REAL runtime surface needs the episode
+/// tables to carry.
+///
+/// - `byom_episode_bindings.lease_revision`: byomd's `EpisodeLeaseHead`
+///   revision as of the last accepted mutation. Every protected runtime
+///   command is a CAS on that head (`checkpoint_commit` names it as
+///   `expected_lease_revision`; the terminal transitions name it in
+///   `meta.expected_revision`), so Kovee has to carry the exact number
+///   byomd last returned — it can never be guessed or incremented locally.
+/// - `byom_placement_bindings.object_secret`: one RANDOM per-object
+///   erasure secret, wrapped under the realm key (disposition D-R1-2), for
+///   the `local_erasure_safe` digests byom's runtime schemas require on
+///   fields Kovee AUTHORS (`claim_subject_digest`,
+///   `context_manifest_digest`, `checkpoint_digest`). A root-derived
+///   per-object key would be the forbidden scope-key substitution, so the
+///   secret is minted at placement time and destroyed with the row.
+const V7: &str = r#"
+ALTER TABLE byom_episode_bindings ADD COLUMN lease_revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE byom_placement_bindings ADD COLUMN object_secret BLOB;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6)];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, V1),
+    (2, V2),
+    (3, V3),
+    (4, V4),
+    (5, V5),
+    (6, V6),
+    (7, V7),
+];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting
 /// journal mode so the caller can fail closed when WAL did not take

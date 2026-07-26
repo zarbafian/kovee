@@ -38,6 +38,7 @@
         "kovee_invocation_ref",
         "byom_fence_epoch",
         "kovee_invocation_fence",
+        "byom_lease_revision",
         "state",
         "episode_state",
         "fenced_reason",
@@ -67,6 +68,10 @@
         "kovee_invocation_fence": {
           "$ref": "#/$defs/safeNonNegativeInteger",
           "description": "The other of the DUAL fences. A mutation carrying only one fence is invalid; either fence advancing invalidates the binding for every further mutation."
+        },
+        "byom_lease_revision": {
+          "$ref": "#/$defs/safeNonNegativeInteger",
+          "description": "byom's EpisodeLeaseHead revision as of the last accepted runtime mutation. Every protected command is a CAS on that one head, so the number is byom's: Kovee carries exactly what byomd last returned and never increments it locally."
         },
         "state": {
           "type": "string",

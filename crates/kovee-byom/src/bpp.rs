@@ -58,10 +58,11 @@ pub enum Surface {
     Candidate,
     Participant,
     Projection,
-    /// The R30/R33 runtime surface (placement admission and the Episode
-    /// lease operations). Named by byom's registry; byomd does not serve
-    /// it yet, so a call here answers `unavailable` and the Kovee-side
-    /// pipeline holds rather than proceeding (see `crate::episode`).
+    /// The R30/R33/R35 runtime surface: placement admission, the Episode
+    /// lease operations, measured usage, and effect-outcome admission.
+    /// Every operation on it authenticates through a byomd-minted,
+    /// subject-scoped workload token in the preamble (see
+    /// [`crate::runtime`]).
     Runtime,
 }
 
@@ -77,11 +78,13 @@ impl Surface {
     }
 
     /// Whether this surface REQUIRES a token preamble line before the
-    /// request. Only the candidate surface does; everywhere else the
-    /// preamble is optional (`call_with_preamble`), and writing one where
-    /// byomd expects none would make it parse the token AS the request.
+    /// request. The candidate and runtime surfaces do — a candidate call
+    /// carries a per-call channel proof, a runtime call carries the
+    /// subject-scoped workload token. Everywhere else the preamble is
+    /// optional (`call_with_preamble`), and writing one where byomd
+    /// expects none would make it parse the token AS the request.
     pub fn takes_preamble(self) -> bool {
-        matches!(self, Surface::Candidate)
+        matches!(self, Surface::Candidate | Surface::Runtime)
     }
 }
 
@@ -118,6 +121,12 @@ impl Endpoint {
 
     pub fn socket_path(&self, surface: Surface) -> PathBuf {
         self.runtime_dir.join(surface.socket_file())
+    }
+
+    /// byomd's socket directory — where a channel CLAIM is made
+    /// ([`crate::channel`]).
+    pub fn runtime_dir(&self) -> &Path {
+        &self.runtime_dir
     }
 
     /// One request line to one reply line, on this surface's socket.
@@ -418,9 +427,11 @@ mod tests {
         assert_eq!(Surface::Governance.socket_file(), "governance.sock");
         assert_eq!(Surface::Projection.socket_file(), "projection.sock");
         assert_eq!(Surface::Runtime.socket_file(), "runtime.sock");
-        // Only the candidate surface REQUIRES a preamble; governance,
-        // projection, and participant take an optional one.
+        // The candidate and runtime surfaces REQUIRE a preamble (a
+        // per-call channel proof, a subject-scoped workload token);
+        // governance, projection, and participant take an optional one.
         assert!(Surface::Candidate.takes_preamble());
+        assert!(Surface::Runtime.takes_preamble());
         assert!(!Surface::Governance.takes_preamble());
         assert!(!Surface::Projection.takes_preamble());
         assert!(!Surface::Participant.takes_preamble());

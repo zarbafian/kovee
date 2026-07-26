@@ -29,7 +29,11 @@
 //! - [`episode`] — `ByomEpisodeBinding`, `PlacementBinding`, and the DUAL
 //!   fences every runtime mutation must present;
 //! - [`budget`] — the `byom_subordinate` reservation bridge, never above
-//!   parent and settled only from a trusted meter.
+//!   parent and settled only from a trusted meter;
+//! - [`runtime`] — byom's RUNTIME surface and its three byomd-minted,
+//!   subject-scoped workload channels (worker / meter / placement);
+//! - [`channel`] — byom's peer-bound channel proofs from the client side,
+//!   for the participant and candidate surfaces.
 //!
 //! What you write (the whole binding half, in outline):
 //! ```no_run
@@ -53,10 +57,12 @@
 
 pub mod bpp;
 pub mod budget;
+pub mod channel;
 pub mod credential;
 pub mod episode;
 pub mod formation;
 pub mod hostint;
 pub mod projection;
 pub mod records;
+pub mod runtime;
 pub mod scope;

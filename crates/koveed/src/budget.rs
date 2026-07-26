@@ -626,9 +626,31 @@ fn event(
 /// An ACTIVE governed-work seam inserted into `store`, for the doc example
 /// and the budget tests — real seams come from the greenfield saga.
 #[doc(hidden)]
-#[allow(clippy::expect_used)]
 pub fn doc_seam(store: &mut Store) {
+    seam_fixture(store, "soc-1", 0, "inc-1");
+}
+
+/// The same seam pinned to a LIVE byomd: the Society it actually
+/// bootstrapped and the endpoint incarnation it actually reports. Every
+/// runtime `meta` pins both, so a cross-daemon suite cannot use the
+/// fixture values.
+#[doc(hidden)]
+#[allow(clippy::expect_used)]
+pub fn seam_fixture(
+    store: &mut Store,
+    society_ref: &str,
+    society_recovery_epoch: u64,
+    endpoint_incarnation: &str,
+) {
     let binding = crate::credentials::doc_binding(store);
+    store
+        .conn()
+        .execute(
+            "UPDATE kovee_realm_byom_bindings SET endpoint_incarnation = ?2
+             WHERE binding_ref = ?1",
+            rusqlite::params![binding.binding_ref, endpoint_incarnation],
+        )
+        .expect("pin the live endpoint incarnation");
     store
         .conn()
         .execute(
@@ -637,11 +659,13 @@ pub fn doc_seam(store: &mut Store) {
                  classification_binding_ref, governance_owner_binding_ref,
                  governance_owner_binding_digest, status, revision, digest, binding_ref,
                  created_at)
-             VALUES ('ksm-doc','realm-personal','soc-1',0,'[\"project:*\"]','class-1',?1,?2,
+             VALUES ('ksm-doc','realm-personal',?3,?4,'[\"project:*\"]','class-1',?1,?2,
                  'active',1,?2,?1,'1970-01-01T00:00:00Z')",
             rusqlite::params![
                 binding.binding_ref,
                 serde_json::to_string(&binding.digest).unwrap_or_default(),
+                society_ref,
+                society_recovery_epoch as i64,
             ],
         )
         .expect("insert mapping fixture");
@@ -653,10 +677,15 @@ pub fn doc_seam(store: &mut Store) {
                  society_ref, society_recovery_epoch, byom_endpoint_ref, endpoint_incarnation,
                  binding_ref, mapping_id, expected_owner_revision, subject_digest_hex,
                  dependency_digest_hex, result, created_at, updated_at)
-             VALUES ('gfe-doc','realm-personal','00','project:*',1,'active','soc-1',0,'local',
-                 'inc-1',?1,'ksm-doc',1,'00','00','{}','1970-01-01T00:00:00Z',
+             VALUES ('gfe-doc','realm-personal','00','project:*',1,'active',?2,?3,'local',
+                 ?4,?1,'ksm-doc',1,'00','00','{}','1970-01-01T00:00:00Z',
                  '1970-01-01T00:00:00Z')",
-            [&binding.binding_ref],
+            rusqlite::params![
+                binding.binding_ref,
+                society_ref,
+                society_recovery_epoch as i64,
+                endpoint_incarnation,
+            ],
         )
         .expect("insert enablement fixture");
 }

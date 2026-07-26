@@ -1,5 +1,5 @@
 //! The REAL `byomd`, spawned for the K2 suites: build byom's daemon from
-//! the sibling checkout, run it on its own four sockets, and speak byom's
+//! the sibling checkout, run it on its own five sockets, and speak byom's
 //! own wire to it.
 //!
 //! Gated on the byom repository being present — `$KOVEE_BYOM_REPO`, else
@@ -141,9 +141,15 @@ impl Byomd {
     fn wait_ready(&self) {
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            let all_up = ["governance", "candidate", "participant", "projection"]
-                .iter()
-                .all(|s| UnixStream::connect(self.run_dir.join(format!("{s}.sock"))).is_ok());
+            let all_up = [
+                "governance",
+                "candidate",
+                "participant",
+                "runtime",
+                "projection",
+            ]
+            .iter()
+            .all(|s| UnixStream::connect(self.run_dir.join(format!("{s}.sock"))).is_ok());
             if all_up {
                 // Stronger than "the socket exists": a real round trip.
                 if let Ok(reply) = self.try_call(
@@ -232,6 +238,64 @@ impl Byomd {
 
     pub fn channels_dir(&self) -> PathBuf {
         self.data_dir.join("channels")
+    }
+
+    /// One column out of byomd's OWN database — the same inspection
+    /// channel byom's test fixtures use ("the daemon owns the data
+    /// directory, the SQLite file is readable beside it"). Every assertion
+    /// made through this reads byom's record, not Kovee's.
+    pub fn row(&self, sql: &str, key: &str) -> Option<String> {
+        let conn = rusqlite::Connection::open(self.data_dir.join("byom.db")).unwrap();
+        conn.query_row(sql, [key], |r| r.get::<_, Option<String>>(0))
+            .ok()
+            .flatten()
+    }
+
+    pub fn number(&self, sql: &str, key: &str) -> Option<i64> {
+        let conn = rusqlite::Connection::open(self.data_dir.join("byom.db")).unwrap();
+        conn.query_row(sql, [key], |r| r.get::<_, i64>(0)).ok()
+    }
+
+    pub fn count(&self, sql: &str) -> i64 {
+        let conn = rusqlite::Connection::open(self.data_dir.join("byom.db")).unwrap();
+        conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap()
+    }
+
+    /// The committed `ResourceAllocation` digest `placement_admit` makes
+    /// Kovee pin. byom exposes it on NO wire surface — its own runtime
+    /// fixture reads it out of the store the same way — so the
+    /// notification Kovee is handed carries it from here (recorded
+    /// deviation: byom has no outbound Kovee client and no projection read
+    /// for the allocation head).
+    pub fn allocation_digest(&self, allocation_ref: &str) -> Value {
+        let text = self
+            .row(
+                "SELECT digest FROM resource_allocations WHERE allocation_id = ?1",
+                allocation_ref,
+            )
+            .unwrap_or_else(|| panic!("no committed allocation {allocation_ref}"));
+        serde_json::from_str(&text).unwrap()
+    }
+
+    /// byom's §11.4 conservation ledger row for one account.
+    pub fn ledger(&self, account_ref: &str) -> Ledger {
+        let conn = rusqlite::Connection::open(self.data_dir.join("byom.db")).unwrap();
+        conn.query_row(
+            "SELECT ceiling, remaining, reserved, committed, uncertain, delegated_to_children
+             FROM budget_accounts WHERE account_ref = ?1 AND dimension = 'unit'",
+            [account_ref],
+            |r| {
+                Ok(Ledger {
+                    ceiling: r.get(0)?,
+                    remaining: r.get(1)?,
+                    reserved: r.get(2)?,
+                    committed: r.get(3)?,
+                    uncertain: r.get(4)?,
+                    delegated: r.get(5)?,
+                })
+            },
+        )
+        .expect("byom budget account")
     }
 
     /// The narrow recovery-workload token byomd publishes for an installed
@@ -356,6 +420,307 @@ pub fn bootstrap_society(byomd: &Byomd, incarnation: &str) -> String {
     assert_eq!(bootstrapped["result"]["state"], json!("active"));
     assert_eq!(bootstrapped["result"]["recovery_epoch"], json!(0));
     society_id
+}
+
+/// byom's §11.4 conservation ledger row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ledger {
+    pub ceiling: i64,
+    pub remaining: i64,
+    pub reserved: i64,
+    pub committed: i64,
+    pub uncertain: i64,
+    pub delegated: i64,
+}
+
+impl Ledger {
+    /// §11.4: `ceiling = remaining + reserved + committed + uncertain +
+    /// delegated_to_children`, at every observation.
+    pub fn conserves(&self) -> bool {
+        self.ceiling
+            == self.remaining + self.reserved + self.committed + self.uncertain + self.delegated
+    }
+}
+
+/// The parent §11.4 account every Episode of this fixture reserves against
+/// (the Mandate's `budget_ceiling_set_ref`).
+pub const PARENT_ACCOUNT: &str = "budget-mandate-live";
+/// byom's per-Episode worst case (`EPISODE_WORST_CASE_UNITS`).
+pub const EPISODE_WORST_CASE: u64 = 256;
+
+/// The byom-side state the FOUR-STAGE activation starts from: one Society,
+/// one admitted agent Participant with an issued Mandate, and one open
+/// exploration ActivityStream — all established through byomd's own
+/// surfaces, with Kovee's channel-proof client doing the participant and
+/// candidate calls.
+pub struct AgentSociety {
+    pub society_id: String,
+    pub incarnation: String,
+    pub participant_ref: String,
+    pub participant_binding_epoch: u64,
+    pub manifestation_ref: String,
+    pub mandate_id: String,
+    pub activity_stream_ref: String,
+    /// The claimed participant channel: Kovee's own reimplementation of
+    /// byom's `bpk1`/`bpb1`/`bpx1` construction, interoperating with the
+    /// real daemon.
+    pub channel: kovee_byom::channel::Channel,
+    tag: String,
+}
+
+impl AgentSociety {
+    pub fn meta(&self, key: &str, expected_revision: Option<u64>) -> Value {
+        let mut m = json!({
+            "request_id": format!("req-{}-{key}", self.tag),
+            "idempotency_key": format!("idem-{}-{key}", self.tag),
+            "expected_endpoint_incarnation": self.incarnation,
+            "expected_recovery_epoch": 0,
+        });
+        if let Some(rev) = expected_revision {
+            m["expected_revision"] = json!(rev);
+        }
+        m
+    }
+}
+
+/// One participant-surface call under a freshly minted channel proof.
+pub fn participant_call(
+    byomd: &Byomd,
+    channel: &kovee_byom::channel::Channel,
+    request: &Value,
+) -> Value {
+    let op = request["op"].as_str().unwrap_or_default();
+    let proof = channel
+        .proof(op, kovee_core::time::unix_now())
+        .expect("mint a participant channel proof");
+    byomd
+        .try_call_with("participant", Some(&proof), request)
+        .unwrap_or_else(|e| panic!("participant {op}: {e}"))
+}
+
+fn ok(what: &str, reply: &Value) {
+    assert_eq!(reply["outcome"], json!("ok"), "{what}: {reply}");
+}
+
+fn local_digest(seed: u8) -> Value {
+    json!({
+        "class": "local_erasure_safe",
+        "algorithm": "hmac-sha-256",
+        "key_ref": format!("kovee-live-key-{seed}"),
+        "value_hex": format!("{seed:02x}").repeat(32),
+    })
+}
+
+/// Bootstraps the byom-side four-stage precondition. Every mutation goes
+/// over byomd's own sockets; the two channel-scoped ones (`membership_accept`
+/// on candidate, `mandate_prepare`/`activity_open` on participant) ride
+/// Kovee's channel-proof client.
+pub fn bootstrap_agent_society(byomd: &Byomd, tag: &str) -> AgentSociety {
+    let incarnation = byomd.incarnation();
+    let society_id = bootstrap_society(byomd, &incarnation);
+    let meta = |key: &str, rev: Option<u64>| {
+        let mut m = json!({
+            "request_id": format!("req-{tag}-{key}"),
+            "idempotency_key": format!("idem-{tag}-{key}"),
+            "expected_endpoint_incarnation": incarnation,
+            "expected_recovery_epoch": 0,
+        });
+        if let Some(rev) = rev {
+            m["expected_revision"] = json!(rev);
+        }
+        m
+    };
+
+    // -- onboarding: offer, accept (candidate channel), admit -----------
+    let subject = local_digest(0xb1);
+    let offered = byomd.call_ok(
+        "governance",
+        &json!({
+            "version": BPP_VERSION, "op": "membership_offer",
+            "meta": meta("offer", None),
+            "participant_ref": "part-agent-live",
+            "proposed_standing_ref": "standing-proposal-live",
+            "subject_digest": subject,
+            "offered_by_decision_ref": format!("dec-society-{society_id}"),
+            "expires_at": "2030-01-01T00:00:00Z",
+        }),
+    );
+    let offer_id = offered["result"]["offer_id"].as_str().unwrap().to_owned();
+    let candidate =
+        kovee_byom::channel::Channel::candidate(&byomd.run_dir, &byomd.channels_dir(), &offer_id)
+            .expect("claim the candidate channel byomd published");
+    let accept_proof = candidate
+        .proof("membership_accept", kovee_core::time::unix_now())
+        .unwrap();
+    let accepted = byomd
+        .try_call_with(
+            "candidate",
+            Some(&accept_proof),
+            &json!({
+                "version": BPP_VERSION, "op": "membership_accept",
+                "meta": meta("accept", Some(1)),
+                "offer_ref": offer_id,
+                "subject_digest": subject,
+            }),
+        )
+        .expect("membership_accept");
+    ok("membership_accept", &accepted);
+    let admitted = byomd.call_ok(
+        "governance",
+        &json!({
+            "version": BPP_VERSION, "op": "participant_admit",
+            "meta": meta("admit", Some(2)),
+            "offer_ref": offer_id,
+            "membership_acceptance_ref": accepted["result"]["acceptance_id"],
+            "admitted_by_decision_ref": format!("dec-offer-{offer_id}"),
+            "admission_subject_digest": subject,
+        }),
+    );
+    let participant_ref = "part-agent-live".to_owned();
+    let _ = admitted;
+
+    // The proposed Manifestation admission created (read from byom's own
+    // store, as byom's fixtures do).
+    let manifestation_ref = byomd
+        .row(
+            "SELECT manifestation_id FROM manifestation_revisions
+             WHERE participant_ref = ?1 LIMIT 1",
+            &participant_ref,
+        )
+        .expect("the proposed manifestation");
+    byomd.call_ok(
+        "governance",
+        &json!({
+            "version": BPP_VERSION, "op": "manifestation_admit",
+            "meta": meta("manif", Some(1)),
+            "manifestation_ref": manifestation_ref,
+            "admitted_by_decision_ref": format!("dec-manif-{manifestation_ref}"),
+        }),
+    );
+
+    // -- the participant channel byomd publishes for the admitted agent --
+    let channel = kovee_byom::channel::Channel::participant(
+        &byomd.run_dir,
+        &byomd.channels_dir(),
+        &participant_ref,
+    )
+    .expect("claim the participant channel byomd published");
+    let participant_binding_epoch = byomd
+        .number(
+            "SELECT binding_epoch FROM participants WHERE participant_id = ?1",
+            &participant_ref,
+        )
+        .unwrap_or(1)
+        .max(0) as u64;
+
+    // -- the mandate chain: prepare (participant) / position / issue -----
+    let prepared = participant_call(
+        byomd,
+        &channel,
+        &json!({
+            "version": BPP_VERSION, "op": "mandate_prepare",
+            "meta": meta("mprep", None),
+            "grantee_participant_ref": participant_ref,
+            "purpose_ref": "purpose-explore-live",
+            "allowed_operations": ["activity_open", "continuation_write", "wake_intent_submit"],
+            "resource_selectors": ["res-repo-live"],
+            "data_class_selectors": ["class-public"],
+            "destination_selectors": [],
+            "budget_ceiling_set_ref": PARENT_ACCOUNT,
+            "concurrency_ceiling": 8,
+            "delegation": {"allowed": false, "max_depth": 0, "max_children": 0,
+                           "grantee_selectors": []},
+            "expires_at": "2030-01-01T00:00:00Z",
+        }),
+    );
+    ok("mandate_prepare", &prepared);
+    let mandate_id = prepared["result"]["mandate_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let seat = prepared["result"]["required_seat_refs"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    byomd.call_ok(
+        "governance",
+        &json!({
+            "version": BPP_VERSION, "op": "mandate_position",
+            "meta": meta("mpos", None),
+            "proposal_ref": mandate_id,
+            "proposal_revision": 1,
+            "subject_digest": prepared["result"]["subject_digest"],
+            "seat_ref": seat,
+            "value": "assent",
+        }),
+    );
+    byomd.call_ok(
+        "governance",
+        &json!({
+            "version": BPP_VERSION, "op": "mandate_issue",
+            "meta": meta("missue", Some(1)),
+            "mandate_id": mandate_id,
+            "subject_digest": prepared["result"]["subject_digest"],
+        }),
+    );
+
+    // -- the ActivityStream the Episodes run under ----------------------
+    let opened = participant_call(
+        byomd,
+        &channel,
+        &json!({
+            "version": BPP_VERSION, "op": "activity_open",
+            "meta": meta("explore", None),
+            "kind": "exploration",
+            "purpose_ref": "purpose-explore-live",
+            "purpose_digest": local_digest(0xc0),
+            "mandate_refs": [mandate_id],
+            "budget_account_set_ref": PARENT_ACCOUNT,
+        }),
+    );
+    ok("activity_open", &opened);
+    let activity_stream_ref = opened["result"]["activity_stream_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    AgentSociety {
+        society_id,
+        incarnation,
+        participant_ref,
+        participant_binding_epoch,
+        manifestation_ref,
+        mandate_id,
+        activity_stream_ref,
+        channel,
+        tag: tag.to_owned(),
+    }
+}
+
+/// Stage 1: the participant channel — and nothing else — authors a
+/// WakeIntent (§11.1). Returns the committed `wake_intent_id`.
+pub fn wake_intent(byomd: &Byomd, agent: &AgentSociety, key: &str) -> String {
+    let reply = participant_call(
+        byomd,
+        &agent.channel,
+        &json!({
+            "version": BPP_VERSION, "op": "wake_intent_submit",
+            "meta": agent.meta(&format!("wake-{key}"), None),
+            "activity_stream_ref": agent.activity_stream_ref,
+            "generation": 1,
+            "origin": "direct_participant",
+            "exact_cause_ref": format!("cause-{key}"),
+            "exact_cause_digest": local_digest(0xc2),
+            "purpose_ref": "purpose-explore-live",
+            "stable_wake_key": format!("wake-live-{key}"),
+            "expires_at": "2030-01-01T00:00:00Z",
+        }),
+    );
+    ok("wake_intent_submit", &reply);
+    reply["result"]["wake_intent_id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// The bootstrap human Participant `society_bootstrap` admitted: the one

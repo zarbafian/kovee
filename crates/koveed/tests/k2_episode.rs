@@ -1,139 +1,61 @@
-//! K2 slice 2 — the hosted-episode pipeline: stage order and the DUAL
-//! fences (byom §16.6 item 3, family contract L19–L22; the machine of
-//! `byom/spec/descriptors/byom-episode-binding.json`).
+//! K2 slice 2 — the KOVEE-OWNED half of the hosted-episode pipeline: the
+//! records Kovee authors and the refusals it makes on its own, before a
+//! byte reaches byomd (byom §16.6 item 3, family contract L19–L22; the
+//! machine of `byom/spec/descriptors/byom-episode-binding.json`).
 //!
 //! | property | proof |
 //! |---|---|
-//! | placement admitted before ANY episode work | `no_episode_work_happens_before_byom_admits_the_placement` |
-//! | a stale byom fence refuses | `a_stale_byom_fence_refuses_and_fences_the_binding` |
-//! | a stale kovee fence refuses | `a_stale_kovee_fence_refuses_and_fences_the_binding` |
+//! | placement admitted before ANY episode work — refused with no endpoint reachable | `no_episode_work_happens_before_byom_admits_the_placement` |
+//! | a stale byom fence refuses locally, before any call | `a_stale_byom_fence_refuses_before_byom_is_ever_called` |
+//! | a stale kovee fence refuses locally, before any call | `a_stale_kovee_fence_refuses_before_byom_is_ever_called` |
 //! | idempotent create over the stable key | `the_binding_is_idempotent_over_its_stable_key` |
-//! | Continuation hand-off; a successor gets a NEW row | `a_yield_hands_off_a_continuation_and_a_successor_binds_afresh` |
-//! | orderly close hands the reservations to settlement | `a_complete_releases_the_binding_and_hands_off_the_reservations` |
+//! | a successor attempt gets a NEW row under a NEW key | `a_successor_invocation_binds_afresh` |
+//! | the read surface reports both fences and byom's lease revision | `the_read_surface_reports_both_fences_and_the_byom_lease_revision` |
+//! | the `local_erasure_safe` episode digests die with their secret | `destroying_the_placement_secret_erases_the_episode_digests` |
 //!
-//! Recorded deviation: byomd does not serve the R30/R33 **runtime**
-//! surface yet (its four sockets are governance, candidate, participant,
-//! and projection; `placement_admit` and the Episode lease operations are
-//! byom's own B0.3/B3 slice). So the byom half of stage 3 and stage 4 is a
-//! scripted runtime endpoint here, while everything Kovee owns — the
-//! PlacementBinding, the admission check, the binding row, and every
-//! dual-fence refusal — is the real implementation. The formation suite
-//! (`k2_formation`) is the one that runs against the real daemon.
+//! There is NO scripted byom endpoint here: the whole four-stage path
+//! against a live `byomd` — `episode_request`, `placement_admit`,
+//! `episode_claim`/`episode_start`, `checkpoint_commit`, `usage_report`,
+//! `episode_complete`, the dual-fence refusals byomd itself makes, and the
+//! clocked lease expiry — is `k2_episode_live`. What this suite covers is
+//! exactly what Kovee decides without asking: the endpoint it is handed
+//! points at a directory with no sockets in it, so any test here that
+//! passed by reaching byom would fail instead.
+//!
+//! # Recorded deviations
+//!
+//! Slice 2's deviation 5 — "byomd serves no runtime surface, so
+//! `k2_episode` scripts that half" — is **withdrawn**. byom d37b898 serves
+//! `runtime.sock`, and every operation of the Kovee-side pipeline is now a
+//! real call against it under a byomd-minted workload token
+//! (`k2_episode_live`).
+//!
+//! What remains out-of-band is exactly one thing, and it is byom's own
+//! recorded gap, not a Kovee stub: **the notification itself**. byom has no
+//! outbound Kovee client and exposes no read that returns the committed
+//! `ResourceAllocation` head, yet `placement_admit` requires Kovee to pin
+//! that record's exact `local_erasure_safe` digest. So the `Notice` Kovee
+//! is handed carries byom-owned facts that Kovee can only echo — the
+//! allocation ref (kernel-derived, so Kovee can compute it and byom checks
+//! the match), the allocation DIGEST (not derivable, not readable over any
+//! surface), the bridge ref, the kernel-derived stable reservation key, and
+//! the parent §11.4 items. In `k2_episode_live` the harness reads that
+//! digest out of byomd's own database — the same inspection channel byom's
+//! own runtime fixture uses for it. Nothing else about the pipeline is
+//! scripted: the tokens, the channel proofs, the fences, the lease
+//! revisions, and every refusal come from the running daemon.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod common;
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::os::unix::net::UnixListener;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-
 use common::tmp;
 use kovee_byom::bpp::Endpoint;
 use kovee_byom::episode::Fences;
+use kovee_core::family::DigestRef;
 use kovee_core::problem::ProblemKind;
 use kovee_store::Store;
-use koveed::episode::{self, Notice};
+use koveed::episode::{self, Notice, ParentItem, Runtime};
 use serde_json::{json, Value};
-
-/// A scripted byom RUNTIME surface: the one surface byomd does not serve
-/// yet. It answers the four operations stage 3 and stage 4 need, and its
-/// fence numbers are the ones a real claim would mint.
-struct RuntimeStub {
-    dir: PathBuf,
-    fence: Arc<Mutex<u64>>,
-    stop: Arc<Mutex<bool>>,
-}
-
-impl RuntimeStub {
-    fn start(dir: &Path, byom_fence: u64) -> RuntimeStub {
-        std::fs::create_dir_all(dir).unwrap();
-        let path = dir.join("runtime.sock");
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).unwrap();
-        let fence = Arc::new(Mutex::new(byom_fence));
-        let stop = Arc::new(Mutex::new(false));
-        let served = Arc::clone(&fence);
-        let stopped = Arc::clone(&stop);
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                if *stopped.lock().unwrap() {
-                    return;
-                }
-                let Ok(stream) = stream else { continue };
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut line = String::new();
-                if reader.read_line(&mut line).is_err() {
-                    continue;
-                }
-                let request: Value = match serde_json::from_str(line.trim_end()) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                let fence = *served.lock().unwrap();
-                let result = match request["op"].as_str().unwrap_or_default() {
-                    "placement_admit" => json!({
-                        "admission_id": "padm-1",
-                        "kovee_placement_ref": request["kovee_placement_ref"],
-                        "kovee_placement_revision": request["kovee_placement_revision"],
-                        "verification_status": "verified",
-                        "digest": {"class": "portable_public", "algorithm": "sha-256",
-                                   "value_hex": "a".repeat(64)},
-                    }),
-                    "episode_request" => json!({"episode_ref": "epi-1", "state": "eligible"}),
-                    "episode_claim" => json!({
-                        "byom_attempt_ref": format!("att-{fence}"),
-                        "byom_fence_epoch": fence,
-                        "state": "lease_leased",
-                    }),
-                    "episode_start" => json!({"state": "lease_running"}),
-                    _ => json!({}),
-                };
-                let mut stream = stream;
-                let _ = stream.write_all(
-                    format!("{}\n", json!({"outcome": "ok", "result": result})).as_bytes(),
-                );
-            }
-        });
-        RuntimeStub {
-            dir: dir.to_path_buf(),
-            fence,
-            stop,
-        }
-        .also_wait()
-    }
-
-    fn also_wait(self) -> RuntimeStub {
-        // The listener is bound before the thread starts serving, so one
-        // connect attempt is enough to know the path is live.
-        for _ in 0..100 {
-            if std::os::unix::net::UnixStream::connect(self.dir.join("runtime.sock")).is_ok() {
-                return self;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        panic!("runtime stub never came up");
-    }
-
-    fn endpoint(&self) -> Endpoint {
-        Endpoint::at("local", &self.dir)
-    }
-
-    /// A new attempt claim advances the byom fence — which is exactly what
-    /// invalidates every binding of the previous attempt.
-    fn advance_byom_fence(&self) -> u64 {
-        let mut fence = self.fence.lock().unwrap();
-        *fence += 1;
-        *fence
-    }
-}
-
-impl Drop for RuntimeStub {
-    fn drop(&mut self) {
-        *self.stop.lock().unwrap() = true;
-        let _ = std::os::unix::net::UnixStream::connect(self.dir.join("runtime.sock"));
-    }
-}
 
 const REALM: &str = "realm-personal";
 
@@ -146,51 +68,123 @@ fn notice() -> Notice {
         manifestation_ref: "man-1".to_owned(),
         activity_stream_ref: "as-1".to_owned(),
         generation: 2,
-        resource_allocation_ref: "alloc-1".to_owned(),
+        wake_intent_ref: "wi-1".to_owned(),
+        activation_admission_ref: "adm-wi-1-r1".to_owned(),
+        resource_allocation_ref: "alloc-wi-1-r1".to_owned(),
+        // ECHOED from byom: the class byom commits its own record digests
+        // in, which is why Kovee stores it rather than deriving it.
+        resource_allocation_digest: DigestRef::local_erasure_safe(
+            "society-key:soc-1/object:alloc-wi-1-r1",
+            "a".repeat(64),
+        ),
         mandate_use_refs: vec!["mu-1".to_owned()],
-        byom_budget_reservation_ref: "brs-1".to_owned(),
-        external_budget_bridge_ref: "ebb-1".to_owned(),
+        byom_budget_reservation_ref: "brs-alloc-wi-1-r1".to_owned(),
+        byom_reservation_set_revision: 1,
+        external_budget_bridge_ref: "bridge-alloc-wi-1-r1".to_owned(),
+        stable_external_reservation_key: "sub-alloc-wi-1-r1".to_owned(),
+        parent_reservation_items: vec![ParentItem {
+            account_ref: "budget-mandate-1".to_owned(),
+            account_revision: 1,
+            dimension: "unit".to_owned(),
+            unit: "unit".to_owned(),
+            worst_case_amount: 256,
+        }],
         context_manifest_ref: "cm-1".to_owned(),
     }
 }
 
-fn fixture(tag: &str) -> (Store, RuntimeStub) {
+/// A store with an ACTIVE governed-work seam, and an endpoint pointed at a
+/// directory that holds NO byomd sockets and NO workload tokens: every
+/// refusal this suite asserts is therefore Kovee's own.
+fn fixture(tag: &str) -> (Store, Endpoint, std::path::PathBuf) {
     let base = tmp(tag);
     let mut store = Store::open(&base.join("kovee.sqlite3")).unwrap();
     store.bootstrap(0).unwrap();
-    // An ACTIVE governed-work seam: an Episode is hosted only under one.
     koveed::budget::doc_seam(&mut store);
-    let stub = RuntimeStub::start(&base.join("byom-run"), 7);
-    (store, stub)
+    let empty = base.join("no-byom-here");
+    std::fs::create_dir_all(&empty).unwrap();
+    (store, Endpoint::at("local", &empty), empty)
 }
 
-/// Places, admits, and starts one Episode attempt.
-fn activate(store: &mut Store, stub: &RuntimeStub) -> episode::Bound {
+fn unreachable_runtime(endpoint: &Endpoint, channels: &std::path::Path) -> Runtime {
+    Runtime::new(endpoint, channels)
+}
+
+/// One bound attempt, committed exactly as the claim/start CAS would have,
+/// without any byom call: the fence pair and the lease revision are the
+/// ones byomd would have returned.
+fn bind_attempt(store: &mut Store, byom_fence: u64, lease_revision: u64) -> episode::Bound {
     let notice = notice();
-    let placed = episode::place(store, REALM, &notice, "inv-1", 0).unwrap();
-    episode::admit(store, &stub.endpoint(), &placed.placement_id, 0).unwrap();
-    episode::start(store, &stub.endpoint(), &placed.placement_id, &notice, 0).unwrap()
+    let placed = episode::place(store, REALM, &notice, "kovee-inv-1", 0).unwrap();
+    // The admission byom would have recorded, so `bind` sees a placement
+    // whose stage 4 is complete.
+    admitted(store, &placed.placement_id);
+    let placement = episode::read_placement(store.conn(), &placed.placement_id)
+        .unwrap()
+        .unwrap();
+    let key = format!("ebk-test-{byom_fence}");
+    episode::bind(
+        store,
+        REALM,
+        &placement,
+        &notice,
+        "ep-1",
+        &format!("att-{byom_fence}"),
+        Fences {
+            byom: byom_fence,
+            kovee: placed.kovee_fence_epoch,
+        },
+        lease_revision,
+        &key,
+        0,
+    )
+    .unwrap()
+}
+
+fn admitted(store: &mut Store, placement_id: &str) {
+    store
+        .conn()
+        .execute(
+            "UPDATE byom_placement_bindings
+             SET admission_ref = 'plc-admitted', admitted_at = '1970-01-01T00:00:00Z'
+             WHERE placement_id = ?1",
+            [placement_id],
+        )
+        .unwrap();
 }
 
 // ------------------------------------------------------------ stage order ----
 
 #[test]
 fn no_episode_work_happens_before_byom_admits_the_placement() {
-    let (mut store, stub) = fixture("k2-episode-order");
+    let (mut store, endpoint, channels) = fixture("k2-episode-order");
+    let runtime = unreachable_runtime(&endpoint, &channels);
     let notice = notice();
 
-    // Stage 2: Kovee authors the one activation record it owns.
-    let placed = episode::place(&mut store, REALM, &notice, "inv-1", 0).unwrap();
+    // Kovee authors the one activation record it owns, over the allocation
+    // digest BYOM committed — echoed, never derived.
+    let placed = episode::place(&mut store, REALM, &notice, "kovee-inv-1", 0).unwrap();
     assert_eq!(placed.record.owner_protocol, "kovee");
     assert_eq!(placed.record.state, "placed");
     assert_eq!(placed.kovee_fence_epoch, 1);
+    assert_eq!(
+        placed.record.resource_allocation_digest, notice.resource_allocation_digest,
+        "the allocation digest is byom's own record digest, carried verbatim"
+    );
+    // And the digest byom pins as the CROSS-BOUNDARY class is that class.
+    assert_eq!(placed.record.digest.class, "portable_public");
+    assert_eq!(placed.record.digest.algorithm, "sha-256");
+    assert_eq!(placed.record.digest.key_ref, None);
 
-    // Stage 4 refuses outright: nothing skips a stage.
+    // The claim refuses OUTRIGHT: with no admission there is nothing to
+    // ask byom about, and the endpoint here could not answer anyway.
     let refused = episode::start(
         &mut store,
-        &stub.endpoint(),
+        &runtime,
         &placed.placement_id,
         &notice,
+        "ep-1",
+        300,
         0,
     )
     .unwrap_err();
@@ -206,43 +200,33 @@ fn no_episode_work_happens_before_byom_admits_the_placement() {
     // And no binding exists to fence, honor, or settle.
     assert!(bindings(&store).is_empty());
 
-    // Stage 3, then stage 4.
-    episode::admit(&mut store, &stub.endpoint(), &placed.placement_id, 0).unwrap();
-    let bound = episode::start(
-        &mut store,
-        &stub.endpoint(),
-        &placed.placement_id,
-        &notice,
-        0,
-    )
-    .unwrap();
-    assert_eq!(bound.fences, Fences { byom: 7, kovee: 1 });
-    assert_eq!(bindings(&store).len(), 1);
-
     // Placing the same allocation twice is the identical placement.
-    let again = episode::place(&mut store, REALM, &notice, "inv-1", 0).unwrap();
+    let again = episode::place(&mut store, REALM, &notice, "kovee-inv-1", 0).unwrap();
     assert_eq!(again.placement_id, placed.placement_id);
 }
 
 // ------------------------------------------------------------ dual fences ----
 
 #[test]
-fn a_stale_byom_fence_refuses_and_fences_the_binding() {
-    let (mut store, stub) = fixture("k2-episode-byom-fence");
-    let bound = activate(&mut store, &stub);
+fn a_stale_byom_fence_refuses_before_byom_is_ever_called() {
+    let (mut store, endpoint, channels) = fixture("k2-episode-byom-fence");
+    let runtime = unreachable_runtime(&endpoint, &channels);
+    let bound = bind_attempt(&mut store, 7, 2);
 
     // A successor attempt claimed the Episode: the BYOM fence advanced.
-    let advanced = stub.advance_byom_fence();
-    let stale = Fences {
-        byom: bound.fences.byom,
-        kovee: bound.fences.kovee,
-    };
     let presented = Fences {
-        byom: advanced,
+        byom: bound.fences.byom + 1,
         kovee: bound.fences.kovee,
     };
-    let refused =
-        episode::checkpoint(&mut store, &bound.stable_binding_key, presented, 1).unwrap_err();
+    let refused = episode::checkpoint(
+        &mut store,
+        &runtime,
+        &bound.stable_binding_key,
+        presented,
+        "ckpt-1",
+        1,
+    )
+    .unwrap_err();
     assert_eq!(refused.kind, ProblemKind::StaleLease);
     assert!(
         refused.detail.as_ref().unwrap().contains("byom fence"),
@@ -254,9 +238,17 @@ fn a_stale_byom_fence_refuses_and_fences_the_binding() {
     let row = &bindings(&store)[0];
     assert_eq!(row["state"], json!("fenced"));
     assert!(row["fenced_reason"].is_string(), "{row}");
-    assert_eq!(row["byom_fence_epoch"], json!(stale.byom));
+    assert_eq!(row["byom_fence_epoch"], json!(bound.fences.byom));
     // Terminal: even the ORIGINAL pair advances nothing now.
-    let after = episode::checkpoint(&mut store, &bound.stable_binding_key, stale, 2).unwrap_err();
+    let after = episode::checkpoint(
+        &mut store,
+        &runtime,
+        &bound.stable_binding_key,
+        bound.fences,
+        "ckpt-2",
+        2,
+    )
+    .unwrap_err();
     assert_eq!(after.kind, ProblemKind::Forbidden);
     assert!(
         after.detail.as_ref().unwrap().contains("advances nothing"),
@@ -265,9 +257,10 @@ fn a_stale_byom_fence_refuses_and_fences_the_binding() {
 }
 
 #[test]
-fn a_stale_kovee_fence_refuses_and_fences_the_binding() {
-    let (mut store, stub) = fixture("k2-episode-kovee-fence");
-    let bound = activate(&mut store, &stub);
+fn a_stale_kovee_fence_refuses_before_byom_is_ever_called() {
+    let (mut store, endpoint, channels) = fixture("k2-episode-kovee-fence");
+    let runtime = unreachable_runtime(&endpoint, &channels);
+    let bound = bind_attempt(&mut store, 7, 2);
 
     // The HOST-side fence advanced: a mutation presenting a current byom
     // fence and a stale Kovee one is not "mostly current", it is fenced.
@@ -277,6 +270,7 @@ fn a_stale_kovee_fence_refuses_and_fences_the_binding() {
     };
     let refused = episode::yield_episode(
         &mut store,
+        &runtime,
         &bound.stable_binding_key,
         presented,
         "cont-1",
@@ -296,16 +290,17 @@ fn a_stale_kovee_fence_refuses_and_fences_the_binding() {
     assert_eq!(row["state"], json!("fenced"));
     assert_eq!(row["kovee_invocation_fence"], json!(bound.fences.kovee));
 
-    // A mutation carrying only ONE fence is invalid — presenting the
-    // bound byom fence with a zeroed Kovee one is refused too.
-    let (mut store, stub) = fixture("k2-episode-kovee-fence-2");
-    let bound = activate(&mut store, &stub);
+    // A mutation carrying only ONE fence is invalid — presenting the bound
+    // byom fence with a zeroed Kovee one is refused too.
+    let (mut store, endpoint, channels) = fixture("k2-episode-kovee-fence-2");
+    let runtime = unreachable_runtime(&endpoint, &channels);
+    let bound = bind_attempt(&mut store, 7, 2);
     let half = Fences {
         byom: bound.fences.byom,
         kovee: 0,
     };
     assert_eq!(
-        episode::complete(&mut store, &bound.stable_binding_key, half, 1)
+        episode::complete(&mut store, &runtime, &bound.stable_binding_key, half, 1)
             .unwrap_err()
             .kind,
         ProblemKind::StaleLease
@@ -316,29 +311,22 @@ fn a_stale_kovee_fence_refuses_and_fences_the_binding() {
 
 #[test]
 fn the_binding_is_idempotent_over_its_stable_key() {
-    let (mut store, stub) = fixture("k2-episode-idempotent");
-    let first = activate(&mut store, &stub);
-    // An exact retry at the same claim CAS returns the IDENTICAL row.
-    let notice = notice();
-    let placed = episode::place(&mut store, REALM, &notice, "inv-1", 0).unwrap();
-    let again = episode::start(
-        &mut store,
-        &stub.endpoint(),
-        &placed.placement_id,
-        &notice,
-        0,
-    )
-    .unwrap();
+    let (mut store, _endpoint, _channels) = fixture("k2-episode-idempotent");
+    let first = bind_attempt(&mut store, 7, 2);
+    let again = bind_attempt(&mut store, 7, 2);
     assert_eq!(again.stable_binding_key, first.stable_binding_key);
     assert_eq!(again.record, first.record);
+    assert_eq!(again.lease_revision, first.lease_revision);
     assert_eq!(
         bindings(&store).len(),
         1,
         "a second binding row was created"
     );
 
-    // The record is the §16.6 shape, with BOTH fences and the closed
-    // local-commitment set.
+    // The record is the §16.6 shape, with BOTH fences, the closed
+    // local-commitment set, and the digest CLASSES byom's runtime schemas
+    // pin: erasure-safe for what Kovee authors, portable for what both
+    // sides recompute.
     let record = &bindings(&store)[0]["record"];
     assert_eq!(record["byom_fence_epoch"], json!(7));
     assert_eq!(record["kovee_invocation_fence"], json!(1));
@@ -347,87 +335,118 @@ fn the_binding_is_idempotent_over_its_stable_key() {
         json!(["contribution_append", "attention_mark"])
     );
     assert_eq!(record["context_manifest_ref"], json!("cm-1"));
-    assert_eq!(record["external_budget_bridge_ref"], json!("ebb-1"));
+    assert_eq!(
+        record["external_budget_bridge_ref"],
+        json!("bridge-alloc-wi-1-r1")
+    );
     assert_eq!(record["mandate_use_refs"], json!(["mu-1"]));
-
-    // And the read surface reports it with both fences.
-    let shown = show(&store, json!({"episode_ref": "epi-1"}));
-    assert_eq!(shown["bindings"].as_array().unwrap().len(), 1);
-    assert_eq!(shown["bindings"][0]["byom_fence_epoch"], json!(7));
-    assert_eq!(shown["bindings"][0]["kovee_invocation_fence"], json!(1));
+    assert_eq!(
+        record["context_manifest_digest"]["class"],
+        "local_erasure_safe"
+    );
+    assert_eq!(
+        record["context_manifest_digest"]["algorithm"],
+        "hmac-sha-256"
+    );
+    assert!(record["context_manifest_digest"]["key_ref"]
+        .as_str()
+        .unwrap()
+        .starts_with("kovee-placement-object:"));
+    assert_eq!(record["context_source_digest"]["class"], "portable_public");
 }
 
-// -------------------------------------------------------- yield and rebind ----
+// -------------------------------------------------------- successor attempt ----
 
 #[test]
-fn a_yield_hands_off_a_continuation_and_a_successor_binds_afresh() {
-    let (mut store, stub) = fixture("k2-episode-yield");
-    let bound = activate(&mut store, &stub);
-    let handoff = episode::yield_episode(
-        &mut store,
-        &bound.stable_binding_key,
-        bound.fences,
-        "cont-1",
-        1,
-    )
-    .unwrap();
-    assert_eq!(handoff["continuation_ref"], json!("cont-1"));
-    assert_eq!(handoff["byom_fence_epoch"], json!(bound.fences.byom));
-    assert_eq!(handoff["successor_requires_new_binding"], json!(true));
-    assert_eq!(bindings(&store)[0]["episode_state"], json!("yielded"));
+fn a_successor_invocation_binds_afresh() {
+    let (mut store, _endpoint, _channels) = fixture("k2-episode-successor");
+    let notice = notice();
+    let placed = episode::place(&mut store, REALM, &notice, "kovee-inv-1", 0).unwrap();
+    admitted(&mut store, &placed.placement_id);
 
-    // The successor attempt claims under a NEW byom fence, so it gets a
-    // NEW binding row under a new stable key — re-binding is never a
-    // transition of the old row.
-    let successor = Fences {
-        byom: stub.advance_byom_fence(),
-        kovee: bound.fences.kovee,
-    };
-    let placed = episode::place(&mut store, REALM, &notice(), "inv-1", 0).unwrap();
-    let rebound = episode::rebind(
-        &mut store,
-        REALM,
-        &placed.placement_id,
-        &notice(),
-        "epi-1",
-        "att-successor",
-        successor,
-        2,
-    )
-    .unwrap();
-    assert_ne!(rebound.stable_binding_key, bound.stable_binding_key);
-    assert_eq!(rebound.fences, successor);
-    // Both rows exist: the predecessor stays in the audit closure.
-    let rows = bindings(&store);
-    assert_eq!(rows.len(), 2);
-    // And the predecessor cannot advance anything under the new fence.
-    assert_eq!(
-        episode::checkpoint(&mut store, &bound.stable_binding_key, successor, 3)
-            .unwrap_err()
-            .kind,
-        ProblemKind::StaleLease
+    // The Kovee-side fence advance a successor needs: a NEW invocation ref
+    // and a NEW fence, so the stable key is new and the predecessor's
+    // binding is fenced for every further mutation.
+    let advanced = episode::advance_invocation(&mut store, &placed.placement_id).unwrap();
+    assert_eq!(advanced.kovee_fence_epoch, placed.kovee_fence_epoch + 1);
+    assert_ne!(
+        advanced.record.kovee_invocation_ref,
+        placed.record.kovee_invocation_ref
     );
 }
 
-// ------------------------------------------------------------ orderly close ----
+// ------------------------------------------------------------ read surface ----
 
 #[test]
-fn a_complete_releases_the_binding_and_hands_off_the_reservations() {
-    let (mut store, stub) = fixture("k2-episode-complete");
-    let bound = activate(&mut store, &stub);
-    // Intra-episode mutations honor both fences.
-    episode::checkpoint(&mut store, &bound.stable_binding_key, bound.fences, 1).unwrap();
-    episode::complete(&mut store, &bound.stable_binding_key, bound.fences, 2).unwrap();
-    let row = &bindings(&store)[0];
-    assert_eq!(row["state"], json!("released"));
-    assert_eq!(row["episode_state"], json!("completed"));
-    // Terminal: the released row stays in the audit closure and advances
-    // nothing further.
+fn the_read_surface_reports_both_fences_and_the_byom_lease_revision() {
+    let (mut store, _endpoint, _channels) = fixture("k2-episode-show");
+    let bound = bind_attempt(&mut store, 7, 4);
+    let shown = show(&store, json!({"episode_ref": "ep-1"}));
+    let rows = shown["bindings"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["byom_fence_epoch"], json!(7));
+    assert_eq!(rows[0]["kovee_invocation_fence"], json!(1));
+    // byom's number, carried — never incremented locally.
+    assert_eq!(rows[0]["byom_lease_revision"], json!(4));
     assert_eq!(
-        episode::checkpoint(&mut store, &bound.stable_binding_key, bound.fences, 3)
-            .unwrap_err()
-            .kind,
-        ProblemKind::Forbidden
+        rows[0]["stable_binding_key"],
+        json!(bound.stable_binding_key)
+    );
+}
+
+// ---------------------------------------------------------------- erasure ----
+
+#[test]
+fn destroying_the_placement_secret_erases_the_episode_digests() {
+    let (mut store, endpoint, channels) = fixture("k2-episode-erasure");
+    let runtime = unreachable_runtime(&endpoint, &channels);
+    let bound = bind_attempt(&mut store, 7, 2);
+    let placement: String = store
+        .conn()
+        .query_row(
+            "SELECT placement_id FROM byom_episode_bindings WHERE stable_binding_key = ?1",
+            [&bound.stable_binding_key],
+            |r| r.get(0),
+        )
+        .unwrap();
+    // The secret is a RANDOM per-object blob, wrapped — not a root
+    // derivation (disposition D-R1-2).
+    let wrapped: Vec<u8> = store
+        .conn()
+        .query_row(
+            "SELECT object_secret FROM byom_placement_bindings WHERE placement_id = ?1",
+            [&placement],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(wrapped.len(), kovee_store::objkey::WRAPPED_LEN);
+
+    // Destroying it erases exactly these digests' verifiability: no
+    // further `local_erasure_safe` episode digest can be derived.
+    store
+        .conn()
+        .execute(
+            "UPDATE byom_placement_bindings SET object_secret = NULL WHERE placement_id = ?1",
+            [&placement],
+        )
+        .unwrap();
+    let refused = episode::checkpoint(
+        &mut store,
+        &runtime,
+        &bound.stable_binding_key,
+        bound.fences,
+        "ckpt-1",
+        1,
+    )
+    .unwrap_err();
+    assert_eq!(refused.kind, ProblemKind::Forbidden);
+    assert!(
+        refused
+            .detail
+            .as_ref()
+            .unwrap()
+            .contains("can no longer be re-derived"),
+        "{refused:?}"
     );
 }
 
