@@ -1420,3 +1420,73 @@ fn application_event_emit_matrix() {
         assert_dense(&recovered, &project);
     }
 }
+
+// ------------------------------------------------- staging cleanup (KV-C1) ----
+
+/// KV-C1: a crash between the artifact-finalize commit and its staging
+/// tidy-up used to leave the plaintext in BOTH the sealed store and
+/// staging, forever — exact replay returned before the cleanup and no
+/// sweeper existed. The startup mark-and-sweep and the replay-path
+/// cleanup both have to remove it.
+#[test]
+fn a_crash_before_staging_cleanup_leaves_no_plaintext_staging_copy() {
+    let base = tmp("k1-matrix-staging-sweep");
+    let data = base.join("data");
+    let run = base.join("run");
+    let plaintext = b"staging plaintext: the second copy that must not survive";
+
+    let healthy = DaemonProc::start(&data, &run, None);
+    let (upload_id, artifact_id, finalize) = artifact_setup(&healthy, plaintext);
+    let staging = data
+        .join("artifacts")
+        .join("staging")
+        .join(upload_id.clone());
+    assert!(staging.exists(), "the staging copy exists before finalize");
+    drop(healthy);
+
+    // Die after the finalize commit, before the tidy-up.
+    let armed = DaemonProc::start(&data, &run, Some("after_commit:artifact_upload_finalize"));
+    assert!(armed.request_raw(&finalize).is_none());
+    armed.wait_dead();
+    assert!(
+        staging.exists(),
+        "the crash must genuinely leave the staging copy behind"
+    );
+    assert!(
+        std::fs::read(&staging).unwrap() == plaintext,
+        "…and it is the plaintext"
+    );
+
+    // Restart: the startup mark-and-sweep removes it against a fresh
+    // database reference check (the upload is `completed`).
+    let recovered = DaemonProc::start(&data, &run, None);
+    assert_eq!(artifact_state(&recovered, &artifact_id), "available");
+    assert!(
+        !staging.exists(),
+        "the startup sweep must remove the orphaned staging blob"
+    );
+
+    // The replay still answers, and cleanup is part of the replay too: a
+    // staging copy that reappears after the commit (a slow provider
+    // write, a partially-run retry) is removed by the next replay rather
+    // than waiting for the next restart.
+    std::fs::write(&staging, plaintext).unwrap();
+    let raw_first = recovered.request_raw(&finalize).unwrap();
+    assert!(
+        !staging.exists(),
+        "the finalize replay must clean staging idempotently"
+    );
+    let raw_second = recovered.request_raw(&finalize).unwrap();
+    assert_eq!(raw_first, raw_second, "replay stays byte-identical");
+
+    // A staging blob whose upload row never existed is swept as well.
+    let orphan = data.join("artifacts").join("staging").join("upl-ghost");
+    std::fs::write(&orphan, plaintext).unwrap();
+    drop(recovered);
+    let restarted = DaemonProc::start(&data, &run, None);
+    assert!(
+        !orphan.exists(),
+        "an unreferenced staging blob is swept at startup"
+    );
+    drop(restarted);
+}

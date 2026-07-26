@@ -720,8 +720,37 @@ CREATE TABLE greenfield_enablements (
 ) STRICT;
 "#;
 
+/// Version 5: the R1 erasure corrections (KV-A5-1, KV-A5-2, D-R1-2).
+///
+/// - `artifact_uploads.declared_raw_sha256` is DROPPED: the caller's raw
+///   checksum is transient (compared once, during sealing) and never
+///   durable. Its place is taken by `declared_raw_commitment` — the HMAC
+///   of the declared checksum under the artifact's own per-object secret,
+///   so finalization can still verify the declaration while destroying
+///   the secret destroys the commitment's meaning.
+/// - Pre-V5 rows kept the RAW per-object secret beside the object (the
+///   KV-A5-2 finding). Those raw secrets are destroyed here; from V5 on
+///   `artifacts.object_secret` / `contributions.object_secret` hold the
+///   secret WRAPPED under the realm key (`kovee_store::objkey`). A
+///   pre-V5 artifact therefore keeps its row and its bytes but loses
+///   keyed verifiability — the honest cost of removing a secret that
+///   should never have been stored in the clear.
+/// - A pre-V5 contribution keeps whatever `content_digest` it was
+///   written with (SQL cannot recompute HMACs). `contribution_redact`
+///   re-keys such a row under a fresh wrapped secret and scrubs every
+///   retained copy of the old plaintext digest; contributions appended
+///   from V5 on are keyed from their FIRST append and never carry a
+///   plaintext-derived digest at all.
+const V5: &str = r#"
+ALTER TABLE artifact_uploads ADD COLUMN declared_raw_commitment TEXT;
+ALTER TABLE artifact_uploads DROP COLUMN declared_raw_sha256;
+
+UPDATE artifacts SET object_secret = NULL WHERE object_secret IS NOT NULL;
+UPDATE contributions SET object_secret = NULL WHERE object_secret IS NOT NULL;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1), (2, V2), (3, V3), (4, V4), (5, V5)];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting
 /// journal mode so the caller can fail closed when WAL did not take
@@ -733,6 +762,10 @@ pub fn open_and_migrate(conn: &Connection) -> rusqlite::Result<String> {
     // Durability over raw speed: an acknowledged command must survive a
     // crash (§12.2 step 10 commits before replying).
     conn.pragma_update(None, "synchronous", "FULL")?;
+    // Erasure honesty (amendment A5, D-R1-2): freed cells are zeroed
+    // rather than left as readable residue, so redacted plaintext does
+    // not survive in the file as a deleted-but-intact record.
+    conn.pragma_update(None, "secure_delete", true)?;
 
     let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     for (target, ddl) in MIGRATIONS {

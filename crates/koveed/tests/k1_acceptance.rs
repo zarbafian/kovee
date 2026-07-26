@@ -172,17 +172,24 @@ fn acceptance_one_synthesis_and_addresses_after_kill_and_restart() {
         Some(0)
     );
 
-    // Re-running the whole assistant flow replays every step: still one
-    // synthesis, one relation.
+    // Re-running the whole assistant flow after the invocation has
+    // COMPLETED commits nothing new — and, since KV-R1, does not hand
+    // the finished attempt its old receipts either: the completed
+    // attempt is refused `stale-lease` at its first write, without
+    // re-execution. (The mid-flow replay above, with the attempt still
+    // running, is the one this daemon is required to serve.)
     let mut rerun = spawn_reviewer(&run, &project, &space, &branch, &question_id, "review-1");
     let status = rerun.wait().expect("rerun exits");
-    assert!(status.success(), "the replayed run must succeed");
+    assert!(
+        !status.success(),
+        "a completed attempt must not be able to replay its writes"
+    );
     let events_after = recovered.expect_ok(&events_read(&project));
     let list_after = events_after["result"]["events"].as_array().unwrap();
     assert_eq!(
         list_after.len(),
         list.len(),
-        "a replayed run commits nothing new"
+        "a refused replay commits nothing new"
     );
 
     // The Stream and Workbench lenses render the flow (presentation

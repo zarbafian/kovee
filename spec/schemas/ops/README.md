@@ -328,7 +328,12 @@ the bundle; a conflicting later registry/spec freeze wins.
   bearer secrets and every fetch reauthorizes, §10.10).
   `declared_raw_sha256`/`raw_sha256` are ordinary raw checksum fields —
   §11.8 makes them a different field type from the typed digests, never
-  interchangeable.
+  interchangeable. **R1 correction (KV-A5-2, D-R1-2):** both are now
+  OPTIONAL in every result schema and koveed never emits either. The
+  caller's declared checksum is transient — compared once during sealing
+  against a commitment keyed by the artifact's own per-object secret —
+  so it reaches no durable row, no wire projection, and no stored replay
+  result; destroying the secret destroys the commitment with the object.
 - **KG30 — immutable-record revisions.** Result projections follow KG4
   verbatim (unmarked fields required, `?`-marked optional); immutable
   records additionally pin `revision` const 1 per the §10 preamble ("every

@@ -236,7 +236,8 @@ fn result_projections_deserialize_from_vectors() {
         "upload_id",
         "artifact_id",
         "state",
-        "declared_raw_sha256",
+        "declared_size",
+        "declared_media_type",
         "max_bytes",
         "expires_at",
     ] {
@@ -246,6 +247,12 @@ fn result_projections_deserialize_from_vectors() {
         );
     }
     assert!(value.get("credential").is_none(), "§10.10: no credential");
+    // Amendment A5 / D-R1-2 (KV-A5-2): the caller's raw checksum is
+    // transient — a begin result never hands it back out of storage.
+    assert!(
+        value.get("declared_raw_sha256").is_none(),
+        "A5: the declared raw checksum is never a durable result member"
+    );
 }
 
 #[test]

@@ -615,9 +615,12 @@ fn dispositions_and_erasure_safe_redaction() {
     );
     assert_eq!(body[0]["text"].as_str(), Some(""));
     let new_digest = after["result"]["content_digest"].as_str().unwrap();
-    assert_ne!(
+    // KV-A5-1 / D-R1-2: the digest was `local_erasure_safe` from the
+    // FIRST append, so redaction does not have to move it — there was
+    // never a plaintext-derived value for a retained copy to hold.
+    assert_eq!(
         new_digest, old_digest,
-        "the plaintext canonical digest is gone"
+        "a keyed content digest survives redaction unchanged"
     );
     assert_eq!(new_digest.len(), 64, "the keyed digest value is 64 hex");
 
@@ -629,9 +632,11 @@ fn dispositions_and_erasure_safe_redaction() {
         !text.contains(secret_text),
         "no event payload may retain redacted plaintext"
     );
+    // The keyed digest is still there (it is not plaintext-derived) and
+    // still names the same object.
     assert!(
-        !text.contains(&old_digest),
-        "no event payload may retain the plaintext canonical digest"
+        text.contains(&old_digest),
+        "the keyed digest stays: it is the object's stable content address"
     );
     // Dense sequences preserved through the disposition flow.
     for (i, event) in events["result"]["events"]

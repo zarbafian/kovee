@@ -351,3 +351,137 @@ fn content_address_is_local_erasure_safe_and_off_the_wire() {
         .unwrap();
     assert_eq!(scan_results, "[]");
 }
+
+// ------------------------------------------------ A5-2 erasure (R1) ----
+
+/// Every byte the fixture keeps on disk: the database, its WAL and
+/// shared memory, and the artifact store.
+fn all_stored_bytes(dir: &std::path::Path) -> Vec<u8> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<u8>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if let Ok(mut content) = std::fs::read(&path) {
+                out.append(&mut content);
+                out.push(0);
+            }
+        }
+    }
+    let mut bytes = Vec::new();
+    walk(dir, &mut bytes);
+    assert!(!bytes.is_empty());
+    bytes
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// KV-A5-2 / D-R1-2: the declared checksum is transient, the per-object
+/// secret is wrapped under the realm key (never raw beside the object),
+/// and erasure removes the blob, destroys the secret, and leaves a
+/// tombstone. Proved by grepping the artifact store AND the database.
+#[test]
+fn the_checksum_is_transient_the_secret_is_wrapped_and_erasure_removes_both() {
+    let plaintext = b"artifact plaintext that must be erasable";
+    let mut fx = Fixture::new("a5-2-erasure", plaintext);
+    let checksum = sha256_hex(plaintext);
+    fx.finalize(FinalizeHooks::NONE).unwrap();
+    assert_eq!(fx.artifact_state(), "available");
+
+    // The stored secret is a WRAP, not key material: it opens only under
+    // the realm key for this exact object.
+    let wrapped: Vec<u8> = fx
+        .store
+        .conn()
+        .query_row(
+            "SELECT object_secret FROM artifacts WHERE artifact_id = ?1",
+            [&fx.artifact_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(wrapped.len(), kovee_store::objkey::WRAPPED_LEN);
+    let realm_key = fx.store.realm_object_key().unwrap();
+    let key_ref = format!("kovee-artifact-object:{}", fx.artifact_id);
+    let secret = kovee_store::objkey::unwrap(&realm_key, &key_ref, &wrapped).unwrap();
+    assert!(
+        kovee_store::objkey::unwrap(&realm_key, "kovee-artifact-object:art-other", &wrapped)
+            .is_err(),
+        "the wrap is bound to its own object"
+    );
+
+    // While the artifact is live: no raw secret and no checksum anywhere
+    // on disk — only the wrap and the keyed commitment.
+    let live = all_stored_bytes(&fx.dir);
+    assert!(
+        !contains(&live, &secret),
+        "the raw per-object secret must never sit beside the object"
+    );
+    assert!(
+        !contains(&live, checksum.as_bytes()),
+        "the declared raw checksum must never be durable"
+    );
+    assert!(
+        contains(&live, plaintext),
+        "the sealed bytes must be there before erasure"
+    );
+    // Nothing on the wire carries them either.
+    let upload = kovee_artifacts::get_upload(fx.store.conn(), &fx.upload_id)
+        .unwrap()
+        .unwrap();
+    let projection = serde_json::to_string(&upload).unwrap();
+    assert!(!projection.contains(&checksum));
+
+    // ---- erase ----
+    let erased = kovee_artifacts::erase_artifact(
+        fx.store.conn(),
+        &fx.paths,
+        &fx.artifact_id,
+        0,
+        "2026-07-26T00:00:00Z",
+    )
+    .unwrap();
+    assert!(erased);
+    fx.store.compact_after_erasure().unwrap();
+
+    let after = all_stored_bytes(&fx.dir);
+    assert!(!contains(&after, plaintext), "the blob bytes survived");
+    assert!(!contains(&after, &wrapped), "the wrapped secret survived");
+    assert!(!contains(&after, &secret), "the secret survived");
+    assert!(
+        !contains(&after, checksum.as_bytes()),
+        "the checksum survived"
+    );
+
+    // The tombstone: the object is still named, with no content.
+    let artifact = kovee_artifacts::get_artifact(fx.store.conn(), &fx.artifact_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(artifact.state, "erased");
+    assert_eq!(artifact.artifact_id, fx.artifact_id);
+    assert!(artifact.size.is_none());
+    assert!(artifact.sealed_storage_ref.is_none());
+    // Erasure is idempotent.
+    assert!(kovee_artifacts::erase_artifact(
+        fx.store.conn(),
+        &fx.paths,
+        &fx.artifact_id,
+        0,
+        "2026-07-26T00:00:00Z"
+    )
+    .unwrap());
+
+    // Erasing one object leaves an unrelated one intact — the point of a
+    // per-object secret rather than a scope key.
+    let other = Fixture::new("a5-2-erasure-other", b"a different artifact");
+    other_still_verifies(other);
+}
+
+fn other_still_verifies(mut other: Fixture) {
+    other.finalize(FinalizeHooks::NONE).unwrap();
+    assert_eq!(other.artifact_state(), "available");
+}

@@ -26,8 +26,18 @@
 //!     |_| unreachable!("a replay never re-executes")).unwrap();
 //! assert_eq!(outcome.bytes(), replay.bytes());
 //! ```
+//!
+//! Two R1 corrections live in that one function:
+//! - [`Store::command_transaction_guarded`] runs an operation-specific
+//!   **replay authorizer** before any stored byte is released (KV-R1), so
+//!   a dead worker attempt gets a typed problem, not its old receipt;
+//! - the §11.8 **result bounds are judged inside the transaction**
+//!   (KV-C2), so an over-cap result rolls the command back instead of
+//!   committing a receipt every reply — original and replay — would have
+//!   to answer with `internal`.
 
 pub mod audit;
+pub mod objkey;
 pub mod privacy;
 pub mod schema;
 
@@ -55,6 +65,16 @@ const META_PRIVACY_CHAIN_KEY: &str = "privacy_chain_key";
 /// Destroying it erases verifiability of the whole governance scope,
 /// never of one binding row.
 const META_GOVERNANCE_SCOPE_KEY: &str = "governance_scope_key";
+/// The realm (Society) key that WRAPS every per-object erasure secret
+/// (D-R1-2). It is a key-encryption key only: no object digest is
+/// derived from it, so it is never the thing an object's verifiability
+/// rests on. Erasing one object destroys that object's wrapped secret
+/// and nothing else.
+const META_REALM_OBJECT_KEY: &str = "realm_object_key";
+/// Set inside an erasure transaction, cleared once the file-level
+/// compaction that removes freed plaintext pages has run. A crash
+/// between the two leaves the flag set and the next open compacts.
+const META_ERASURE_COMPACTION_PENDING: &str = "erasure_compaction_pending";
 
 /// The deterministic personal-profile realm id: the personal profile has
 /// exactly one realm and no `realm_create` operation exists before K3
@@ -376,16 +396,25 @@ impl Store {
             )));
         }
         let store = Store { conn };
-        // A database bootstrapped before V2/V4 has no privacy chain key
-        // and no governance scope key — mint them once (secrets need
-        // entropy, so migrations cannot).
+        // A database bootstrapped before V2/V4/V5 has no privacy chain
+        // key, governance scope key, or realm object key — mint them
+        // once (secrets need entropy, so migrations cannot).
         if schema::meta_get(&store.conn, META_INSTALLATION_ID)?.is_some() {
-            for name in [META_PRIVACY_CHAIN_KEY, META_GOVERNANCE_SCOPE_KEY] {
+            for name in [
+                META_PRIVACY_CHAIN_KEY,
+                META_GOVERNANCE_SCOPE_KEY,
+                META_REALM_OBJECT_KEY,
+            ] {
                 if schema::meta_get(&store.conn, name)?.is_none() {
                     let mut key = [0u8; 32];
                     fill_random(&mut key)?;
                     schema::meta_set(&store.conn, name, &key)?;
                 }
+            }
+            // A crash between an erasure commit and its compaction left
+            // freed plaintext pages in the file: finish the job now.
+            if schema::meta_get(&store.conn, META_ERASURE_COMPACTION_PENDING)?.is_some() {
+                store.compact_after_erasure()?;
             }
         }
         Ok(store)
@@ -405,12 +434,15 @@ impl Store {
         fill_random(&mut chain_key)?;
         let mut governance_key = [0u8; 32];
         fill_random(&mut governance_key)?;
+        let mut realm_object_key = [0u8; 32];
+        fill_random(&mut realm_object_key)?;
         let tx = self.conn.unchecked_transaction()?;
         schema::meta_set(&tx, META_INSTALLATION_ID, installation_id.as_bytes())?;
         schema::meta_set(&tx, META_REALM_ID, PERSONAL_REALM_ID.as_bytes())?;
         schema::meta_set(&tx, META_CURSOR_SECRET, &secret)?;
         schema::meta_set(&tx, META_PRIVACY_CHAIN_KEY, &chain_key)?;
         schema::meta_set(&tx, META_GOVERNANCE_SCOPE_KEY, &governance_key)?;
+        schema::meta_set(&tx, META_REALM_OBJECT_KEY, &realm_object_key)?;
         tx.execute(
             "INSERT INTO realms (realm_id, installation_id, revision, name, status,
                  home_region, auth_policy_ref, retention_policy_ref,
@@ -460,6 +492,46 @@ impl Store {
         hooks: CrashHooks,
         apply: impl FnOnce(&mut CommandTxn) -> Result<Applied, Problem>,
     ) -> Result<CommandOutcome, CommandError> {
+        self.command_transaction_guarded(scope, now, hooks, |_| Ok(()), apply)
+    }
+
+    /// The §12.2 command transaction with an **operation-specific replay
+    /// authorizer** (§11.2 replay reauthorization, KV-R1).
+    ///
+    /// Stored result bytes are released ONLY after `replay_authorizer`
+    /// re-checks this operation's current resources and dependency set
+    /// inside the same transaction. A stale worker attempt, a completed
+    /// attempt, or an advanced fence therefore receives its typed
+    /// problem — never its old receipt, and never a re-execution.
+    ///
+    /// ```
+    /// # use kovee_store::*;
+    /// # use kovee_core::problem::{Problem, ProblemKind};
+    /// let mut store = Store::open_in_memory().unwrap();
+    /// store.bootstrap(0).unwrap();
+    /// let scope = CommandScope {
+    ///     actor_scope: "worker/inv-1/realm-personal".into(),
+    ///     operation: "contribution_append".into(),
+    ///     idempotency_key: "k".into(),
+    ///     request_digest: "d".repeat(64),
+    /// };
+    /// store.command_transaction(&scope, 0, CrashHooks::NONE, |_| Ok(Applied {
+    ///     result: serde_json::json!({"ok": true}), revision: Some(1), event_cursor: None,
+    /// })).unwrap();
+    /// // The lease is gone: the replay is refused, not served.
+    /// let err = store.command_transaction_guarded(&scope, 0, CrashHooks::NONE,
+    ///     |_| Err(Problem::new(ProblemKind::StaleLease, "attempt binding is not current")),
+    ///     |_| unreachable!("a refused replay never re-executes")).unwrap_err();
+    /// assert!(matches!(err, CommandError::Problem(p) if p.kind == ProblemKind::StaleLease));
+    /// ```
+    pub fn command_transaction_guarded(
+        &mut self,
+        scope: &CommandScope,
+        now: i64,
+        hooks: CrashHooks,
+        replay_authorizer: impl FnOnce(&Connection) -> Result<(), Problem>,
+        apply: impl FnOnce(&mut CommandTxn) -> Result<Applied, Problem>,
+    ) -> Result<CommandOutcome, CommandError> {
         let installation_id = self.installation_id()?;
         let realm_id = schema::meta_get_text(&self.conn, META_REALM_ID)?
             .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))?;
@@ -476,9 +548,15 @@ impl Store {
             .optional()?;
         if let Some((stored_digest, stored_result)) = prior {
             if stored_digest == scope.request_digest {
-                // §11.2: replay reauthorization against the current
-                // dependency set — trivially satisfied in the personal
-                // profile (the same-UID owner is the only principal).
+                // §11.2 replay reauthorization (KV-R1): the
+                // operation-specific authorizer re-checks the current
+                // resource and dependency set BEFORE any stored byte is
+                // released. Channel authentication (§12.2 step 1) has
+                // already happened; this is the per-operation half.
+                if let Err(problem) = replay_authorizer(&tx) {
+                    tx.rollback()?;
+                    return Err(CommandError::Problem(problem));
+                }
                 return Ok(CommandOutcome::Replayed(stored_result));
             }
             return Err(CommandError::Problem(
@@ -513,12 +591,33 @@ impl Store {
         }
 
         // Step 9: persist the canonical result for idempotent replay.
+        // KV-C2: the §11.8 result bounds are judged INSIDE the
+        // transaction. An over-cap result rolls the whole command back,
+        // so a committed receipt can never be permanently unobtainable
+        // (previously state/events/outbox/idempotency committed and every
+        // reply — original and replay — was `internal`).
+        let bounds = check_result_bounds(&applied.result);
         let result = kovee_core::envelope::CommandResult::Ok {
             result: applied.result,
             revision: applied.revision,
             event_cursor: applied.event_cursor.clone(),
         };
         let bytes = serde_json::to_vec(&result).map_err(StoreError::from)?;
+        let bounds = bounds.and_then(|()| {
+            if bytes.len() > kovee_core::limits::REPLY_MAX_BYTES {
+                Err(over_cap(format!(
+                    "the serialized result is {} bytes; the §11.8 reply cap is {}",
+                    bytes.len(),
+                    kovee_core::limits::REPLY_MAX_BYTES
+                )))
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(problem) = bounds {
+            tx.rollback()?;
+            return Err(CommandError::Problem(problem));
+        }
         tx.execute(
             "INSERT INTO idempotency_records
                  (actor_scope, operation, idempotency_key, request_digest,
@@ -730,6 +829,37 @@ impl Store {
             .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
     }
 
+    /// The realm (Society) key that wraps per-object erasure secrets
+    /// (D-R1-2). Never a digest key: destroying it would only make
+    /// wrapped secrets unopenable, and no object's digest derives from
+    /// it.
+    pub fn realm_object_key(&self) -> Result<Vec<u8>, StoreError> {
+        realm_object_key_of(&self.conn)
+    }
+
+    /// Rewrites the file so pages freed by an erasure carry no residue:
+    /// checkpoint the WAL away, VACUUM the main file, checkpoint again.
+    /// `secure_delete` already zeroes freed cells; this closes the
+    /// file-level residue (old page images in the WAL, free pages) that
+    /// a byte-level grep would otherwise still find.
+    pub fn compact_after_erasure(&self) -> Result<(), StoreError> {
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .optional()?;
+        self.conn.execute_batch("VACUUM")?;
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .optional()?;
+        self.conn.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [META_ERASURE_COMPACTION_PENDING],
+        )?;
+        self.conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .optional()?;
+        Ok(())
+    }
+
     /// Looks up a stored idempotency record outside a command transaction
     /// (§10.10 artifact finalization pre-checks its key before its
     /// non-atomic seal pipeline). Returns `(request_digest, result)`.
@@ -755,6 +885,62 @@ impl Store {
 pub fn governance_scope_key_of(conn: &Connection) -> Result<Vec<u8>, StoreError> {
     schema::meta_get(conn, META_GOVERNANCE_SCOPE_KEY)?
         .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
+}
+
+/// The realm object-wrapping key read from an OPEN transaction (objects
+/// are minted and erased inside command transactions).
+pub fn realm_object_key_of(conn: &Connection) -> Result<Vec<u8>, StoreError> {
+    schema::meta_get(conn, META_REALM_OBJECT_KEY)?
+        .ok_or_else(|| StoreError::Corrupt("store is not bootstrapped".to_owned()))
+}
+
+/// Marks, inside an open erasure transaction, that the file still holds
+/// freed plaintext pages. [`Store::compact_after_erasure`] clears it.
+pub fn mark_erasure_compaction_pending(conn: &Connection) -> Result<(), StoreError> {
+    schema::meta_set(conn, META_ERASURE_COMPACTION_PENDING, b"1")?;
+    Ok(())
+}
+
+/// The §11.7 problem an over-cap result raises inside the transaction.
+fn over_cap(detail: String) -> Problem {
+    Problem::new(
+        ProblemKind::Invalid,
+        "the result exceeds the §11.8 reply bounds",
+    )
+    .with_detail(detail)
+}
+
+/// §11.8 result bounds checked before the idempotency record is written:
+/// no array in the result may exceed [`kovee_core::limits::LIST_MAX_ITEMS`].
+/// An unbounded accumulation (policy-change preparation's frontier list,
+/// repeated frontier pins) fails the command instead of committing a
+/// receipt nobody can ever read back.
+fn check_result_bounds(result: &Value) -> Result<(), Problem> {
+    fn walk(value: &Value, path: &str) -> Result<(), Problem> {
+        match value {
+            Value::Array(items) => {
+                if items.len() > kovee_core::limits::LIST_MAX_ITEMS {
+                    return Err(over_cap(format!(
+                        "result member {path} carries {} items; the §11.8 list cap is {}",
+                        items.len(),
+                        kovee_core::limits::LIST_MAX_ITEMS
+                    )));
+                }
+                for (i, item) in items.iter().enumerate() {
+                    walk(item, &format!("{path}[{i}]"))?;
+                }
+                Ok(())
+            }
+            Value::Object(map) => {
+                for (key, item) in map {
+                    walk(item, &format!("{path}.{key}"))?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+    walk(result, "result")
 }
 
 /// The decoded payload of an opaque authenticated cursor/snapshot token.
@@ -795,7 +981,7 @@ pub fn new_id(prefix: &str) -> Result<String, StoreError> {
     Ok(format!("{prefix}-{}", hex(&bytes)))
 }
 
-fn fill_random(out: &mut [u8]) -> Result<(), StoreError> {
+pub(crate) fn fill_random(out: &mut [u8]) -> Result<(), StoreError> {
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(out))
         .map_err(StoreError::Entropy)
@@ -880,6 +1066,64 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn an_over_cap_result_commits_nothing_at_all() {
+        // KV-C2: the bound is judged inside the transaction, so the
+        // over-cap command leaves no event, no outbox row, and — the
+        // point — no idempotency record whose stored bytes every replay
+        // would have to answer with `internal`.
+        let mut store = Store::open_in_memory().unwrap();
+        store.bootstrap(0).unwrap();
+        let scope = CommandScope {
+            actor_scope: "s".into(),
+            operation: "project_access_policy_change_prepare".into(),
+            idempotency_key: "k".into(),
+            request_digest: "a".repeat(64),
+        };
+        let oversized: Vec<Value> = (0..kovee_core::limits::LIST_MAX_ITEMS + 1)
+            .map(|i| Value::from(format!("front-{i}")))
+            .collect();
+        let err = store
+            .command_transaction(&scope, 0, CrashHooks::NONE, |txn| {
+                txn.enqueue_outbox("d-1", "event", &serde_json::json!({}))
+                    .map_err(|_| Problem::new(ProblemKind::Internal, "outbox"))?;
+                Ok(Applied {
+                    result: serde_json::json!({"affected": oversized}),
+                    revision: Some(1),
+                    event_cursor: None,
+                })
+            })
+            .unwrap_err();
+        match err {
+            CommandError::Problem(p) => {
+                assert_eq!(p.kind, ProblemKind::Invalid);
+                assert!(p.detail.unwrap_or_default().contains("affected"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let (outbox, idem): (i64, i64) = (
+            store
+                .conn()
+                .query_row("SELECT COUNT(*) FROM outbox", [], |r| r.get(0))
+                .unwrap(),
+            store
+                .conn()
+                .query_row("SELECT COUNT(*) FROM idempotency_records", [], |r| r.get(0))
+                .unwrap(),
+        );
+        assert_eq!((outbox, idem), (0, 0), "no receipt may be left behind");
+        // And the same key is still free: the caller can narrow and retry.
+        store
+            .command_transaction(&scope, 0, CrashHooks::NONE, |_| {
+                Ok(Applied {
+                    result: serde_json::json!({"affected": ["front-0"]}),
+                    revision: Some(1),
+                    event_cursor: None,
+                })
+            })
+            .unwrap();
     }
 
     #[test]

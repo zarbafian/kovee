@@ -10,7 +10,6 @@
     "artifact_id",
     "revision",
     "state",
-    "declared_raw_sha256",
     "declared_size",
     "declared_media_type",
     "classification_ref",
@@ -32,7 +31,8 @@
       "$ref": "#/$defs/uploadState"
     },
     "declared_raw_sha256": {
-      "$ref": "#/$defs/rawSha256"
+      "$ref": "#/$defs/rawSha256",
+      "description": "Amendment A5 / D-R1-2 (KV-A5-2): the caller's declared raw checksum is TRANSIENT — compared once during sealing through a commitment keyed by the artifact's per-object secret, and never written to a durable row, a wire projection, or a stored replay result. The member stays defined (and optional) so an implementation that has not moved to keyed commitments still validates; koveed never emits it."
     },
     "declared_size": {
       "$ref": "#/$defs/safeNonNegativeInteger"

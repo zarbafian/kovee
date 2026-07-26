@@ -339,153 +339,175 @@ pub fn invocation_claim(
     now: i64,
     hooks: CrashHooks,
 ) -> Result<Vec<u8>, Problem> {
-    let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        let invocation = get_invocation(txn.conn(), &args.invocation_id)
-            .map_err(store_problem)?
-            .ok_or_else(not_found)?;
-        if matches!(invocation.state.as_str(), "canceled" | "failed") {
-            return Err(stale_lease("invocation is terminal"));
-        }
-        // Deterministic K1 attempt: the same id across re-claims, so a
-        // retried worker replays instead of forking a second writer.
-        let attempt_id = format!("att-{}", invocation.invocation_id);
-        let existing = get_attempt(txn.conn(), &attempt_id).map_err(store_problem)?;
-        let attempt = match existing {
-            Some(attempt) => attempt,
-            None => {
-                txn.conn()
-                    .execute(
-                        "INSERT INTO invocation_attempts (attempt_id, invocation_id,
+    // KV-R1: the claim's own current-resource check is also its replay
+    // authorizer — a re-claim of a terminated invocation is refused, not
+    // answered from the stored receipt.
+    let replay_invocation = args.invocation_id.clone();
+    let outcome = store.command_transaction_guarded(
+        &scope,
+        now,
+        hooks,
+        move |conn| claim_still_authorized(conn, &replay_invocation),
+        move |txn| {
+            let invocation = get_invocation(txn.conn(), &args.invocation_id)
+                .map_err(store_problem)?
+                .ok_or_else(not_found)?;
+            if matches!(invocation.state.as_str(), "canceled" | "failed") {
+                return Err(stale_lease("invocation is terminal"));
+            }
+            // Deterministic K1 attempt: the same id across re-claims, so a
+            // retried worker replays instead of forking a second writer.
+            let attempt_id = format!("att-{}", invocation.invocation_id);
+            let existing = get_attempt(txn.conn(), &attempt_id).map_err(store_problem)?;
+            let attempt = match existing {
+                Some(attempt) => attempt,
+                None => {
+                    txn.conn()
+                        .execute(
+                            "INSERT INTO invocation_attempts (attempt_id, invocation_id,
                              ordinal, worker_instance_id, fence_epoch, state,
                              lease_expires_at, started_at, ended_at, result_ref)
                          VALUES (?1, ?2, 1, 'worker-local', 1, 'running', NULL,
                              ?3, NULL, NULL)",
-                        params![attempt_id, invocation.invocation_id, txn.now_ts()],
-                    )
-                    .map_err(|e| store_problem(e.into()))?;
-                AttemptRow {
-                    attempt_id: attempt_id.clone(),
-                    invocation_id: invocation.invocation_id.clone(),
-                    ordinal: 1,
-                    fence_epoch: 1,
-                    state: "running".to_owned(),
+                            params![attempt_id, invocation.invocation_id, txn.now_ts()],
+                        )
+                        .map_err(|e| store_problem(e.into()))?;
+                    AttemptRow {
+                        attempt_id: attempt_id.clone(),
+                        invocation_id: invocation.invocation_id.clone(),
+                        ordinal: 1,
+                        fence_epoch: 1,
+                        state: "running".to_owned(),
+                    }
                 }
-            }
-        };
-        let mut record = invocation.record.clone();
-        if matches!(invocation.state.as_str(), "queued" | "claimed") {
-            record["state"] = Value::String("running".to_owned());
-            record["revision"] = Value::from(invocation.revision + 1);
-            txn.conn()
-                .execute(
-                    "UPDATE invocations SET state = 'running',
-                         revision = revision + 1, record = ?2
-                     WHERE invocation_id = ?1",
-                    params![
-                        invocation.invocation_id,
-                        serde_json::to_string(&record).map_err(|_| internal())?
-                    ],
-                )
-                .map_err(|e| store_problem(e.into()))?;
-            // §10.2: the deployment becomes an addressable participant
-            // of the space it will write into (contributor role).
-            if let Some(space_id) = &invocation.space_id {
-                let participant_id = new_id("part").map_err(store_problem)?;
+            };
+            let mut record = invocation.record.clone();
+            if matches!(invocation.state.as_str(), "queued" | "claimed") {
+                record["state"] = Value::String("running".to_owned());
+                record["revision"] = Value::from(invocation.revision + 1);
                 txn.conn()
                     .execute(
-                        "INSERT OR IGNORE INTO space_participants (participant_id,
+                        "UPDATE invocations SET state = 'running',
+                         revision = revision + 1, record = ?2
+                     WHERE invocation_id = ?1",
+                        params![
+                            invocation.invocation_id,
+                            serde_json::to_string(&record).map_err(|_| internal())?
+                        ],
+                    )
+                    .map_err(|e| store_problem(e.into()))?;
+                // §10.2: the deployment becomes an addressable participant
+                // of the space it will write into (contributor role).
+                if let Some(space_id) = &invocation.space_id {
+                    let participant_id = new_id("part").map_err(store_problem)?;
+                    txn.conn()
+                        .execute(
+                            "INSERT OR IGNORE INTO space_participants (participant_id,
                              space_id, subject_ref, subject_revision, kind, role,
                              authority_source_ref, status, revision)
                          VALUES (?1, ?2, ?3, 1, 'assistant_deployment',
                              'contributor', ?4, 'active', 1)",
-                        params![
-                            participant_id,
-                            space_id,
-                            deployment_actor_ref(),
-                            format!("invocation:{}", invocation.invocation_id),
-                        ],
-                    )
-                    .map_err(|e| store_problem(e.into()))?;
+                            params![
+                                participant_id,
+                                space_id,
+                                deployment_actor_ref(),
+                                format!("invocation:{}", invocation.invocation_id),
+                            ],
+                        )
+                        .map_err(|e| store_problem(e.into()))?;
+                }
+                txn.append_event(NewEvent {
+                    stream_id: invocation.invocation_id.clone(),
+                    project_id: Some(invocation.project_id.clone()),
+                    actor_ref: Some(deployment_actor_ref()),
+                    event_type: EVENT_INVOCATION_CLAIMED.to_owned(),
+                    schema_ref: INVOCATION_SCHEMA_REF.to_owned(),
+                    resource_ref: invocation.invocation_id.clone(),
+                    resource_revision: Some(invocation.revision + 1),
+                    causation_ref: meta.causation_event_ref.clone(),
+                    correlation_ref: meta.request_id.clone(),
+                    classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
+                    payload: serde_json::json!({
+                        "invocation_id": invocation.invocation_id,
+                        "state": "running",
+                        "attempt_id": attempt.attempt_id,
+                        "fence_epoch": attempt.fence_epoch,
+                    }),
+                })
+                .map_err(store_problem)?;
             }
-            txn.append_event(NewEvent {
-                stream_id: invocation.invocation_id.clone(),
-                project_id: Some(invocation.project_id.clone()),
-                actor_ref: Some(deployment_actor_ref()),
-                event_type: EVENT_INVOCATION_CLAIMED.to_owned(),
-                schema_ref: INVOCATION_SCHEMA_REF.to_owned(),
-                resource_ref: invocation.invocation_id.clone(),
-                resource_revision: Some(invocation.revision + 1),
-                causation_ref: meta.causation_event_ref.clone(),
-                correlation_ref: meta.request_id.clone(),
-                classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
-                payload: serde_json::json!({
-                    "invocation_id": invocation.invocation_id,
-                    "state": "running",
-                    "attempt_id": attempt.attempt_id,
-                    "fence_epoch": attempt.fence_epoch,
-                }),
-            })
-            .map_err(store_problem)?;
-        }
-        // Materialize the bound context: the assembly record, its pinned
-        // frontier, and each included contribution (re-authorized here —
-        // an assembly is never a bearer capability, §10.8).
-        let mut assembly_value = Value::Null;
-        let mut frontier_value = Value::Null;
-        let mut items = Vec::new();
-        if let Some(assembly_ref) = &invocation.context_assembly_ref {
-            let (_, assembly_record) = get_assembly_record(txn.conn(), assembly_ref)
-                .map_err(store_problem)?
-                .ok_or_else(not_found)?;
-            let assembly: ContextAssembly =
-                serde_json::from_value(assembly_record.clone()).map_err(|_| internal())?;
-            let frontier = get_frontier(txn.conn(), &assembly.frontier_ref)
-                .map_err(store_problem)?
-                .ok_or_else(not_found)?;
-            for item in &assembly.items {
-                let contribution = get_contribution(txn.conn(), &item.object_ref)
+            // Materialize the bound context: the assembly record, its pinned
+            // frontier, and each included contribution (re-authorized here —
+            // an assembly is never a bearer capability, §10.8).
+            let mut assembly_value = Value::Null;
+            let mut frontier_value = Value::Null;
+            let mut items = Vec::new();
+            if let Some(assembly_ref) = &invocation.context_assembly_ref {
+                let (_, assembly_record) = get_assembly_record(txn.conn(), assembly_ref)
                     .map_err(store_problem)?
-                    .filter(|c| c.space_id == assembly.space_id)
-                    .ok_or_else(|| {
-                        Problem::new(
+                    .ok_or_else(not_found)?;
+                let assembly: ContextAssembly =
+                    serde_json::from_value(assembly_record.clone()).map_err(|_| internal())?;
+                let frontier = get_frontier(txn.conn(), &assembly.frontier_ref)
+                    .map_err(store_problem)?
+                    .ok_or_else(not_found)?;
+                for item in &assembly.items {
+                    let contribution = get_contribution(txn.conn(), &item.object_ref)
+                        .map_err(store_problem)?
+                        .filter(|c| c.space_id == assembly.space_id)
+                        .ok_or_else(|| {
+                            Problem::new(
+                                ProblemKind::Unavailable,
+                                "assembly is no longer materializable",
+                            )
+                        })?;
+                    if contribution.content_digest != item.digest {
+                        return Err(Problem::new(
                             ProblemKind::Unavailable,
                             "assembly is no longer materializable",
-                        )
-                    })?;
-                if contribution.content_digest != item.digest {
-                    return Err(Problem::new(
-                        ProblemKind::Unavailable,
-                        "assembly is no longer materializable",
-                    ));
+                        ));
+                    }
+                    items.push(serde_json::to_value(&contribution).map_err(|_| internal())?);
                 }
-                items.push(serde_json::to_value(&contribution).map_err(|_| internal())?);
+                frontier_value = serde_json::to_value(&frontier).map_err(|_| internal())?;
+                assembly_value = assembly_record;
             }
-            frontier_value = serde_json::to_value(&frontier).map_err(|_| internal())?;
-            assembly_value = assembly_record;
-        }
-        txn.audit(
-            "command.invocation_claimed",
-            &format!(
-                "invocation={};attempt={};{}",
-                invocation.invocation_id,
-                attempt.attempt_id,
-                scope_digest(&meta)
-            ),
-        );
-        Ok(Applied {
-            result: serde_json::json!({
-                "invocation": record,
-                "attempt_id": attempt.attempt_id,
-                "fence_epoch": attempt.fence_epoch,
-                "assembly": assembly_value,
-                "frontier": frontier_value,
-                "items": items,
-            }),
-            revision: None,
-            event_cursor: None,
-        })
-    });
+            txn.audit(
+                "command.invocation_claimed",
+                &format!(
+                    "invocation={};attempt={};{}",
+                    invocation.invocation_id,
+                    attempt.attempt_id,
+                    scope_digest(&meta)
+                ),
+            );
+            Ok(Applied {
+                result: serde_json::json!({
+                    "invocation": record,
+                    "attempt_id": attempt.attempt_id,
+                    "fence_epoch": attempt.fence_epoch,
+                    "assembly": assembly_value,
+                    "frontier": frontier_value,
+                    "items": items,
+                }),
+                revision: None,
+                event_cursor: None,
+            })
+        },
+    );
     command_outcome_bytes(outcome)
+}
+
+/// The replay authorization of `invocation_claim`: the invocation must
+/// still exist and must not be terminal.
+fn claim_still_authorized(conn: &Connection, invocation_id: &str) -> Result<(), Problem> {
+    let invocation = get_invocation(conn, invocation_id)
+        .map_err(store_problem)?
+        .ok_or_else(not_found)?;
+    if matches!(invocation.state.as_str(), "canceled" | "failed") {
+        return Err(stale_lease("invocation is terminal"));
+    }
+    Ok(())
 }
 
 // ------------------------------------------- worker: invocation_complete ----
@@ -510,70 +532,90 @@ pub fn invocation_complete(
     now: i64,
     hooks: CrashHooks,
 ) -> Result<Vec<u8>, Problem> {
-    let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        let (attempt, invocation) = check_binding(txn.conn(), &args.attempt_id, args.fence_epoch)?;
-        if attempt.invocation_id != args.invocation_id
-            || invocation.invocation_id != args.invocation_id
-        {
-            return Err(stale_lease("attempt does not bind this invocation"));
-        }
-        let mut record = invocation.record.clone();
-        let now_ts = txn.now_ts();
-        record["state"] = Value::String("succeeded".to_owned());
-        record["revision"] = Value::from(invocation.revision + 1);
-        record["terminal_at"] = Value::String(now_ts.clone());
-        txn.conn()
-            .execute(
-                "UPDATE invocations SET state = 'succeeded', revision = revision + 1,
+    // KV-R1: the fenced binding is re-checked before stored bytes are
+    // released, so a completed attempt or an advanced fence cannot
+    // collect its old success receipt.
+    let replay_args = args.clone();
+    let outcome = store.command_transaction_guarded(
+        &scope,
+        now,
+        hooks,
+        move |conn| {
+            let (attempt, invocation) =
+                check_binding(conn, &replay_args.attempt_id, replay_args.fence_epoch)?;
+            if attempt.invocation_id != replay_args.invocation_id
+                || invocation.invocation_id != replay_args.invocation_id
+            {
+                return Err(stale_lease("attempt does not bind this invocation"));
+            }
+            Ok(())
+        },
+        move |txn| {
+            let (attempt, invocation) =
+                check_binding(txn.conn(), &args.attempt_id, args.fence_epoch)?;
+            if attempt.invocation_id != args.invocation_id
+                || invocation.invocation_id != args.invocation_id
+            {
+                return Err(stale_lease("attempt does not bind this invocation"));
+            }
+            let mut record = invocation.record.clone();
+            let now_ts = txn.now_ts();
+            record["state"] = Value::String("succeeded".to_owned());
+            record["revision"] = Value::from(invocation.revision + 1);
+            record["terminal_at"] = Value::String(now_ts.clone());
+            txn.conn()
+                .execute(
+                    "UPDATE invocations SET state = 'succeeded', revision = revision + 1,
                      record = ?2
                  WHERE invocation_id = ?1",
-                params![
-                    invocation.invocation_id,
-                    serde_json::to_string(&record).map_err(|_| internal())?
-                ],
-            )
-            .map_err(|e| store_problem(e.into()))?;
-        txn.conn()
-            .execute(
-                "UPDATE invocation_attempts SET state = 'succeeded', ended_at = ?2,
+                    params![
+                        invocation.invocation_id,
+                        serde_json::to_string(&record).map_err(|_| internal())?
+                    ],
+                )
+                .map_err(|e| store_problem(e.into()))?;
+            txn.conn()
+                .execute(
+                    "UPDATE invocation_attempts SET state = 'succeeded', ended_at = ?2,
                      result_ref = ?3
                  WHERE attempt_id = ?1",
-                params![attempt.attempt_id, now_ts, args.result_ref],
-            )
-            .map_err(|e| store_problem(e.into()))?;
-        txn.append_event(NewEvent {
-            stream_id: invocation.invocation_id.clone(),
-            project_id: Some(invocation.project_id.clone()),
-            actor_ref: Some(deployment_actor_ref()),
-            event_type: EVENT_INVOCATION_SUCCEEDED.to_owned(),
-            schema_ref: INVOCATION_SCHEMA_REF.to_owned(),
-            resource_ref: invocation.invocation_id.clone(),
-            resource_revision: Some(invocation.revision + 1),
-            causation_ref: meta.causation_event_ref.clone(),
-            correlation_ref: meta.request_id.clone(),
-            classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
-            payload: serde_json::json!({
-                "invocation_id": invocation.invocation_id,
-                "state": "succeeded",
-                "result_ref": args.result_ref,
-            }),
-        })
-        .map_err(store_problem)?;
-        txn.audit(
-            "command.invocation_succeeded",
-            &format!(
-                "invocation={};attempt={};{}",
-                invocation.invocation_id,
-                attempt.attempt_id,
-                scope_digest(&meta)
-            ),
-        );
-        Ok(Applied {
-            result: record,
-            revision: Some(invocation.revision + 1),
-            event_cursor: None,
-        })
-    });
+                    params![attempt.attempt_id, now_ts, args.result_ref],
+                )
+                .map_err(|e| store_problem(e.into()))?;
+            txn.append_event(NewEvent {
+                stream_id: invocation.invocation_id.clone(),
+                project_id: Some(invocation.project_id.clone()),
+                actor_ref: Some(deployment_actor_ref()),
+                event_type: EVENT_INVOCATION_SUCCEEDED.to_owned(),
+                schema_ref: INVOCATION_SCHEMA_REF.to_owned(),
+                resource_ref: invocation.invocation_id.clone(),
+                resource_revision: Some(invocation.revision + 1),
+                causation_ref: meta.causation_event_ref.clone(),
+                correlation_ref: meta.request_id.clone(),
+                classification_ref: DEFAULT_CLASSIFICATION.to_owned(),
+                payload: serde_json::json!({
+                    "invocation_id": invocation.invocation_id,
+                    "state": "succeeded",
+                    "result_ref": args.result_ref,
+                }),
+            })
+            .map_err(store_problem)?;
+            txn.audit(
+                "command.invocation_succeeded",
+                &format!(
+                    "invocation={};attempt={};{}",
+                    invocation.invocation_id,
+                    attempt.attempt_id,
+                    scope_digest(&meta)
+                ),
+            );
+            Ok(Applied {
+                result: record,
+                revision: Some(invocation.revision + 1),
+                event_cursor: None,
+            })
+        },
+    );
     command_outcome_bytes(outcome)
 }
 

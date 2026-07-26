@@ -5,8 +5,20 @@
 //! secret — destroying that secret erases exactly that object's
 //! verifiability; no retained public plaintext hash exists.
 //!
+//! What "per-object secret" means here (D-R1-2, KV-A5-2): the secret is
+//! 32 random bytes minted at `artifact_upload_begin` and stored WRAPPED
+//! under the realm key ([`kovee_store::objkey`]) — never raw beside the
+//! object, and never derived from a store root. [`erase_artifact`]
+//! removes the blob bytes, destroys that one wrap, and leaves a
+//! tombstone row; every other artifact is untouched.
+//!
+//! The caller's `declared_raw_sha256` is TRANSIENT: it is compared once,
+//! during sealing, against a commitment keyed by the same per-object
+//! secret ([`DECLARED_RAW_DOMAIN`]). No durable row, wire projection, or
+//! stored replay result carries the checksum.
+//!
 //! Honesty labels (developer assurance profile): verification checks
-//! size, declared raw digest (transient compare, not retained), media
+//! size, the declared raw digest (through that keyed commitment), media
 //! type, and the typed content digest. NO malware or secret scanning is
 //! claimed — `scanner_set_digest` pins the empty scanner set and
 //! `scan_results` is empty.
@@ -45,6 +57,9 @@ pub const UPLOAD_EXPIRY_SECS: i64 = 3600;
 /// The byte-preimage domain of the typed content digest (the PROFILE
 /// §6.4 framing shape under a kovee domain constant).
 pub const CONTENT_BYTE_DOMAIN: &str = "dev.kovee.artifact-content.v1";
+/// The preimage domain of the keyed commitment to the caller's declared
+/// raw checksum (KV-A5-2: the checksum itself is never durable).
+pub const DECLARED_RAW_DOMAIN: &str = "dev.kovee.declared-raw-sha256.v1";
 /// The recorded dependency-set ref of the same-UID owner (developer
 /// assurance profile; the §9.2 categories collapse to the one
 /// authenticated local principal).
@@ -189,7 +204,7 @@ pub fn get_upload(
 ) -> Result<Option<ArtifactUpload>, StoreError> {
     conn.query_row(
         "SELECT upload_id, artifact_id, realm_id, owner_ref, revision,
-                declared_raw_sha256, declared_size, declared_media_type,
+                declared_size, declared_media_type,
                 classification_ref, staging_storage_ref, provider_upload_ref,
                 state, sealed_storage_version, seal_observation_digest,
                 authorization_dependency_set_ref, authority_digest, max_bytes,
@@ -203,23 +218,22 @@ pub fn get_upload(
                 realm_id: r.get(2)?,
                 owner_ref: r.get(3)?,
                 revision: r.get::<_, i64>(4)? as u64,
-                declared_raw_sha256: r.get(5)?,
-                declared_size: r.get::<_, i64>(6)? as u64,
-                declared_media_type: r.get(7)?,
-                classification_ref: r.get(8)?,
-                staging_storage_ref: r.get(9)?,
-                provider_upload_ref: r.get(10)?,
-                state: r.get(11)?,
-                sealed_storage_version: r.get(12)?,
-                seal_observation_digest: r.get(13)?,
-                authorization_dependency_set_ref: r.get(14)?,
-                authority_digest: r.get(15)?,
-                max_bytes: r.get::<_, i64>(16)? as u64,
-                expires_at: r.get(17)?,
-                idempotency_key: r.get(18)?,
-                created_at: r.get(19)?,
-                sealed_at: r.get(20)?,
-                terminal_at: r.get(21)?,
+                declared_size: r.get::<_, i64>(5)? as u64,
+                declared_media_type: r.get(6)?,
+                classification_ref: r.get(7)?,
+                staging_storage_ref: r.get(8)?,
+                provider_upload_ref: r.get(9)?,
+                state: r.get(10)?,
+                sealed_storage_version: r.get(11)?,
+                seal_observation_digest: r.get(12)?,
+                authorization_dependency_set_ref: r.get(13)?,
+                authority_digest: r.get(14)?,
+                max_bytes: r.get::<_, i64>(15)? as u64,
+                expires_at: r.get(16)?,
+                idempotency_key: r.get(17)?,
+                created_at: r.get(18)?,
+                sealed_at: r.get(19)?,
+                terminal_at: r.get(20)?,
             })
         },
     )
@@ -265,14 +279,50 @@ pub fn get_artifact(conn: &Connection, artifact_id: &str) -> Result<Option<Artif
     .map_err(StoreError::from)
 }
 
-fn object_secret(conn: &Connection, artifact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
-    conn.query_row(
-        "SELECT object_secret FROM artifacts WHERE artifact_id = ?1",
-        [artifact_id],
-        |r| r.get(0),
-    )
-    .optional()
-    .map_err(StoreError::from)
+/// The `key_ref` naming one artifact's erasure secret.
+fn object_key_ref(artifact_id: &str) -> String {
+    format!("kovee-artifact-object:{artifact_id}")
+}
+
+/// Opens one artifact's per-object secret: the stored blob is the random
+/// secret WRAPPED under the realm key (D-R1-2), never the raw key beside
+/// the object. `None` means the secret was destroyed (erased artifact) or
+/// never existed.
+fn object_secret(conn: &Connection, artifact_id: &str) -> Result<Option<[u8; 32]>, StoreError> {
+    let wrapped: Option<Option<Vec<u8>>> = conn
+        .query_row(
+            "SELECT object_secret FROM artifacts WHERE artifact_id = ?1",
+            [artifact_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(StoreError::from)?;
+    let Some(Some(wrapped)) = wrapped else {
+        return Ok(None);
+    };
+    let realm_key = kovee_store::realm_object_key_of(conn)?;
+    Ok(Some(kovee_store::objkey::unwrap(
+        &realm_key,
+        &object_key_ref(artifact_id),
+        &wrapped,
+    )?))
+}
+
+/// The keyed commitment to the caller's declared raw checksum (KV-A5-2):
+/// the checksum itself is transient — compared once during sealing and
+/// never written to a durable row or a replay result. What is durable is
+/// its HMAC under this artifact's own per-object secret, so destroying
+/// the secret destroys the commitment's meaning with the object.
+fn declared_raw_commitment(object_secret: &[u8], declared_raw_sha256: &str) -> String {
+    let mut preimage = Vec::with_capacity(128);
+    for part in [
+        DECLARED_RAW_DOMAIN.as_bytes(),
+        declared_raw_sha256.as_bytes(),
+    ] {
+        preimage.extend_from_slice(&(part.len() as u64).to_be_bytes());
+        preimage.extend_from_slice(part);
+    }
+    hex(&hmac_sha256(object_secret, &preimage))
 }
 
 fn internal() -> Problem {
@@ -340,7 +390,16 @@ pub fn upload_begin(
     store.command_transaction(scope, now, hooks, move |txn| {
         let artifact_id = new_id("art").map_err(|_| internal())?;
         let upload_id = new_id("upl").map_err(|_| internal())?;
-        let secret = new_object_secret()?;
+        // D-R1-2: a random per-object secret, wrapped under the realm
+        // key — never a root-derived key, never raw beside the object.
+        let secret = kovee_store::objkey::new_object_secret().map_err(|_| internal())?;
+        let realm_key = kovee_store::realm_object_key_of(txn.conn()).map_err(|_| internal())?;
+        let wrapped = kovee_store::objkey::wrap(&realm_key, &object_key_ref(&artifact_id), &secret)
+            .map_err(|_| internal())?;
+        // KV-A5-2: the declared checksum stays transient. Only its keyed
+        // commitment is durable, so finalization can still verify the
+        // declaration and no row retains the checksum.
+        let commitment = declared_raw_commitment(&secret, &declared_raw_sha256);
         txn.conn()
             .execute(
                 "INSERT INTO artifacts (artifact_id, realm_id, owner_ref, revision,
@@ -356,7 +415,7 @@ pub fn upload_begin(
                     txn.realm_id(),
                     OWNER_ACTOR_REF,
                     classification,
-                    secret.as_slice(),
+                    wrapped.as_slice(),
                     OWNER_ACTOR_REF,
                     txn.now_ts(),
                 ],
@@ -368,7 +427,6 @@ pub fn upload_begin(
             realm_id: txn.realm_id().to_owned(),
             owner_ref: OWNER_ACTOR_REF.to_owned(),
             revision: 1,
-            declared_raw_sha256: declared_raw_sha256.clone(),
             declared_size,
             declared_media_type: declared_media_type.clone(),
             classification_ref: classification.clone(),
@@ -386,7 +444,7 @@ pub fn upload_begin(
             sealed_at: None,
             terminal_at: None,
         };
-        insert_upload(txn.conn(), &upload).map_err(|_| internal())?;
+        insert_upload(txn.conn(), &upload, &commitment).map_err(|_| internal())?;
         txn.append_event(NewEvent {
             stream_id: artifact_id.clone(),
             project_id: None,
@@ -408,13 +466,14 @@ pub fn upload_begin(
             "command.artifact_upload_began",
             &format!("upload={upload_id};artifact={artifact_id}"),
         );
-        // The §10.10 begin result: only the durable refs and constraints.
+        // The §10.10 begin result: only the durable refs and constraints
+        // — and, per KV-A5-2, not the caller's raw checksum (a replay of
+        // this key must not hand the checksum back out of storage).
         let result = serde_json::json!({
             "upload_id": upload.upload_id,
             "artifact_id": upload.artifact_id,
             "revision": upload.revision,
             "state": upload.state,
-            "declared_raw_sha256": upload.declared_raw_sha256,
             "declared_size": upload.declared_size,
             "declared_media_type": upload.declared_media_type,
             "classification_ref": upload.classification_ref,
@@ -430,18 +489,14 @@ pub fn upload_begin(
     })
 }
 
-fn new_object_secret() -> Result<[u8; 32], Problem> {
-    let mut secret = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut secret))
-        .map_err(|_| internal())?;
-    Ok(secret)
-}
-
-fn insert_upload(conn: &Connection, u: &ArtifactUpload) -> Result<(), StoreError> {
+fn insert_upload(
+    conn: &Connection,
+    u: &ArtifactUpload,
+    declared_raw_commitment: &str,
+) -> Result<(), StoreError> {
     conn.execute(
         "INSERT INTO artifact_uploads (upload_id, artifact_id, realm_id,
-             owner_ref, revision, declared_raw_sha256, declared_size,
+             owner_ref, revision, declared_raw_commitment, declared_size,
              declared_media_type, classification_ref, staging_storage_ref,
              provider_upload_ref, state, sealed_storage_version,
              seal_observation_digest, authorization_dependency_set_ref,
@@ -455,7 +510,7 @@ fn insert_upload(conn: &Connection, u: &ArtifactUpload) -> Result<(), StoreError
             u.realm_id,
             u.owner_ref,
             u.revision as i64,
-            u.declared_raw_sha256,
+            declared_raw_commitment,
             u.declared_size as i64,
             u.declared_media_type,
             u.classification_ref,
@@ -504,6 +559,11 @@ pub fn upload_finalize(
     // and never re-runs the pipeline; a changed request is refused.
     if let Some((stored_digest, stored_result)) = store.lookup_idempotency(scope)? {
         if stored_digest == scope.request_digest {
+            // KV-C1: cleanup is part of the replay, not only of the
+            // first run. A crash after the commit and before the tidy-up
+            // used to leave the staging plaintext beside the sealed
+            // object for as long as the client kept retrying.
+            let _ = std::fs::remove_file(paths.staging_path(upload_id));
             return Ok(CommandOutcome::Replayed(stored_result));
         }
         return Err(FinalizeError::Command(CommandError::Problem(Problem::new(
@@ -547,7 +607,15 @@ pub fn upload_finalize(
     // and client metadata are not verification; the trusted bytes are.
     let secret = object_secret(store.conn(), &upload.artifact_id)?
         .ok_or_else(|| StoreError::Corrupt("artifact without object secret".to_owned()))?;
-    let observation = seal_and_observe(paths, &upload, &secret)?;
+    let commitment: Option<String> = store
+        .conn()
+        .query_row(
+            "SELECT declared_raw_commitment FROM artifact_uploads WHERE upload_id = ?1",
+            [upload_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let observation = seal_and_observe(paths, &upload, &secret, commitment.as_deref())?;
     trip(hooks.after_seal)?;
 
     // Step 3: the final SQL transaction — verification row, terminal
@@ -732,6 +800,7 @@ fn seal_and_observe(
     paths: &ArtifactPaths,
     upload: &ArtifactUpload,
     object_secret: &[u8],
+    declared_commitment: Option<&str>,
 ) -> Result<Option<Observation>, FinalizeError> {
     paths
         .ensure_dirs()
@@ -754,7 +823,12 @@ fn seal_and_observe(
     if bytes.len() as u64 > upload.max_bytes {
         return Ok(None);
     }
-    let raw_match = sha256_hex(&bytes) == upload.declared_raw_sha256;
+    // The declared checksum is compared through its keyed commitment:
+    // the observed bytes' checksum is computed here, HMACed under this
+    // object's secret, and matched — the declaration itself is never
+    // read back out of storage because it was never stored (KV-A5-2).
+    let raw_match = declared_commitment
+        .is_some_and(|c| declared_raw_commitment(object_secret, &sha256_hex(&bytes)) == c);
     let digest_ref = content_digest_ref(
         object_secret,
         &upload.artifact_id,
@@ -821,6 +895,138 @@ fn find_sealed(
         }
     }
     Ok(None)
+}
+
+// -------------------------------------------------------------- erase ----
+
+/// Artifact erasure (amendment A5 / D-R1-2, KV-A5-2), callable inside an
+/// open command transaction: the sealed blob bytes and any staging copy
+/// are removed, the per-object secret is DESTROYED (so the keyed content
+/// address can never be re-derived, by anyone, for this object alone),
+/// the keyed commitment to the declared checksum goes with it, and a
+/// tombstone row is left — `state = 'erased'`, identity and provenance
+/// columns intact, no content columns.
+///
+/// Returns `true` when an artifact row was erased.
+///
+/// ```no_run
+/// # use kovee_artifacts::{ArtifactPaths, erase_artifact};
+/// # let conn: rusqlite::Connection = unimplemented!();
+/// # let paths = ArtifactPaths::new(std::path::Path::new("/tmp"));
+/// erase_artifact(&conn, &paths, "art-1", 0, "2026-07-26T00:00:00Z").unwrap();
+/// ```
+pub fn erase_artifact(
+    conn: &Connection,
+    paths: &ArtifactPaths,
+    artifact_id: &str,
+    now: i64,
+    now_ts: &str,
+) -> Result<bool, StoreError> {
+    let row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT state, content_digest_ref FROM artifacts WHERE artifact_id = ?1",
+            [artifact_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((state, content_digest_ref)) = row else {
+        return Ok(false);
+    };
+    if state == "erased" {
+        return Ok(true);
+    }
+    // The sealed object is addressed by the keyed digest value.
+    if let Some(ref_json) = content_digest_ref {
+        if let Ok(digest) = serde_json::from_str::<DigestRef>(&ref_json) {
+            let sealed = paths.sealed_path(&digest.value_hex);
+            if let Ok(meta) = std::fs::metadata(&sealed) {
+                // Sealed objects are read-only; make them removable.
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(&sealed, perms);
+            }
+            let _ = std::fs::remove_file(&sealed);
+        }
+    }
+    // Any staging copy of the same plaintext goes too.
+    let uploads: Vec<String> = {
+        let mut stmt =
+            conn.prepare("SELECT upload_id FROM artifact_uploads WHERE artifact_id = ?1")?;
+        let mapped = stmt.query_map([artifact_id], |r| r.get::<_, String>(0))?;
+        mapped.collect::<Result<_, _>>()?
+    };
+    for upload_id in &uploads {
+        let _ = std::fs::remove_file(paths.staging_path(upload_id));
+    }
+    conn.execute(
+        "UPDATE artifact_uploads SET declared_raw_commitment = NULL
+         WHERE artifact_id = ?1",
+        [artifact_id],
+    )?;
+    // The tombstone: identity and provenance stay, every content column
+    // and the secret go.
+    conn.execute(
+        "UPDATE artifacts SET state = 'erased', object_secret = NULL,
+             content_digest_ref = NULL, sealed_storage_ref = NULL,
+             sealed_storage_version = NULL, verification_digest = NULL,
+             size = NULL, media_type = NULL, available_at = NULL,
+             retention_until = ?2, revision = revision + 1
+         WHERE artifact_id = ?1",
+        params![artifact_id, now_ts],
+    )?;
+    kovee_store::audit::append(
+        conn,
+        now,
+        "artifact.erased",
+        &format!("artifact={artifact_id}"),
+    )?;
+    kovee_store::mark_erasure_compaction_pending(conn)?;
+    Ok(true)
+}
+
+// --------------------------------------------------- staging sweeper ----
+
+/// Startup mark-and-sweep for orphaned staging blobs (KV-C1): every file
+/// in the staging directory is checked against a FRESH database read —
+/// a staging blob survives only while its upload row still exists and is
+/// still accepting or sealing bytes. A crash between the finalize commit
+/// and its tidy-up therefore costs one restart, not a permanent second
+/// plaintext copy.
+///
+/// Returns the number of files removed.
+pub fn sweep_staging(store: &Store, paths: &ArtifactPaths) -> Result<usize, StoreError> {
+    let Ok(dir) = std::fs::read_dir(paths.staging_dir()) else {
+        return Ok(0);
+    };
+    let mut removed = 0;
+    for entry in dir.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(upload_id) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // Fresh reference check, per file, against current state.
+        let live: Option<String> = store
+            .conn()
+            .query_row(
+                "SELECT state FROM artifact_uploads WHERE upload_id = ?1",
+                [upload_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let keep = matches!(
+            live.as_deref(),
+            Some("prepared") | Some("uploading") | Some("sealing") | Some("sealed")
+        );
+        if !keep {
+            let _ = std::fs::remove_file(&path);
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 // --------------------------------------------------------------- abort ----

@@ -399,7 +399,12 @@ pub struct ArtifactUpload {
     pub realm_id: String,
     pub owner_ref: String,
     pub revision: u64,
-    pub declared_raw_sha256: String,
+    // KV-A5-2 / D-R1-2: `declared_raw_sha256` is deliberately absent.
+    // The caller's raw checksum is transient — compared once during
+    // sealing through its keyed commitment — so it never enters a
+    // durable row, a wire projection, or a stored replay result. The
+    // result schemas keep the member optional and it is never emitted
+    // (the same posture `Artifact.raw_sha256` already had).
     pub declared_size: u64,
     pub declared_media_type: String,
     pub classification_ref: String,

@@ -10,14 +10,42 @@
 //!   when set, else the single project of the personal realm
 //!   (`project_list`), resolved once and cached for the session;
 //! - `meta` appears only on mutations (kovee-core's registry-derived
-//!   read/mutation rule) and carries a fresh `idempotency_key` per tool
-//!   call. A harness retry of a tool call is therefore a NEW command
-//!   with a new key: §11.2 idempotent replay safety lives in the
-//!   daemon, never simulated here.
+//!   read/mutation rule) and carries the **logical-call idempotency
+//!   key** described below.
 //!
 //! Whether `realm_id`/`project_id` may appear at all comes from
 //! `kovee_core::ops::op_spec` per op — the same table the daemon
 //! enforces placement with.
+//!
+//! # The logical-call idempotency key (D-R1-3)
+//!
+//! ```text
+//! idempotency_key = "mcp-" ‖ hex(HMAC-SHA-256(session_salt,
+//!                                 JCS({"input": args, "tool": name})))[..24]
+//! ```
+//!
+//! - **tool name** — the MCP tool the harness called, so two different
+//!   tools can never collide;
+//! - **canonical input** — RFC 8785 JCS of the validated tool arguments,
+//!   so member order and formatting cannot fork the key;
+//! - **per-server-session salt** — 32 random bytes minted once per
+//!   `kovee-mcp` process, so the key is unguessable, is not a content
+//!   hash of the caller's data, and does not silently collapse calls
+//!   from a *different* session into one command.
+//!
+//! The contract this buys: **an ambiguous transport retry reuses the
+//! key**. If the daemon commits and the reply is lost, the harness
+//! calling the same tool with the same input again lands on the same
+//! §11.2 idempotency record and receives the SAME artifact, upload, or
+//! contribution — it does not mint a second one. A fresh random key per
+//! invocation (the withdrawn behaviour) made every retry a new command
+//! and every lost reply a double-commit hazard.
+//!
+//! The other side of the same contract: within one session, a
+//! deliberately repeated identical call is ONE logical call. A caller
+//! who means a genuinely new object must vary the input (a new title, a
+//! new body, a different declared upload) — which is what varying input
+//! means for every other idempotent API.
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::os::unix::net::UnixStream;
@@ -35,11 +63,13 @@ pub enum BridgeError {
     Problem(Value),
 }
 
-/// The daemon connection state: socket path plus the cached
-/// channel-pinned project.
+/// The daemon connection state: socket path, the cached channel-pinned
+/// project, and the per-server-session salt the logical-call key derives
+/// from.
 pub struct Bridge {
     socket: PathBuf,
     project: Option<String>,
+    session_salt: [u8; 32],
 }
 
 impl Default for Bridge {
@@ -55,12 +85,22 @@ impl Bridge {
             // ($KOVEE_RUNTIME_DIR, else $XDG_RUNTIME_DIR/kovee, …).
             socket: koveed::socket::socket_path(),
             project: None,
+            // One salt for the life of this server process: the logical
+            // call is "this tool, this input, this session".
+            session_salt: session_salt(),
         }
     }
 
     /// Runs one tool invocation as its client-socket op: envelope
-    /// assembled here, `args` passed through verbatim.
-    pub fn call(&mut self, version: &str, op: &str, args: Value) -> Result<Value, BridgeError> {
+    /// assembled here, `args` passed through verbatim. `tool` is the MCP
+    /// tool name — one third of the logical-call key.
+    pub fn call(
+        &mut self,
+        version: &str,
+        tool: &str,
+        op: &str,
+        args: Value,
+    ) -> Result<Value, BridgeError> {
         let Some(spec) = op_spec(op) else {
             return Err(BridgeError::Io(format!(
                 "op {op:?} is not a K1 registry operation"
@@ -70,7 +110,7 @@ impl Bridge {
         cmd.insert("version".into(), json!(version));
         cmd.insert("op".into(), json!(op));
         if spec.kind == OpKind::Mutation {
-            let key = fresh_idempotency_key()?;
+            let key = self.logical_call_key(tool, &args)?;
             cmd.insert(
                 "meta".into(),
                 json!({"request_id": format!("req-{key}"), "idempotency_key": key}),
@@ -85,6 +125,22 @@ impl Bridge {
         }
         cmd.insert("args".into(), args);
         self.request(&Value::Object(cmd))
+    }
+
+    /// The D-R1-3 logical-call idempotency key: deterministic in (tool,
+    /// canonical input, session), so an ambiguous transport retry of the
+    /// same logical call reuses it instead of minting a second command.
+    pub fn logical_call_key(&self, tool: &str, args: &Value) -> Result<String, BridgeError> {
+        let preimage = kovee_core::canonical::jcs(&json!({"input": args, "tool": tool}))
+            .map_err(|e| BridgeError::Io(format!("canonical tool input: {e}")))?;
+        let mac = kovee_core::family::hmac_sha256(&self.session_salt, &preimage);
+        Ok(format!(
+            "mcp-{}",
+            kovee_core::family::hex(&mac)
+                .chars()
+                .take(24)
+                .collect::<String>()
+        ))
     }
 
     /// The channel-pinned project scope, resolved once.
@@ -163,15 +219,19 @@ fn io_error(e: std::io::Error) -> BridgeError {
     BridgeError::Io(format!("daemon socket io: {e}"))
 }
 
-/// A fresh key per mutation call (kovee-cli's shape, `mcp-` prefixed).
-fn fresh_idempotency_key() -> Result<String, BridgeError> {
-    let mut bytes = [0u8; 12];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(io_error)?;
-    let mut hex = String::with_capacity(24);
-    for byte in bytes {
-        hex.push_str(&format!("{byte:02x}"));
+/// 32 random bytes, minted once per server process. Entropy is not
+/// available in a `const`, and a server that cannot read entropy must
+/// not fall back to a predictable salt: the all-zero fallback below is
+/// unreachable in practice (`/dev/urandom` is always readable on the
+/// platforms this daemon binds a Unix socket on) and keeps key
+/// derivation total.
+fn session_salt() -> [u8; 32] {
+    let mut salt = [0u8; 32];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut salt))
+        .is_err()
+    {
+        eprintln!("kovee-mcp: no entropy for the session salt; logical-call keys are weak");
     }
-    Ok(format!("mcp-{hex}"))
+    salt
 }

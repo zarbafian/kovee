@@ -89,11 +89,22 @@ pub struct Daemon {
 }
 
 impl Daemon {
+    /// Opens the daemon and runs the startup **mark-and-sweep for
+    /// orphaned staging blobs** (KV-C1): a crash between an artifact's
+    /// finalize commit and its staging tidy-up leaves a second plaintext
+    /// copy on disk, and the sweep removes it on the next start against
+    /// a fresh database reference check.
     pub fn new(store: Store, abort: Option<AbortSpec>, data_dir: &Path) -> Daemon {
+        let paths = ArtifactPaths::new(data_dir);
+        match kovee_artifacts::sweep_staging(&store, &paths) {
+            Ok(0) => {}
+            Ok(n) => eprintln!("koveed: swept {n} orphaned staging blob(s)"),
+            Err(e) => eprintln!("koveed: staging sweep: {e}"),
+        }
         Daemon {
             store: Mutex::new(store),
             abort,
-            paths: ArtifactPaths::new(data_dir),
+            paths,
         }
     }
 
@@ -718,6 +729,7 @@ impl Daemon {
                 let meta = cmd.meta.clone().ok_or_else(internal)?;
                 disposition_ops::contribution_redact(
                     &mut *self.lock_store()?,
+                    &self.paths,
                     scope,
                     project,
                     args,

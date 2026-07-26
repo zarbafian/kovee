@@ -73,6 +73,59 @@ pub fn append(conn: &Connection, ts: i64, event: &str, detail: &str) -> rusqlite
     Ok(next_seq)
 }
 
+/// Erasure rewrite (amendment A5 / D-R1-2): replaces the `detail` of the
+/// records `seq -> new_detail` names and RE-LINKS every later record, so
+/// the chain stays verifiable after plaintext leaves the log. Ordinary
+/// mutation of the audit log has no other entry point: only erasure may
+/// rewrite a recorded detail, and the rewrite is itself recorded by the
+/// erasure command's own audit record.
+pub fn rewrite_details(
+    conn: &Connection,
+    rewrites: &[(i64, String)],
+) -> Result<(), rusqlite::Error> {
+    if rewrites.is_empty() {
+        return Ok(());
+    }
+    for (seq, detail) in rewrites {
+        conn.execute(
+            "UPDATE audit SET detail = ?2 WHERE seq = ?1",
+            rusqlite::params![seq, detail],
+        )?;
+    }
+    let from = rewrites.iter().map(|(seq, _)| *seq).min().unwrap_or(0);
+    relink_from(conn, from)
+}
+
+/// Recomputes `prev_hash`/`hash` for every record from `from` onward.
+fn relink_from(conn: &Connection, from: i64) -> Result<(), rusqlite::Error> {
+    use rusqlite::OptionalExtension as _;
+    let mut prev: [u8; 32] = conn
+        .query_row(
+            "SELECT hash FROM audit WHERE seq < ?1 ORDER BY seq DESC LIMIT 1",
+            [from],
+            |r| r.get::<_, Vec<u8>>(0),
+        )
+        .optional()?
+        .and_then(|b| b.try_into().ok())
+        .unwrap_or(GENESIS);
+    let rows: Vec<(i64, i64, String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT seq, ts, event, detail FROM audit WHERE seq >= ?1 ORDER BY seq ASC")?;
+        let mapped =
+            stmt.query_map([from], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+        mapped.collect::<Result<_, _>>()?
+    };
+    for (seq, ts, event, detail) in rows {
+        let hash = record_hash(&prev, seq, ts, &event, &detail);
+        conn.execute(
+            "UPDATE audit SET prev_hash = ?2, hash = ?3 WHERE seq = ?1",
+            rusqlite::params![seq, prev.as_slice(), hash.as_slice()],
+        )?;
+        prev = hash;
+    }
+    Ok(())
+}
+
 /// Walks the chain from genesis and confirms every link and hash.
 /// Returns the number of records verified.
 pub fn verify_chain(conn: &Connection) -> Result<u64, AuditError> {

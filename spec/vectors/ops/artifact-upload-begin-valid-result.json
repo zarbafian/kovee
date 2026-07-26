@@ -1,6 +1,6 @@
 {
   "name": "ops/artifact-upload-begin-valid-result",
-  "description": "the §10.10 spelled narrow canonical begin result: durable refs and constraints only, never a credential (gap note KG29)",
+  "description": "the §10.10 spelled narrow canonical begin result: durable refs and constraints only, never a credential (gap note KG29) and — per amendment A5 / D-R1-2 — never the caller's transient raw checksum",
   "input": {
     "schema": "artifact-upload-begin-result",
     "value": {
@@ -8,7 +8,6 @@
       "artifact_id": "art-0001",
       "revision": 1,
       "state": "prepared",
-      "declared_raw_sha256": "9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c",
       "declared_size": 1048576,
       "declared_media_type": "application/pdf",
       "classification_ref": "class-internal",

@@ -15,9 +15,12 @@
 //! The KCP envelope is assembled server-side per the C3a binding
 //! envelope (personal profile): the daemon's personal realm, the
 //! channel-pinned project (`$KOVEE_PROJECT`, else the realm's single
-//! project), and — for mutations — `meta` with a **fresh
-//! idempotency key per call**, so a harness retry is a new command and
-//! §11.2 replay safety stays in the daemon (see `bridge`).
+//! project), and — for mutations — `meta` with the **logical-call
+//! idempotency key** derived from (tool name, canonical input,
+//! per-server-session salt) (D-R1-3). An ambiguous transport retry of
+//! the same logical call therefore reuses the key and lands on the
+//! daemon's §11.2 replay instead of minting a second artifact, upload,
+//! or contribution (see `bridge` for the full contract).
 //!
 //! Transport: newline-delimited JSON-RPC 2.0 over stdin/stdout (MCP
 //! stdio, the akson-mcp pattern). Stdout carries only protocol
@@ -216,7 +219,7 @@ fn call_tool(doc: &Document, bridge: &mut Bridge, params: &Value) -> Value {
     if let Err(detail) = validate::validate(&tool.input_schema, &args) {
         return tool_text(&format!("invalid input for {name}: {detail}"), true);
     }
-    match bridge.call(&doc.protocol_version, &tool.op, args) {
+    match bridge.call(&doc.protocol_version, &tool.name, &tool.op, args) {
         Ok(result) => tool_text(&pretty(&result), false),
         Err(BridgeError::Problem(problem)) => tool_text(&problem_text(&problem), true),
         Err(BridgeError::Io(detail)) => tool_text(&detail, true),

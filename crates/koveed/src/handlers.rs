@@ -519,14 +519,16 @@ pub fn space_show(
 // ------------------------------------------------ contribution_append ----
 
 /// Who a contribution append is attributed to and bound by.
+#[derive(Clone)]
 pub struct AppendAuthor {
     pub actor_ref: String,
     pub invocation_ref: Option<String>,
     pub context_assembly_ref: Option<String>,
-    /// The worker attempt binding `(attempt_id, fence_epoch)` (§15.2);
-    /// its currency is re-checked inside the command transaction, after
-    /// the idempotency replay check — a replayed result needs no live
-    /// lease.
+    /// The worker attempt binding `(attempt_id, fence_epoch)` (§15.2).
+    /// [`AppendAuthor::check`] is BOTH the fresh-execution check and the
+    /// §11.2 replay authorizer (KV-R1): a stale or completed attempt, or
+    /// an advanced fence, is refused before any stored result byte is
+    /// released — a dead worker never gets its old receipt back.
     pub binding: Option<(String, u64)>,
 }
 
@@ -572,187 +574,200 @@ pub fn append_contribution(
     now: i64,
     hooks: CrashHooks,
 ) -> Result<Vec<u8>, Problem> {
-    let outcome = store.command_transaction(&scope, now, hooks, move |txn| {
-        author.check(txn.conn())?;
-        let space = visible_space(txn.conn(), &project_id, &args.space_id)?;
-        if space.status != "open" {
-            return Err(Problem::new(
-                ProblemKind::StaleRevision,
-                "space is not open for contributions",
-            )
-            .with_detail(format!("space status is {}", space.status)));
-        }
-        let branch = visible_branch(txn.conn(), &space, &args.branch_id)?;
-        if let Some(expected) = meta.expected_revision {
-            if expected != space.revision {
-                return Err(stale_revision(space.revision));
+    let replay_author = author.clone();
+    let outcome = store.command_transaction_guarded(
+        &scope,
+        now,
+        hooks,
+        move |conn| replay_author.check(conn),
+        move |txn| {
+            author.check(txn.conn())?;
+            let space = visible_space(txn.conn(), &project_id, &args.space_id)?;
+            if space.status != "open" {
+                return Err(Problem::new(
+                    ProblemKind::StaleRevision,
+                    "space is not open for contributions",
+                )
+                .with_detail(format!("space status is {}", space.status)));
             }
-        }
-        // §10.3/§11.2: every branch append presents the expected head
-        // digest and compare-and-swaps; a stale writer must rebase.
-        if args.expected_head_digest != branch.head_digest {
-            return Err(stale_revision(space.revision)
-                .with_detail("expected_head_digest does not match the current branch head"));
-        }
-        // §10.4: only services may append a system_notice; neither the
-        // external client nor a worker attempt is one.
-        if args.kind == "system_notice" {
-            return Err(Problem::new(
-                ProblemKind::Forbidden,
-                "system_notice is service-only (§10.4)",
-            ));
-        }
-        // §10.2: every referenced object must be visible in this space;
-        // an artifact part may only name an available artifact (§10.10).
-        validate_parts(txn.conn(), &space, &args.body_parts)?;
-        for refs in [&args.subject_refs, &args.source_refs] {
-            for object_ref in refs.iter().flatten() {
-                resolve_space_object(txn.conn(), &space.space_id, object_ref)?;
+            let branch = visible_branch(txn.conn(), &space, &args.branch_id)?;
+            if let Some(expected) = meta.expected_revision {
+                if expected != space.revision {
+                    return Err(stale_revision(space.revision));
+                }
             }
-        }
-        let contribution_id = new_id("contrib").map_err(store_problem)?;
-        let branch_sequence = branch.next_branch_sequence;
-        let space_sequence = space.next_space_sequence;
-        let subject_refs = args.subject_refs.clone().unwrap_or_default();
-        let source_refs = args.source_refs.clone().unwrap_or_default();
-        // §11.8: the content digest projection is implementation-pinned
-        // (recorded K0 gap). A5 note: this is a plaintext canonical-object
-        // digest; when contribution redaction lands, the digest class
-        // must move to the family's erasure-safe class.
-        let content_projection = serde_json::json!({
-            "space_id": args.space_id,
-            "origin_branch_id": args.branch_id,
-            "origin_branch_sequence": branch_sequence,
-            "kind": args.kind,
-            "body_parts": args.body_parts,
-            "subject_refs": subject_refs,
-            "source_refs": source_refs,
-            "epistemic_posture": args.epistemic_posture,
-        });
-        let (_, content_digest) = canonical::canonical_object_digest(
-            "kovee-contribution-content",
-            CONTRIBUTION_SCHEMA_REF,
-            &content_projection,
-        )
-        .map_err(|_| internal())?;
-        let contribution = Contribution {
-            contribution_id: contribution_id.clone(),
-            revision: 1,
-            realm_id: txn.realm_id().to_owned(),
-            project_id: project_id.clone(),
-            space_id: args.space_id.clone(),
-            origin_branch_id: args.branch_id.clone(),
-            origin_branch_sequence: branch_sequence,
-            space_sequence,
-            author_actor_ref: author.actor_ref.clone(),
-            kind: args.kind.clone(),
-            schema_ref: args
-                .schema_ref
-                .clone()
-                .unwrap_or_else(|| CONTRIBUTION_SCHEMA_REF.to_owned()),
-            body_parts: args.body_parts.clone(),
-            subject_refs,
-            source_refs,
-            epistemic_posture: args.epistemic_posture.clone(),
-            invocation_ref: author.invocation_ref.clone(),
-            context_assembly_ref: author.context_assembly_ref.clone(),
-            causation_ref: meta.causation_event_ref.clone(),
-            classification_ref: args
-                .classification_ref
-                .clone()
-                .unwrap_or_else(|| space.default_classification_ref.clone()),
-            retention_policy_ref: args
-                .retention_policy_ref
-                .clone()
-                .unwrap_or_else(|| DEFAULT_RETENTION.to_owned()),
-            content_digest: content_digest.clone(),
-            created_at: txn.now_ts(),
-        };
-        txn.conn()
-            .execute(
-                "INSERT INTO contributions (contribution_id, revision, realm_id,
+            // §10.3/§11.2: every branch append presents the expected head
+            // digest and compare-and-swaps; a stale writer must rebase.
+            if args.expected_head_digest != branch.head_digest {
+                return Err(stale_revision(space.revision)
+                    .with_detail("expected_head_digest does not match the current branch head"));
+            }
+            // §10.4: only services may append a system_notice; neither the
+            // external client nor a worker attempt is one.
+            if args.kind == "system_notice" {
+                return Err(Problem::new(
+                    ProblemKind::Forbidden,
+                    "system_notice is service-only (§10.4)",
+                ));
+            }
+            // §10.2: every referenced object must be visible in this space;
+            // an artifact part may only name an available artifact (§10.10).
+            validate_parts(txn.conn(), &space, &args.body_parts)?;
+            for refs in [&args.subject_refs, &args.source_refs] {
+                for object_ref in refs.iter().flatten() {
+                    resolve_space_object(txn.conn(), &space.space_id, object_ref)?;
+                }
+            }
+            let contribution_id = new_id("contrib").map_err(store_problem)?;
+            let branch_sequence = branch.next_branch_sequence;
+            let space_sequence = space.next_space_sequence;
+            let subject_refs = args.subject_refs.clone().unwrap_or_default();
+            let source_refs = args.source_refs.clone().unwrap_or_default();
+            // §11.8: the content digest projection is implementation-pinned
+            // (recorded K0 gap). Amendment A5 + D-R1-2 (KV-A5-1): the digest
+            // is `local_erasure_safe` from the FIRST append — an HMAC under
+            // this object's own random secret, wrapped under the realm key.
+            // No plaintext-derived digest is ever computed, so no retained
+            // copy of one can survive redaction, and the branch chain that
+            // folds this value stays recomputable after erasure.
+            let content_projection = serde_json::json!({
+                "space_id": args.space_id,
+                "origin_branch_id": args.branch_id,
+                "origin_branch_sequence": branch_sequence,
+                "kind": args.kind,
+                "body_parts": args.body_parts,
+                "subject_refs": subject_refs,
+                "source_refs": source_refs,
+                "epistemic_posture": args.epistemic_posture,
+            });
+            let (content_digest, digest_ref, wrapped_secret) =
+                crate::disposition_ops::mint_content_digest(
+                    txn.conn(),
+                    &contribution_id,
+                    &content_projection,
+                )?;
+            let contribution = Contribution {
+                contribution_id: contribution_id.clone(),
+                revision: 1,
+                realm_id: txn.realm_id().to_owned(),
+                project_id: project_id.clone(),
+                space_id: args.space_id.clone(),
+                origin_branch_id: args.branch_id.clone(),
+                origin_branch_sequence: branch_sequence,
+                space_sequence,
+                author_actor_ref: author.actor_ref.clone(),
+                kind: args.kind.clone(),
+                schema_ref: args
+                    .schema_ref
+                    .clone()
+                    .unwrap_or_else(|| CONTRIBUTION_SCHEMA_REF.to_owned()),
+                body_parts: args.body_parts.clone(),
+                subject_refs,
+                source_refs,
+                epistemic_posture: args.epistemic_posture.clone(),
+                invocation_ref: author.invocation_ref.clone(),
+                context_assembly_ref: author.context_assembly_ref.clone(),
+                causation_ref: meta.causation_event_ref.clone(),
+                classification_ref: args
+                    .classification_ref
+                    .clone()
+                    .unwrap_or_else(|| space.default_classification_ref.clone()),
+                retention_policy_ref: args
+                    .retention_policy_ref
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_RETENTION.to_owned()),
+                content_digest: content_digest.clone(),
+                created_at: txn.now_ts(),
+            };
+            txn.conn()
+                .execute(
+                    "INSERT INTO contributions (contribution_id, revision, realm_id,
                      project_id, space_id, origin_branch_id, origin_branch_sequence,
                      space_sequence, author_actor_ref, kind, schema_ref, body_parts,
                      subject_refs, source_refs, epistemic_posture, invocation_ref,
                      context_assembly_ref, causation_ref, classification_ref,
-                     retention_policy_ref, content_digest, created_at)
+                     retention_policy_ref, content_digest, created_at,
+                     content_digest_ref, object_secret)
                  VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-                params![
-                    contribution.contribution_id,
-                    contribution.realm_id,
-                    contribution.project_id,
-                    contribution.space_id,
-                    contribution.origin_branch_id,
-                    contribution.origin_branch_sequence as i64,
-                    contribution.space_sequence as i64,
-                    contribution.author_actor_ref,
-                    contribution.kind,
-                    contribution.schema_ref,
-                    serde_json::to_string(&contribution.body_parts).map_err(|_| internal())?,
-                    serde_json::to_string(&contribution.subject_refs).map_err(|_| internal())?,
-                    serde_json::to_string(&contribution.source_refs).map_err(|_| internal())?,
-                    contribution.epistemic_posture,
-                    contribution.invocation_ref,
-                    contribution.context_assembly_ref,
-                    contribution.causation_ref,
-                    contribution.classification_ref,
-                    contribution.retention_policy_ref,
-                    contribution.content_digest,
-                    contribution.created_at,
-                ],
-            )
-            .map_err(|e| store_problem(e.into()))?;
-        advance_branch(
-            txn.conn(),
-            &branch,
-            &contribution_id,
-            1,
-            &content_digest,
-            &contribution.created_at,
-        )?;
-        let new_revision = space.revision + 1;
-        txn.conn()
-            .execute(
-                "UPDATE spaces SET next_space_sequence = next_space_sequence + 1,
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                    params![
+                        contribution.contribution_id,
+                        contribution.realm_id,
+                        contribution.project_id,
+                        contribution.space_id,
+                        contribution.origin_branch_id,
+                        contribution.origin_branch_sequence as i64,
+                        contribution.space_sequence as i64,
+                        contribution.author_actor_ref,
+                        contribution.kind,
+                        contribution.schema_ref,
+                        serde_json::to_string(&contribution.body_parts).map_err(|_| internal())?,
+                        serde_json::to_string(&contribution.subject_refs).map_err(|_| internal())?,
+                        serde_json::to_string(&contribution.source_refs).map_err(|_| internal())?,
+                        contribution.epistemic_posture,
+                        contribution.invocation_ref,
+                        contribution.context_assembly_ref,
+                        contribution.causation_ref,
+                        contribution.classification_ref,
+                        contribution.retention_policy_ref,
+                        contribution.content_digest,
+                        contribution.created_at,
+                        serde_json::to_string(&digest_ref).map_err(|_| internal())?,
+                        wrapped_secret.as_slice(),
+                    ],
+                )
+                .map_err(|e| store_problem(e.into()))?;
+            advance_branch(
+                txn.conn(),
+                &branch,
+                &contribution_id,
+                1,
+                &content_digest,
+                &contribution.created_at,
+            )?;
+            let new_revision = space.revision + 1;
+            txn.conn()
+                .execute(
+                    "UPDATE spaces SET next_space_sequence = next_space_sequence + 1,
                      revision = ?2
                  WHERE space_id = ?1",
-                params![space.space_id, new_revision as i64],
-            )
-            .map_err(|e| store_problem(e.into()))?;
-        let payload = serde_json::to_value(&contribution).map_err(|_| internal())?;
-        let event = txn
-            .append_event(NewEvent {
-                stream_id: space.space_id.clone(),
-                project_id: Some(project_id.clone()),
-                actor_ref: Some(author.actor_ref.clone()),
-                event_type: EVENT_CONTRIBUTION_APPENDED.to_owned(),
-                schema_ref: CONTRIBUTION_SCHEMA_REF.to_owned(),
-                resource_ref: contribution_id.clone(),
-                resource_revision: Some(1),
-                causation_ref: meta.causation_event_ref.clone(),
-                correlation_ref: meta.request_id.clone(),
-                classification_ref: contribution.classification_ref.clone(),
-                payload: payload.clone(),
+                    params![space.space_id, new_revision as i64],
+                )
+                .map_err(|e| store_problem(e.into()))?;
+            let payload = serde_json::to_value(&contribution).map_err(|_| internal())?;
+            let event = txn
+                .append_event(NewEvent {
+                    stream_id: space.space_id.clone(),
+                    project_id: Some(project_id.clone()),
+                    actor_ref: Some(author.actor_ref.clone()),
+                    event_type: EVENT_CONTRIBUTION_APPENDED.to_owned(),
+                    schema_ref: CONTRIBUTION_SCHEMA_REF.to_owned(),
+                    resource_ref: contribution_id.clone(),
+                    resource_revision: Some(1),
+                    causation_ref: meta.causation_event_ref.clone(),
+                    correlation_ref: meta.request_id.clone(),
+                    classification_ref: contribution.classification_ref.clone(),
+                    payload: payload.clone(),
+                })
+                .map_err(store_problem)?;
+            txn.audit(
+                "command.contribution_appended",
+                &format!(
+                    "contribution={contribution_id};space={};digest={content_digest};{}",
+                    space.space_id,
+                    scope_digest(&meta)
+                ),
+            );
+            let cursor = txn
+                .mint_project_cursor(&project_id, event.project_sequence.unwrap_or(0))
+                .map_err(store_problem)?;
+            Ok(Applied {
+                result: payload,
+                revision: Some(new_revision),
+                event_cursor: Some(cursor),
             })
-            .map_err(store_problem)?;
-        txn.audit(
-            "command.contribution_appended",
-            &format!(
-                "contribution={contribution_id};space={};digest={content_digest};{}",
-                space.space_id,
-                scope_digest(&meta)
-            ),
-        );
-        let cursor = txn
-            .mint_project_cursor(&project_id, event.project_sequence.unwrap_or(0))
-            .map_err(store_problem)?;
-        Ok(Applied {
-            result: payload,
-            revision: Some(new_revision),
-            event_cursor: Some(cursor),
-        })
-    });
+        },
+    );
     command_outcome_bytes(outcome)
 }
 

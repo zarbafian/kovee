@@ -385,3 +385,96 @@ fn tool_calls_reach_the_live_daemon() {
     assert!(is_error);
     assert!(text.contains("urn:kovee:error:"), "{text}");
 }
+
+/// MCP-1 / D-R1-3: the logical-call idempotency key. Two identical tool
+/// calls in one session are ONE logical call — an ambiguous transport
+/// retry lands on the daemon's §11.2 replay instead of minting a second
+/// artifact, upload, or contribution — while a different input is a
+/// different call.
+#[test]
+fn identical_tool_calls_in_one_session_are_one_logical_call() {
+    let data = tmp("mcp-logical-key-data");
+    let runtime = tmp("mcp-logical-key-runtime");
+    let daemon = DaemonProc::start(&data, &runtime);
+    let (_project_id, space_id, branch_id, head) = setup_space(&daemon);
+
+    let mut server = McpServer::start(&runtime);
+    server.initialize();
+
+    // An upload: the case that used to mint a second artifact per retry.
+    let begin_args = json!({
+        "declared_raw_sha256": "ab".repeat(32),
+        "declared_size": 11,
+        "declared_media_type": "text/plain",
+    });
+    let (first_text, is_error) = server.call("kovee_artifact_upload_begin", begin_args.clone());
+    assert!(!is_error, "{first_text}");
+    let first: Value = serde_json::from_str(&first_text).unwrap();
+    let (retry_text, is_error) = server.call("kovee_artifact_upload_begin", begin_args.clone());
+    assert!(!is_error, "{retry_text}");
+    let retry: Value = serde_json::from_str(&retry_text).unwrap();
+    assert_eq!(
+        first["upload_id"], retry["upload_id"],
+        "an ambiguous retry must reuse the logical call, not mint a second upload"
+    );
+    assert_eq!(
+        first["artifact_id"], retry["artifact_id"],
+        "…and not a second artifact"
+    );
+    // One upload row, still at its first revision: the retry replayed,
+    // it did not execute again.
+    let (shown_text, is_error) = server.call(
+        "kovee_artifact_upload_show",
+        json!({"upload_id": first["upload_id"]}),
+    );
+    assert!(!is_error, "{shown_text}");
+    let shown: Value = serde_json::from_str(&shown_text).unwrap();
+    assert_eq!(shown["revision"].as_u64(), Some(1));
+
+    // A different input is a different logical call — a different key,
+    // a different upload.
+    let (other_text, is_error) = server.call(
+        "kovee_artifact_upload_begin",
+        json!({
+            "declared_raw_sha256": "ab".repeat(32),
+            "declared_size": 12,
+            "declared_media_type": "text/plain",
+        }),
+    );
+    assert!(!is_error, "{other_text}");
+    let other: Value = serde_json::from_str(&other_text).unwrap();
+    assert_ne!(
+        first["upload_id"], other["upload_id"],
+        "a different input must not collapse onto the same key"
+    );
+
+    // The same contract on a space mutation: one contribution, not two.
+    let append_args = json!({
+        "space_id": space_id,
+        "branch_id": branch_id,
+        "expected_head_digest": head,
+        "kind": "observation",
+        "body_parts": [{"media_type": "text/plain", "text": "one logical append"}],
+    });
+    let (a_text, is_error) = server.call("kovee_contribution_append", append_args.clone());
+    assert!(!is_error, "{a_text}");
+    let a: Value = serde_json::from_str(&a_text).unwrap();
+    let (b_text, is_error) = server.call("kovee_contribution_append", append_args);
+    assert!(!is_error, "{b_text}");
+    let b: Value = serde_json::from_str(&b_text).unwrap();
+    assert_eq!(
+        a["contribution_id"], b["contribution_id"],
+        "the retry replayed the same append"
+    );
+    let (listed_text, is_error) = server.call(
+        "kovee_contribution_list",
+        json!({"space_id": space_id, "limit": 100}),
+    );
+    assert!(!is_error, "{listed_text}");
+    let listed: Value = serde_json::from_str(&listed_text).unwrap();
+    assert_eq!(
+        listed["items"].as_array().unwrap().len(),
+        1,
+        "exactly one contribution exists after the retried call"
+    );
+}
