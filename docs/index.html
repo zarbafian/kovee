@@ -457,7 +457,7 @@ img, svg { max-width: 100%; }
       <path class="s-b" d="M 10 75  C 200 75, 260 75, 380 75 C 500 75, 560 75, 750 75" />
       <path class="s-a" d="M 10 120 C 200 120, 260 82, 380 82 C 500 82, 560 120, 750 120" />
     </svg>
-    <p class="note reveal"><strong>Design target, not a shipped unified product.</strong> Akson: developer preview · Kovee &amp; Byom: implementation underway · <a href="#status">full status</a></p>
+    <p class="note reveal"><strong>Design target, not a shipped unified product.</strong> All three systems: pre-release, under active development · <a href="#status">full status</a></p>
   </div>
 </section>
 
@@ -1205,15 +1205,15 @@ img, svg { max-width: 100%; }
       <div class="track">
         <a class="tn tk" href="https://github.com/zarbafian/kovee">kovee</a>
         <div class="tinfo">
-          <span class="badge bg-k">draft design v0.1</span>
-          <span class="tl">implementation underway</span>
+          <span class="badge bg-k">pre-release</span>
+          <span class="tl">working personal-profile daemon · 96 operations across four bundles · spaces, branches, exact context assembly · MCP-drivable · governed via byom · developer profile only — no confinement, no team mode, not production-ready</span>
         </div>
       </div>
       <div class="track">
         <a class="tn tb" href="https://github.com/zarbafian/byom">byom</a>
         <div class="tinfo">
-          <span class="badge bg-b">design specification v0.2</span>
-          <span class="tl">implementation underway · conformance vectors defined ahead of code</span>
+          <span class="badge bg-b">pre-release</span>
+          <span class="tl">byomd runs the kernel protocol and governs kovee's loop over BPP · one-shot permits gate model egress · end-to-end gate: partial · not production-ready</span>
         </div>
       </div>
     </div>
@@ -1222,7 +1222,10 @@ img, svg { max-width: 100%; }
         What ships will say so precisely: the system advertises a capability only
         when its complete operation set, authority behavior, and failure semantics
         are ready — discovered by clients through <span style="font-family: var(--mono); font-size: 0.85em">system.describe()</span>,
-        never inferred from a version number.
+        never inferred from a version number. That is already real behavior, not
+        a promise: kovee's governed-work bundle is implemented at nine of
+        fourteen operations today, and is therefore deliberately not advertised
+        at all.
       </p>
     </div>
     <div class="domains reveal">
