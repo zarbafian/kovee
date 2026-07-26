@@ -109,7 +109,7 @@ fn the_live_transport_reaches_both_providers_and_is_refused_without_a_key() {
             .send(
                 &origin,
                 &request,
-                &Credential::new("sk-deliberately-invalid-no-such-key"),
+                &Credential::for_testing("sk-deliberately-invalid-no-such-key"),
                 std::time::Duration::from_secs(30),
             )
             .unwrap_or_else(|e| panic!("{}: the live wire failed: {e}", kind.as_str()));

@@ -291,7 +291,7 @@ fn prepare_position_finalize(
             // byom's act_intent_prepare requires the KEYED class here: the
             // ContextManifest is a local object whose verifiability byom
             // erases with the act, not one it recomputes.
-            "context_manifest_digest": keyed_digest(0xe1),
+            "context_manifest_digest": portable_digest(0xe1),
             "disclosure_manifest_ref": disclosure_ref,
             "disclosure_manifest_digest": serde_json::to_value(disclosure_digest).unwrap(),
             "driver_audience": audience,
@@ -369,7 +369,7 @@ fn prepare_only(
             // byom's act_intent_prepare requires the KEYED class here: the
             // ContextManifest is a local object whose verifiability byom
             // erases with the act, not one it recomputes.
-            "context_manifest_digest": keyed_digest(0xe1),
+            "context_manifest_digest": portable_digest(0xe1),
             "disclosure_manifest_ref": disclosure_ref,
             "disclosure_manifest_digest": serde_json::to_value(disclosure_digest).unwrap(),
             "driver_audience": BROKER,
@@ -427,11 +427,13 @@ fn mandate_subject_digest(byomd: &Byomd, mandate_id: &str) -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
-fn keyed_digest(seed: u8) -> Value {
+/// byom's `act_intent_prepare` pins the CROSS-BOUNDARY class for both
+/// manifest digests (A8): each names a frozen fragment the consuming host
+/// must re-derive, so a keyed one is `digest_class_mismatch`.
+fn portable_digest(seed: u8) -> Value {
     json!({
-        "class": "local_erasure_safe",
-        "algorithm": "hmac-sha-256",
-        "key_ref": format!("kovee-broker-test-object:{seed:02x}"),
+        "class": "portable_public",
+        "algorithm": "sha-256",
         "value_hex": format!("{seed:02x}").repeat(32),
     })
 }
@@ -610,6 +612,106 @@ fn a_spent_permit_refuses_a_second_dispatch() {
     );
     assert!(again.is_err(), "a consumed act authorizes nothing further");
     assert_eq!(transport.send_count(), 1);
+}
+
+/// R3's own probe (R3-B01), against the DURABLE ledger: hold two permit
+/// values for one consumed receipt and dispatch with both. R3 recorded two
+/// sends. Exactly one may leave, and the second attempt must refuse before
+/// the transport is touched — the spent state is on disk, not in the value.
+#[test]
+fn two_permits_for_one_receipt_still_dispatch_exactly_once() {
+    let Some(mut live) = live("k2-broker-double") else {
+        return skipped("k2_broker");
+    };
+    let runtime = live.runtime();
+    let call = live.call("Say OK.");
+    let authorization = authorize(&mut live, "dd", &call, BROKER);
+    let (profile, binding) = model_broker::read_profile(live.store.conn(), REALM, PROFILE).unwrap();
+    let staged =
+        model_broker::stage(&mut live.store, &call.request(), &profile, &binding, 0).unwrap();
+    let prepared = model_broker::prepare(
+        &mut live.store,
+        &call.request(),
+        &authorization,
+        &profile,
+        &binding,
+        &staged,
+        0,
+    )
+    .unwrap();
+    // Two permits, both minted by the gate from the ONE receipt byom issued.
+    // No attempt exists yet, so `already_spent` is still false for both: this
+    // is the second value R3 held.
+    let (first_permit, first_consumption) = model_broker::consume_permit(
+        &mut live.store,
+        &runtime,
+        &call.request(),
+        &authorization,
+        &prepared,
+        0,
+    )
+    .expect("the gate mints the permit");
+    let (second_permit, second_consumption) = model_broker::consume_permit(
+        &mut live.store,
+        &runtime,
+        &call.request(),
+        &authorization,
+        &prepared,
+        0,
+    )
+    .expect("the retained receipt re-authorizes while nothing is dispatched");
+    assert_eq!(
+        live.byomd.count("SELECT COUNT(*) FROM mandate_uses"),
+        1,
+        "one consumption, one MandateUse"
+    );
+
+    let transport = RecordingTransport::answering(REPLY);
+    let first = model_broker::dispatch_effect(
+        &mut live.store,
+        &runtime,
+        &transport,
+        &call.request(),
+        &prepared,
+        first_permit,
+        &first_consumption,
+        0,
+        Fault::None,
+    )
+    .expect("the one authorized dispatch");
+    assert_eq!(first.state, EffectState::Completed);
+    assert_eq!(transport.send_count(), 1);
+
+    // The second value is a permit by type and worthless in fact.
+    let second = model_broker::dispatch_effect(
+        &mut live.store,
+        &runtime,
+        &transport,
+        &call.request(),
+        &prepared,
+        second_permit,
+        &second_consumption,
+        0,
+        Fault::None,
+    )
+    .expect("the refusal is recorded, not an error");
+    assert_eq!(second.state, EffectState::Failed);
+    assert!(
+        second
+            .observation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("spent"),
+        "{second:?}"
+    );
+    assert_eq!(transport.send_count(), 1, "still exactly one request left");
+    assert_eq!(
+        live.count(
+            "SELECT COUNT(*) FROM external_authorization_consumptions WHERE state = 'spent'"
+        ),
+        1,
+        "the one-shot use is durably spent"
+    );
 }
 
 #[test]
@@ -985,9 +1087,11 @@ fn the_disclosure_manifest_is_complete_and_names_training_use() {
     );
     assert_eq!(disclosure.purpose, "purpose-explore-live");
     assert_eq!(disclosure.data_classes, vec!["class-public".to_owned()]);
-    // The digest is keyed under this disclosure's own object secret:
-    // destroying it erases exactly this disclosure's verifiability.
-    assert_eq!(disclosure.digest.class, "local_erasure_safe");
+    // The digest is the CROSS-BOUNDARY one byom's act pinned and byomd
+    // re-derives at consumption: unkeyed `portable_public` (A8, D-R3-3), so
+    // the comparison on byom's side is a machine check and not an echo.
+    assert_eq!(disclosure.digest.class, "portable_public");
+    assert!(disclosure.digest.key_ref.is_none());
 
     // And byom's one-shot permit bound exactly this disclosure. The
     // consumption row carries both byom's receipt and the local intersection

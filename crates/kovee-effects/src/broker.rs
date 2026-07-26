@@ -19,29 +19,46 @@
 //!     ExecutionConsumptionReceipt (max_uses 1)         koveed
 //!  8  authorize(): key, audience, subject, disclosure,
 //!     Episode, both fences, incarnation, expiry, spent  permit::authorize
-//!  9  origin is https and exactly allowlisted           dispatch()
-//! 10  the bytes about to leave match the sealed digest   dispatch()
-//! 11  the resolved address is globally routable          transport
+//!  9  the plan's origin IS the origin the permit bound   dispatch()
+//! 10  that origin is https and exactly allowlisted, by
+//!     the policy the PERMIT carries                     dispatch()
+//! 11  the bytes about to leave match the sealed digest   dispatch()
 //! 12  the attempt is COMMITTED dispatching               koveed
+//! 13  the one use is CLAIMED in the durable ledger        dispatch()
+//! 14  the resolved address is globally routable          transport
 //! ```
 //!
 //! Only then does the credential get resolved and injected, inside the
 //! transport, from a value the worker never had.
 //!
-//! What you write (the two halves, and the gate is not optional — you
-//! cannot call [`dispatch`] without an [`ExecutionPermit`]):
+//! What you write (the two halves, and the gate is not optional — you cannot
+//! call [`dispatch`] without an [`ExecutionPermit`], you hand the permit
+//! over rather than lending it, and the destination comes from the permit):
 //! ```no_run
 //! # use kovee_effects::*;
 //! # use std::time::Duration;
-//! # fn f(plan: &CallPlan, permit: &ExecutionPermit, transport: &dyn Transport,
-//! #      credential: &Credential) {
-//! let outcome = dispatch(plan, permit, transport, credential, Duration::from_secs(60));
+//! # fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
+//! #      credential: &Credential, ledger: &dyn SpentLedger) {
+//! let outcome = dispatch(plan, permit, egress, credential, ledger,
+//!                        Duration::from_secs(60));
 //! match outcome.state {
 //!     EffectState::Completed => { /* reply + usage */ }
 //!     EffectState::Failed => { /* nothing was transmitted */ }
 //!     EffectState::Ambiguous => { /* frozen; needs reconciliation */ }
 //!     _ => unreachable!("dispatch always terminalizes"),
 //! }
+//! # }
+//! ```
+//!
+//! The permit is consumed **by value**, so a second dispatch with the same
+//! one is not a policy violation but a compile error:
+//! ```compile_fail,E0382
+//! # use kovee_effects::*;
+//! # use std::time::Duration;
+//! # fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
+//! #      credential: &Credential, ledger: &dyn SpentLedger) {
+//! let first = dispatch(plan, permit, egress, credential, ledger, Duration::from_secs(60));
+//! let second = dispatch(plan, permit, egress, credential, ledger, Duration::from_secs(60));
 //! # }
 //! ```
 
@@ -60,8 +77,8 @@ use crate::driver::{driver_for, DriverError, ModelReply, ModelRequest, PreparedR
 use crate::egress::{check_origin, EgressError, Origin};
 use crate::keying::{record_digest, RecordDigestKey};
 use crate::manifest::{ManifestError, ProviderContextManifest};
-use crate::permit::ExecutionPermit;
-use crate::transport::{Transport, TransportError};
+use crate::permit::{Claim, ExecutionPermit, SpentLedger};
+use crate::transport::{Egress, TransportError};
 
 /// The byom type tag of Kovee's local effect projection — the preimage of
 /// the `host_effect_digest` byom stores and compares on replay.
@@ -89,47 +106,142 @@ pub enum BrokerError {
 }
 
 /// One planned model call: everything decided before authority is asked
-/// for, and nothing that can be changed after.
-#[derive(Debug, Clone)]
+/// for, and — now literally — nothing that can be changed after.
+///
+/// Every field is private and there is no public constructor: a plan exists
+/// only as [`plan`] returns it, sealed in one step with its own
+/// `host_effect_digest` over the whole projection. R3 changed `plan.origin`
+/// after the permit was minted and reached the transport (R3-B02); that
+/// assignment is now a compile error, and dispatch checks the destination
+/// against the permit's bound origin regardless.
+///
+/// ```compile_fail,E0616
+/// # use kovee_effects::{CallPlan, Origin};
+/// # fn f(mut plan: CallPlan) {
+/// plan.origin = Origin::https("exfil.example", 443);
+/// # }
+/// ```
+#[derive(Debug)]
 pub struct CallPlan {
-    /// Kovee's local Effect id — the `host_effect_ref` byom binds.
-    pub effect_id: String,
-    /// byom's kernel-derived one-shot key. Kovee echoes it; it is the
-    /// identity the receipt must name.
-    pub execution_key: String,
-    /// The stable external idempotency key: the same logical call always
-    /// derives the same one, so a driver retry cannot duplicate the effect.
-    pub external_idempotency_key: String,
-    /// byom's authorized subject digest, echoed.
-    pub subject_digest: DigestRef,
-    /// Kovee's own canonical digest over the local effect projection.
-    pub host_effect_digest: DigestRef,
-    pub disclosure: DisclosureManifest,
-    /// The sealed chain: its last link is the exact bytes below.
-    pub context_manifest: ProviderContextManifest,
-    pub origin: Origin,
-    pub provider_kind: crate::binding::ProviderKind,
-    pub model_selector: String,
-    pub request: PreparedRequest,
-    pub max_output_tokens: u64,
+    effect_id: String,
+    execution_key: String,
+    external_idempotency_key: String,
+    subject_digest: DigestRef,
+    host_effect_digest: DigestRef,
+    disclosure: DisclosureManifest,
+    context_manifest: ProviderContextManifest,
+    origin: Origin,
+    provider_kind: crate::binding::ProviderKind,
+    model_selector: String,
+    request: PreparedRequest,
+    max_output_tokens: u64,
 }
 
 impl CallPlan {
+    /// Kovee's local Effect id — the `host_effect_ref` byom binds.
+    pub fn effect_id(&self) -> &str {
+        &self.effect_id
+    }
+    /// byom's kernel-derived one-shot key. Kovee echoes it; it is the
+    /// identity the receipt must name.
+    pub fn execution_key(&self) -> &str {
+        &self.execution_key
+    }
+    /// The stable external idempotency key: the same logical call always
+    /// derives the same one, so a driver retry cannot duplicate the effect.
+    pub fn external_idempotency_key(&self) -> &str {
+        &self.external_idempotency_key
+    }
+    /// byom's authorized subject digest, echoed.
+    pub fn subject_digest(&self) -> &DigestRef {
+        &self.subject_digest
+    }
+    /// Kovee's own canonical digest over the local effect projection.
+    pub fn host_effect_digest(&self) -> &DigestRef {
+        &self.host_effect_digest
+    }
+    pub fn disclosure(&self) -> &DisclosureManifest {
+        &self.disclosure
+    }
+    /// The sealed chain: its last link is the exact request bytes.
+    pub fn context_manifest(&self) -> &ProviderContextManifest {
+        &self.context_manifest
+    }
+    /// The destination, copied from the provider binding when the plan was
+    /// sealed. Read-only, and never the last word: the permit's own bound
+    /// origin is what dispatch dials.
+    pub fn origin(&self) -> &Origin {
+        &self.origin
+    }
+    pub fn provider_kind(&self) -> crate::binding::ProviderKind {
+        self.provider_kind
+    }
+    pub fn model_selector(&self) -> &str {
+        &self.model_selector
+    }
+    pub fn request(&self) -> &PreparedRequest {
+        &self.request
+    }
+    pub fn max_output_tokens(&self) -> u64 {
+        self.max_output_tokens
+    }
+
     /// The local effect projection whose digest byom stores.
     pub fn projection(&self) -> Value {
-        json!({
-            "effect_id": self.effect_id,
-            "execution_key": self.execution_key,
-            "external_idempotency_key": self.external_idempotency_key,
-            "subject_digest": self.subject_digest,
-            "disclosure_manifest_ref": self.disclosure.disclosure_id,
-            "disclosure_digest": self.disclosure.digest,
-            "provider_context_id": self.context_manifest.provider_context_id,
-            "provider_context_digest": self.context_manifest.digest,
-            "final_provider_request_typed_byte_digest":
-                self.context_manifest.final_provider_request_typed_byte_digest,
-        })
+        projection(
+            &self.effect_id,
+            &self.execution_key,
+            &self.external_idempotency_key,
+            &self.subject_digest,
+            &self.disclosure,
+            &self.context_manifest,
+        )
     }
+
+    /// A plan identical to this one but dialing `origin` — **test-only**, and
+    /// the point of it is that it must not help: it is how R3's own probe
+    /// (change the destination after authorization) is reproduced against a
+    /// type that no longer lets production code do it.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn probe_with_origin(self, origin: Origin) -> CallPlan {
+        CallPlan { origin, ..self }
+    }
+
+    /// A plan identical to this one but carrying `body` as the request bytes
+    /// — **test-only**, and again the point is that it must not help: the
+    /// sealed chain no longer covers those bytes, so dispatch refuses.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn probe_with_request_body(self, body: Vec<u8>) -> CallPlan {
+        let request = PreparedRequest {
+            body,
+            ..self.request
+        };
+        CallPlan { request, ..self }
+    }
+}
+
+/// The effect projection, from the parts — so [`plan`] can seal a `CallPlan`
+/// in ONE construction, digest included, rather than patching a field in.
+fn projection(
+    effect_id: &str,
+    execution_key: &str,
+    external_idempotency_key: &str,
+    subject_digest: &DigestRef,
+    disclosure: &DisclosureManifest,
+    context_manifest: &ProviderContextManifest,
+) -> Value {
+    json!({
+        "effect_id": effect_id,
+        "execution_key": execution_key,
+        "external_idempotency_key": external_idempotency_key,
+        "subject_digest": subject_digest,
+        "disclosure_manifest_ref": disclosure.disclosure_id,
+        "disclosure_digest": disclosure.digest,
+        "provider_context_id": context_manifest.provider_context_id,
+        "provider_context_digest": context_manifest.digest,
+        "final_provider_request_typed_byte_digest":
+            context_manifest.final_provider_request_typed_byte_digest,
+    })
 }
 
 /// What the caller asks the broker to plan.
@@ -196,9 +308,10 @@ pub fn plan(
         )));
     }
 
-    // 4. the disclosure manifest must still verify as authorized — under
-    //    its own per-object key, so a tampered or re-keyed record fails.
-    disclosure.verify(keys.disclosure)?;
+    // 4. the disclosure manifest must still verify as authorized. Its digest
+    //    is the CROSS-BOUNDARY one byom's act pinned, so the check needs no
+    //    key and byom performs the identical one (A8).
+    disclosure.verify()?;
 
     // 5. the exact provider request, then the chain sealed over its bytes.
     let driver = driver_for(binding.provider_kind);
@@ -211,15 +324,34 @@ pub fn plan(
     let context_manifest = context_manifest.seal(&request.body, keys.context)?;
     context_manifest.verify(keys.context)?;
 
-    let mut planned = CallPlan {
+    // The local effect digest byom stores as `host_effect_digest`, compares
+    // on a replay, and demands again at `effect_outcome_admit`: a
+    // CROSS-BOUNDARY fragment, so unkeyed `portable_public` (A8). It is
+    // derived BEFORE the plan exists, so the plan is sealed in one
+    // construction and has no half-built state anyone could observe.
+    let external_idempotency_key = external_idempotency_key(
+        input.execution_key,
+        &context_manifest.final_provider_request_typed_byte_digest,
+    );
+    let host_effect_digest = record_digest(
+        EFFECT_TAG,
+        &projection(
+            input.effect_id,
+            input.execution_key,
+            &external_idempotency_key,
+            input.subject_digest,
+            &disclosure,
+            &context_manifest,
+        ),
+        RecordDigestKey::Portable,
+    )
+    .ok_or(BrokerError::Uncanonical)?;
+    Ok(CallPlan {
         effect_id: input.effect_id.to_owned(),
         execution_key: input.execution_key.to_owned(),
-        external_idempotency_key: external_idempotency_key(
-            input.execution_key,
-            &context_manifest.final_provider_request_typed_byte_digest,
-        ),
+        external_idempotency_key,
         subject_digest: input.subject_digest.clone(),
-        host_effect_digest: DigestRef::portable_public("0".repeat(64)),
+        host_effect_digest,
         disclosure,
         context_manifest,
         origin: binding.endpoint.clone(),
@@ -227,23 +359,19 @@ pub fn plan(
         model_selector: profile.model_selector.clone(),
         request,
         max_output_tokens,
-    };
-    // The local effect digest byom stores as `host_effect_digest` and
-    // compares on a replay. Kovee's own object, so keyed per object.
-    planned.host_effect_digest = record_digest(EFFECT_TAG, &planned.projection(), keys.effect)
-        .ok_or(BrokerError::Uncanonical)?;
-    Ok(planned)
+    })
 }
 
-/// The three per-object digest keys a plan needs. All `local_erasure_safe`
-/// in production: each names a Kovee-owned object whose secret can be
-/// destroyed independently (D-R1-2), and each is the class byom's runtime
-/// schemas require for that field.
+/// The per-object digest key a plan needs.
+///
+/// Only the provider-context chain is keyed now: it is a purely LOCAL object
+/// whose verifiability Kovee erases per object (D-R1-2). The disclosure
+/// manifest and the local effect projection both cross the boundary — byom's
+/// act pins them and byomd re-derives them — so both are unkeyed
+/// `portable_public` and neither takes a secret at all (A8, D-R3-3).
 #[derive(Debug, Clone, Copy)]
 pub struct PlanKeys<'a> {
-    pub disclosure: RecordDigestKey<'a>,
     pub context: RecordDigestKey<'a>,
-    pub effect: RecordDigestKey<'a>,
 }
 
 /// The stable external idempotency key: byom's one-shot key plus the exact
@@ -292,36 +420,47 @@ impl Outcome {
 
 /// Dispatches a planned call under an already-consumed permit.
 ///
-/// Taking `&ExecutionPermit` by value-reference is the gate: the permit is
-/// minted only by [`crate::permit::authorize`], so there is no way to reach
-/// this function without having passed every check in that gate.
+/// Three things make this the gate rather than a convention:
+///
+/// - the permit is minted only by [`crate::permit::authorize`], and is
+///   neither `Clone` nor `Deserialize`, so it cannot be forged or copied;
+/// - it is taken **by value**, so the caller cannot dispatch twice with it;
+/// - the one authorized use is claimed in a **durable** [`SpentLedger`]
+///   before the socket opens, so a second permit value — however obtained —
+///   sends nothing (R3-B01).
+///
+/// The destination is the permit's own bound origin, not a field of the plan:
+/// a plan whose origin no longer matches what was authorized is refused
+/// before any byte leaves (R3-B02).
 ///
 /// This function always terminalizes. It never retries: an `ambiguous`
 /// outcome is frozen for reconciliation.
 pub fn dispatch(
     plan: &CallPlan,
-    permit: &ExecutionPermit,
-    transport: &dyn Transport,
+    permit: ExecutionPermit,
+    egress: &Egress<'_>,
     credential: &Credential,
+    ledger: &dyn SpentLedger,
     timeout: Duration,
 ) -> Outcome {
     let started = Instant::now();
-    let profile = transport.profile();
+    let profile = egress.profile();
 
     // The permit must still be for this exact effect. Cheap, and it closes
     // the gap between `authorize` and here.
-    if permit.execution_key != plan.execution_key {
+    if permit.execution_key() != plan.execution_key {
         return Outcome::terminal(
             EffectState::Failed,
             format!(
                 "the permit authorizes execution key {:?}, not {:?}",
-                permit.execution_key, plan.execution_key
+                permit.execution_key(),
+                plan.execution_key
             ),
             started.elapsed(),
             profile,
         );
     }
-    if permit.disclosure_digest != plan.disclosure.digest {
+    if permit.disclosure_digest() != &plan.disclosure.digest {
         return Outcome::terminal(
             EffectState::Failed,
             "the permit authorizes another disclosure than this plan's".to_owned(),
@@ -330,9 +469,24 @@ pub fn dispatch(
         );
     }
 
-    // 9. the origin: https and exactly the binding's own allowlist.
-    let policy = crate::egress::EgressPolicy::allowing([plan.origin.clone()]);
-    if let Err(e) = check_origin(&plan.origin, &policy) {
+    // 9. the destination the PERMIT bound at authorization — the provider
+    //    binding's own endpoint. The plan is checked against that, never the
+    //    other way round, and it is the permit's origin that gets dialed.
+    let origin = permit.bound_origin();
+    if &plan.origin != origin {
+        return Outcome::terminal(
+            EffectState::Failed,
+            format!(
+                "the permit authorizes egress to {origin}, but this plan names {}",
+                plan.origin
+            ),
+            started.elapsed(),
+            profile,
+        );
+    }
+
+    // 10. https, and exactly the allowlist the permit carries.
+    if let Err(e) = check_origin(origin, permit.bound_egress_policy()) {
         return Outcome::terminal(
             EffectState::Failed,
             e.to_string(),
@@ -341,7 +495,7 @@ pub fn dispatch(
         );
     }
 
-    // 10. the bytes about to leave are the ones the chain sealed and the
+    // 11. the bytes about to leave are the ones the chain sealed and the
     //     permit therefore authorized.
     if let Err(e) = plan.context_manifest.check_bytes(&plan.request.body) {
         return Outcome::terminal(
@@ -352,8 +506,38 @@ pub fn dispatch(
         );
     }
 
-    // 11-13. one exchange, credential injected inside the transport.
-    let response = match transport.send(&plan.origin, &plan.request, credential, timeout) {
+    // 13. the one use, claimed durably BEFORE the socket opens. A permit
+    //     value is not the authority; this row is.
+    match ledger.claim_single_use(&permit) {
+        Ok(Claim::Claimed) => {}
+        Ok(Claim::AlreadySpent) => {
+            return Outcome::terminal(
+                EffectState::Failed,
+                format!(
+                    "this one-shot permit's use is already spent (consumption {}); a new \
+                     attempt needs a new byom act",
+                    permit.consumption_ref()
+                ),
+                started.elapsed(),
+                profile,
+            );
+        }
+        Err(e) => {
+            // A use that cannot be recorded is a use that does not happen.
+            return Outcome::terminal(
+                EffectState::Failed,
+                format!("the permit's single use could not be claimed durably: {e}"),
+                started.elapsed(),
+                profile,
+            );
+        }
+    }
+
+    // 14. one exchange, credential injected inside the transport.
+    let response = match egress
+        .transport()
+        .send(origin, &plan.request, credential, timeout)
+    {
         Ok(response) => response,
         Err(e @ TransportError::NotSent(_)) => {
             return Outcome::terminal(
@@ -414,7 +598,7 @@ mod tests {
     use crate::binding::{ProviderKind, RequestLimits, Status};
     use crate::disclosure::{DisclosureItem, ProviderClaims};
     use crate::manifest::{ByomSourceFields, Segment, SegmentKind};
-    use crate::permit::{BROKER_DRIVER_AUDIENCE, OWNER_PROTOCOL_BYOM, PHASE_PRE_EGRESS};
+    use crate::permit::{EpisodeFence, Expectation, MemorySpentLedger, BROKER_DRIVER_AUDIENCE};
     use crate::transport::RecordingTransport;
 
     fn d(b: u8) -> DigestRef {
@@ -460,16 +644,8 @@ mod tests {
 
     fn keys() -> PlanKeys<'static> {
         PlanKeys {
-            disclosure: RecordDigestKey::Object {
-                key_ref: "kovee-disclosure-object:disc-1",
-                secret: &SECRET,
-            },
             context: RecordDigestKey::Object {
                 key_ref: "kovee-provider-context-object:pcm-1",
-                secret: &SECRET,
-            },
-            effect: RecordDigestKey::Object {
-                key_ref: "kovee-model-effect-object:meff-1",
                 secret: &SECRET,
             },
         }
@@ -493,7 +669,6 @@ mod tests {
             Vec::new(),
             claims(),
             "2027-01-15T08:00:00Z",
-            keys().disclosure,
         )
         .unwrap()
     }
@@ -559,58 +734,102 @@ mod tests {
         plan(&input(&subject), &b, &p, disc, chain, keys()).unwrap()
     }
 
-    fn permit_for(plan: &CallPlan) -> ExecutionPermit {
-        ExecutionPermit {
-            owner_protocol: OWNER_PROTOCOL_BYOM.into(),
-            phase: PHASE_PRE_EGRESS.into(),
-            owner_endpoint_ref: "byom-endpoint-local".into(),
-            owner_intent_ref: "actint-1".into(),
-            owner_receipt_ref: "ecr-1".into(),
-            owner_receipt_digest: Some(d(0x06)),
-            mandate_use_ref: "muse-1".into(),
-            execution_key: plan.execution_key.clone(),
-            subject_digest: plan.subject_digest.clone(),
-            disclosure_digest: plan.disclosure.digest.clone(),
-            owner_unverified_digests: Vec::new(),
-            driver_audience: BROKER_DRIVER_AUDIENCE.into(),
-            episode_ref: Some("ep-1".into()),
-            byom_fence_epoch: 7,
-            kovee_invocation_fence: 1,
-            budget_reservation_set_ref: "rset-1".into(),
-            expires_at: "2027-01-15T09:00:00Z".into(),
-            max_uses: 1,
-        }
-    }
-
     const REPLY: &[u8] = br#"{"id":"msg_01","model":"claude-haiku-4-5-20251001",
         "stop_reason":"end_turn","content":[{"type":"text","text":"OK"}],
         "usage":{"input_tokens":12,"output_tokens":2}}"#;
 
+    /// The permit for this plan, minted the ONLY way one can be: byom's reply
+    /// JSON → the parser → the keyed attestation over the committed
+    /// consumption → [`authorize`]. There is no literal to write here any
+    /// more, which is the point of R3-B01.
+    fn permit_for(plan: &CallPlan) -> ExecutionPermit {
+        gate(
+            plan,
+            plan.execution_key(),
+            &plan.disclosure().digest,
+            plan.origin().clone(),
+        )
+    }
+
+    /// The same gate, with each bound value chooseable — so a test can hold a
+    /// permit that authorizes another key, another disclosure, or another
+    /// destination, without ever writing a permit field.
+    fn gate(
+        plan: &CallPlan,
+        execution_key: &str,
+        disclosure_digest: &DigestRef,
+        bound_origin: Origin,
+    ) -> ExecutionPermit {
+        use crate::permit::fixture;
+        let fence = fixture::digest(0x05);
+        let reply = fixture::reply(
+            execution_key,
+            plan.subject_digest(),
+            disclosure_digest,
+            &fence,
+        );
+        let receipt = fixture::receipt_from(&reply);
+        crate::permit::authorize(
+            Some(fixture::attest(&receipt)),
+            &Expectation {
+                execution_key,
+                subject_digest: plan.subject_digest(),
+                disclosure_digest,
+                driver_audience: BROKER_DRIVER_AUDIENCE,
+                episode: Some(EpisodeFence {
+                    episode_ref: "ep-1",
+                    fence_digest: &fence,
+                    byom_fence_epoch: 7,
+                    kovee_invocation_fence: 1,
+                }),
+                endpoint_incarnation: "inst-1",
+                recovery_epoch: 0,
+                now: 1_800_000_000,
+                already_spent: false,
+                bound_origin: &bound_origin,
+            },
+        )
+        .unwrap()
+    }
+
+    /// A ledger that fails rather than answering: a use that cannot be
+    /// recorded is a use that does not happen.
+    struct BrokenLedger;
+    impl SpentLedger for BrokenLedger {
+        fn claim_single_use(&self, _permit: &ExecutionPermit) -> Result<Claim, String> {
+            Err("the consumption row is unwritable".to_owned())
+        }
+    }
+
     #[test]
     fn planning_seals_the_chain_over_the_exact_bytes() {
         let plan = planned();
-        plan.context_manifest
-            .check_bytes(&plan.request.body)
+        plan.context_manifest()
+            .check_bytes(&plan.request().body)
             .unwrap();
-        assert_eq!(plan.origin, ProviderKind::Anthropic.default_origin());
-        assert_eq!(plan.model_selector, crate::driver::ANTHROPIC_MODEL);
+        assert_eq!(plan.origin(), &ProviderKind::Anthropic.default_origin());
+        assert_eq!(plan.model_selector(), crate::driver::ANTHROPIC_MODEL);
         // The idempotency key is stable and derived, not random.
         assert_eq!(
-            plan.external_idempotency_key,
-            planned().external_idempotency_key
+            plan.external_idempotency_key(),
+            planned().external_idempotency_key()
         );
         assert!(plan
-            .external_idempotency_key
+            .external_idempotency_key()
             .starts_with("kovee-model-exec-abc-"));
-        // And the local effect digest binds every one of those facts — as
-        // Kovee's own object, so keyed per object (the class byom's
-        // `execution_permit_consume` requires for `host_effect_digest`).
-        assert_eq!(plan.host_effect_digest.class, "local_erasure_safe");
+        // And the local effect digest binds every one of those facts — as the
+        // CROSS-BOUNDARY fragment byom pins at consumption and demands again
+        // at `effect_outcome_admit`, so unkeyed `portable_public` (A8).
+        assert_eq!(plan.host_effect_digest().class, "portable_public");
+        assert_eq!(plan.host_effect_digest().algorithm, "sha-256");
+        assert!(plan.host_effect_digest().key_ref.is_none());
+        assert_eq!(plan.host_effect_digest(), planned().host_effect_digest());
+        // The plan is sealed in one construction: its digest covers the
+        // projection it reports, with no window where the two disagree.
         assert_eq!(
-            plan.host_effect_digest.key_ref.as_deref(),
-            Some("kovee-model-effect-object:meff-1")
+            record_digest(EFFECT_TAG, &plan.projection(), RecordDigestKey::Portable).unwrap(),
+            *plan.host_effect_digest()
         );
-        assert_eq!(plan.host_effect_digest, planned().host_effect_digest);
     }
 
     #[test]
@@ -618,11 +837,13 @@ mod tests {
         let plan = planned();
         let permit = permit_for(&plan);
         let transport = RecordingTransport::answering(REPLY);
+        let ledger = MemorySpentLedger::default();
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            permit,
+            &Egress::recording(&transport),
             &Credential::new("sk-ant-secret"),
+            &ledger,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Completed);
@@ -639,7 +860,85 @@ mod tests {
         // The credential reached the wire and only the wire.
         let sent = transport.sent().pop().unwrap();
         assert_eq!(sent.header("x-api-key"), Some("sk-ant-secret"));
-        assert_eq!(sent.origin, plan.origin);
+        assert_eq!(&sent.origin, plan.origin());
+    }
+
+    // R3's own probe (R3-B01): dispatch twice under one consumption. R3 held
+    // ONE permit and dispatched twice, recording two sends. The permit is now
+    // consumed by value, so the literal repeat is a compile error (see the
+    // module doc); this is the strictly harder case — two permit VALUES for
+    // the one receipt, which is what a caller could still contrive.
+    #[test]
+    fn a_second_dispatch_under_one_consumption_sends_nothing() {
+        let plan = planned();
+        let first = permit_for(&plan);
+        let second = permit_for(&plan);
+        assert_eq!(first.consumption_ref(), second.consumption_ref());
+        let transport = RecordingTransport::answering(REPLY);
+        let ledger = MemorySpentLedger::default();
+        let one = dispatch(
+            &plan,
+            first,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &ledger,
+            DEFAULT_TIMEOUT,
+        );
+        let two = dispatch(
+            &plan,
+            second,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &ledger,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(one.state, EffectState::Completed);
+        assert_eq!(
+            two.state,
+            EffectState::Failed,
+            "a one-shot permit authorizes exactly one dispatch"
+        );
+        assert!(two
+            .observation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("already spent"));
+        assert_eq!(transport.send_count(), 1, "exactly one request left");
+    }
+
+    // R3's own probe (R3-B02): change the destination AFTER the permit exists.
+    // Production code cannot do this at all now — `CallPlan.origin` is private
+    // — so the probe uses the test-only rebuild, and the permit's own bound
+    // origin refuses it anyway.
+    #[test]
+    fn an_origin_changed_after_authorization_sends_nothing() {
+        let plan = planned();
+        let permit = permit_for(&plan);
+        let moved = planned().probe_with_origin(Origin::https("exfil.example", 443));
+        let transport = RecordingTransport::answering(REPLY);
+        let ledger = MemorySpentLedger::default();
+        let outcome = dispatch(
+            &moved,
+            permit,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &ledger,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(outcome.state, EffectState::Failed);
+        let observation = outcome.observation.unwrap_or_default();
+        assert!(
+            observation.contains("api.anthropic.com") && observation.contains("exfil.example"),
+            "{observation}"
+        );
+        assert_eq!(transport.send_count(), 0, "not one byte left");
+        // And the use was NOT claimed: a refused dispatch does not burn the
+        // permit, so the real destination can still be served.
+        let permit = permit_for(&plan);
+        assert_eq!(
+            ledger.claim_single_use(&permit).unwrap(),
+            crate::permit::Claim::Claimed
+        );
     }
 
     #[test]
@@ -647,11 +946,13 @@ mod tests {
         let plan = planned();
         let permit = permit_for(&plan);
         let transport = RecordingTransport::uncertain("connection reset after write");
+        let ledger = MemorySpentLedger::default();
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            permit,
+            &Egress::recording(&transport),
             &Credential::new("k"),
+            &ledger,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Ambiguous);
@@ -661,33 +962,69 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("may have been transmitted"));
+        // The use is spent: bytes may have left, so no second attempt on this
+        // authority — the ledger says so even though nothing was confirmed.
+        let permit = permit_for(&plan);
+        assert_eq!(
+            ledger.claim_single_use(&permit).unwrap(),
+            crate::permit::Claim::AlreadySpent
+        );
+    }
+
+    #[test]
+    fn a_ledger_that_cannot_record_the_use_refuses_the_dispatch() {
+        let plan = planned();
+        let permit = permit_for(&plan);
+        let transport = RecordingTransport::answering(REPLY);
+        let outcome = dispatch(
+            &plan,
+            permit,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &BrokenLedger,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(outcome.state, EffectState::Failed);
+        assert!(outcome
+            .observation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("could not be claimed durably"));
+        assert_eq!(transport.send_count(), 0);
     }
 
     #[test]
     fn a_permit_for_another_effect_stops_the_dispatch_before_egress() {
         let plan = planned();
-        let mut permit = permit_for(&plan);
-        permit.execution_key = "exec-someone-elses".into();
+        let ledger = MemorySpentLedger::default();
+        // A permit minted for another execution key.
+        let elsewhere = gate(
+            &plan,
+            "exec-someone-elses",
+            &plan.disclosure().digest,
+            plan.origin().clone(),
+        );
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            elsewhere,
+            &Egress::recording(&transport),
             &Credential::new("k"),
+            &ledger,
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
         assert_eq!(transport.send_count(), 0, "no byte left");
         // And the same for a permit bound to another disclosure.
-        let mut permit = permit_for(&plan);
-        permit.disclosure_digest = d(0xdd);
+        let other_disclosure = gate(&plan, plan.execution_key(), &d(0xdd), plan.origin().clone());
         let transport = RecordingTransport::answering(REPLY);
         assert_eq!(
             dispatch(
                 &plan,
-                &permit,
-                &transport,
+                other_disclosure,
+                &Egress::recording(&transport),
                 &Credential::new("k"),
+                &ledger,
                 DEFAULT_TIMEOUT
             )
             .state,
@@ -697,20 +1034,26 @@ mod tests {
     }
 
     #[test]
-    fn a_non_allowlisted_or_plaintext_origin_stops_the_dispatch() {
-        let mut plan = planned();
-        plan.origin = Origin {
+    fn a_plaintext_origin_stops_the_dispatch_even_when_the_permit_bound_it() {
+        let plaintext = Origin {
             scheme: "http".into(),
             host: "api.anthropic.com".into(),
             port: 80,
         };
-        let permit = permit_for(&plan);
+        let plan = planned().probe_with_origin(plaintext.clone());
+        let permit = gate(
+            &plan,
+            plan.execution_key(),
+            &plan.disclosure().digest,
+            plaintext,
+        );
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            permit,
+            &Egress::recording(&transport),
             &Credential::new("k"),
+            &MemorySpentLedger::default(),
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -720,17 +1063,18 @@ mod tests {
 
     #[test]
     fn tampered_bytes_after_sealing_stop_the_dispatch() {
-        let mut plan = planned();
         // Something rewrote the request after the permit authorized its
         // digest. The last check before the socket catches it.
-        plan.request.body = br#"{"model":"other","max_tokens":1,"messages":[]}"#.to_vec();
+        let plan = planned()
+            .probe_with_request_body(br#"{"model":"other","max_tokens":1,"messages":[]}"#.to_vec());
         let permit = permit_for(&plan);
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            permit,
+            &Egress::recording(&transport),
             &Credential::new("k"),
+            &MemorySpentLedger::default(),
             DEFAULT_TIMEOUT,
         );
         assert_eq!(outcome.state, EffectState::Failed);
@@ -752,9 +1096,10 @@ mod tests {
         );
         let outcome = dispatch(
             &plan,
-            &permit,
-            &transport,
+            permit,
+            &Egress::recording(&transport),
             &Credential::new("k"),
+            &MemorySpentLedger::default(),
             DEFAULT_TIMEOUT,
         );
         // The provider answered definitely, so this is `failed`, not

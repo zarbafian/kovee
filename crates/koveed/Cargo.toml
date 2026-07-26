@@ -32,4 +32,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# The recording transport and the in-memory spent ledger live behind
+# kovee-effects' `testing` feature, so the K2 suites can prove "zero sends"
+# while a production build of this daemon has no such wire to offer (R3-B02).
+kovee-effects = { workspace = true, features = ["testing"] }
 sha2 = { workspace = true }

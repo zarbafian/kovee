@@ -14,6 +14,9 @@
 //! # fn f(store: &mut kovee_store::Store, runtime: &koveed::episode::Runtime,
 //! #      authorization: &ActAuthorization)
 //! #   -> Result<(), kovee_core::problem::Problem> {
+//! // The daemon's own wire. `complete` accepts nothing else in a production
+//! // build: `&HttpsTransport` converts into the sealed `Egress`, and the
+//! // recording double exists only under kovee-effects' `testing` feature.
 //! let transport = HttpsTransport::new();
 //! let completion = model_broker::complete(
 //!     store, runtime, &transport,
@@ -69,11 +72,12 @@ use kovee_core::family::{tagged_canonical, DigestRef};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::rfc3339_utc;
 use kovee_effects::{
-    authorize, dispatch as dispatch_bytes, plan, ByomSourceFields, CallPlan, DisclosureItem,
-    DisclosureManifest, EffectState, EpisodeFence, ExecutionConsumptionReceipt, ExecutionPermit,
-    Expectation, ModelProfile, ModelProviderBinding, PlanInput, PlanKeys, ProviderClaims,
-    ProviderContextManifest, ProviderKind, RecordDigestKey, RequestLimits, Segment, SegmentKind,
-    Transport, Usage, BROKER_DRIVER_AUDIENCE, OWNER_PROTOCOL_BYOM, PHASE_PRE_EGRESS,
+    authorize, dispatch as dispatch_bytes, plan, ByomSourceFields, CallPlan, Claim,
+    ConsumedReceipt, DisclosureItem, DisclosureManifest, EffectState, Egress, EpisodeFence,
+    ExecutionConsumptionReceipt, ExecutionPermit, Expectation, ModelProfile, ModelProviderBinding,
+    PlanInput, PlanKeys, ProviderClaims, ProviderContextManifest, ProviderKind, RecordDigestKey,
+    RequestLimits, Segment, SegmentKind, SpentLedger, Usage, BROKER_DRIVER_AUDIENCE,
+    OWNER_PROTOCOL_BYOM, PHASE_PRE_EGRESS,
 };
 use kovee_store::{new_id, NewEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension as _};
@@ -391,15 +395,16 @@ pub fn read_profile(
 
 // ----------------------------------------------------------- the staging ----
 
-/// One committed §16.2 disclosure manifest, and the per-object secret its
-/// digest is keyed under. The ref/digest are what byom's `model_egress` act
-/// is prepared against, which is why staging happens BEFORE the act and is
-/// committed rather than recomputed.
+/// One committed §16.2 disclosure manifest. The ref/digest are what byom's
+/// `model_egress` act is prepared against, which is why staging happens
+/// BEFORE the act and is committed rather than recomputed.
+///
+/// There is no per-object secret here: the manifest digest is the
+/// CROSS-BOUNDARY `portable_public` one byom re-derives (A8), so it is keyed
+/// by nothing and the row stores no secret to destroy.
 #[derive(Debug, Clone)]
 pub struct Staged {
     pub disclosure: DisclosureManifest,
-    secret: [u8; 32],
-    key_ref_owned: String,
 }
 
 impl Staged {
@@ -408,12 +413,6 @@ impl Staged {
     }
     pub fn disclosure_digest(&self) -> &DigestRef {
         &self.disclosure.digest
-    }
-    fn key(&self) -> RecordDigestKey<'_> {
-        RecordDigestKey::Object {
-            key_ref: &self.key_ref_owned,
-            secret: &self.secret,
-        }
     }
 }
 
@@ -462,23 +461,12 @@ pub fn stage(
             "provider_claims": binding.provider_claims,
         }),
     )?;
-    let key_ref = kovee_effects::object_key_ref("disclosure", &disclosure_id);
-
-    // An exact retry finds the committed row and its secret.
+    // An exact retry finds the committed row.
     if let Some(existing) = read_disclosure(store.conn(), &disclosure_id)? {
-        let secret = object_secret(
-            store.conn(),
-            "disclosure_manifests",
-            "disclosure_id",
-            &disclosure_id,
-            &key_ref,
-        )?;
         let staged = Staged {
             disclosure: existing,
-            secret,
-            key_ref_owned: key_ref,
         };
-        staged.disclosure.verify(staged.key()).map_err(|e| {
+        staged.disclosure.verify().map_err(|e| {
             refuse(
                 ProblemKind::Internal,
                 "the staged disclosure no longer verifies",
@@ -488,11 +476,6 @@ pub fn stage(
         return Ok(staged);
     }
 
-    let secret = kovee_store::objkey::new_object_secret().map_err(store_problem)?;
-    let key = RecordDigestKey::Object {
-        key_ref: &key_ref,
-        secret: &secret,
-    };
     let mut disclosure = DisclosureManifest::model_egress(
         &disclosure_id,
         request.realm,
@@ -505,7 +488,6 @@ pub fn stage(
         Vec::new(),
         binding.provider_claims.clone(),
         &created_at,
-        key,
     )
     .map_err(|e| {
         refuse(
@@ -518,12 +500,9 @@ pub fn stage(
         let assembly_digest =
             DigestRef::portable_public(kovee_core::family::sha256_hex(assembly_ref.as_bytes()));
         disclosure = disclosure
-            .with_context_assembly(&assembly_ref, assembly_digest, key)
+            .with_context_assembly(&assembly_ref, assembly_digest)
             .map_err(|e| refuse(ProblemKind::Invalid, "the disclosure manifest", e))?;
     }
-    let realm_key = kovee_store::realm_object_key_of(store.conn()).map_err(store_problem)?;
-    let wrapped =
-        kovee_store::objkey::wrap(&realm_key, &key_ref, &secret).map_err(store_problem)?;
     store
         .conn()
         .execute(
@@ -537,16 +516,14 @@ pub fn stage(
                 serde_json::to_string(&disclosure).map_err(|_| internal())?,
                 disclosure.digest.value_hex,
                 disclosure.total_bytes as i64,
-                wrapped,
+                // No object secret: the digest is unkeyed `portable_public`,
+                // so there is nothing here whose destruction would erase it.
+                Option::<Vec<u8>>::None,
                 rfc3339_utc(now),
             ],
         )
         .map_err(|e| store_problem(e.into()))?;
-    Ok(Staged {
-        disclosure,
-        secret,
-        key_ref_owned: key_ref,
-    })
+    Ok(Staged { disclosure })
 }
 
 /// The exact items that leave, as §16.2 `exact_items[]`.
@@ -635,8 +612,9 @@ fn byom_source_fields(conn: &Connection, key: &str) -> Result<ByomSourceFields, 
 
 // ------------------------------------------------------------ the chain ----
 
-/// One prepared model effect: committed, and not yet authorized.
-#[derive(Debug, Clone)]
+/// One prepared model effect: committed, and not yet authorized. Not
+/// `Clone`: it owns the sealed [`CallPlan`], which is not copyable either.
+#[derive(Debug)]
 pub struct Prepared {
     pub effect_id: String,
     pub plan: CallPlan,
@@ -705,17 +683,6 @@ pub fn prepare(
         )?,
         None => kovee_store::objkey::new_object_secret().map_err(store_problem)?,
     };
-    let effect_key_ref = kovee_effects::object_key_ref("model-effect", &effect_id);
-    let effect_secret = match &existing {
-        Some(id) => object_secret(
-            store.conn(),
-            "model_effects",
-            "effect_id",
-            id,
-            &effect_key_ref,
-        )?,
-        None => kovee_store::objkey::new_object_secret().map_err(store_problem)?,
-    };
     let created_at = staged.disclosure.created_at.clone();
     let context_manifest = ProviderContextManifest::build(
         &context_id,
@@ -766,15 +733,13 @@ pub fn prepare(
         profile,
         staged.disclosure.clone(),
         context_manifest,
+        // Only the provider-context chain is a keyed local object now: the
+        // disclosure digest and the host-effect digest are both the
+        // cross-boundary `portable_public` values byom re-derives (A8).
         PlanKeys {
-            disclosure: staged.key(),
             context: RecordDigestKey::Object {
                 key_ref: &context_key_ref,
                 secret: &context_secret,
-            },
-            effect: RecordDigestKey::Object {
-                key_ref: &effect_key_ref,
-                secret: &effect_secret,
             },
         },
     )
@@ -801,8 +766,6 @@ pub fn prepare(
     let realm_key = kovee_store::realm_object_key_of(store.conn()).map_err(store_problem)?;
     let wrapped_context = kovee_store::objkey::wrap(&realm_key, &context_key_ref, &context_secret)
         .map_err(store_problem)?;
-    let wrapped_effect = kovee_store::objkey::wrap(&realm_key, &effect_key_ref, &effect_secret)
-        .map_err(store_problem)?;
     let conn = store.conn();
     conn.execute(
         "INSERT INTO provider_context_manifests (provider_context_id, realm_ref, invocation_ref,
@@ -811,14 +774,14 @@ pub fn prepare(
              record = excluded.record, digest_hex = excluded.digest_hex,
              final_request_digest_hex = excluded.final_request_digest_hex",
         params![
-            planned.context_manifest.provider_context_id,
+            planned.context_manifest().provider_context_id,
             request.realm,
-            planned.context_manifest.invocation_id,
-            planned.context_manifest.attempt_id,
-            serde_json::to_string(&planned.context_manifest).map_err(|_| internal())?,
-            planned.context_manifest.digest.value_hex,
+            planned.context_manifest().invocation_id,
+            planned.context_manifest().attempt_id,
+            serde_json::to_string(planned.context_manifest()).map_err(|_| internal())?,
+            planned.context_manifest().digest.value_hex,
             planned
-                .context_manifest
+                .context_manifest()
                 .final_provider_request_typed_byte_digest,
             wrapped_context,
             at,
@@ -837,7 +800,7 @@ pub fn prepare(
             effect_id,
             request.realm,
             request.project,
-            planned.context_manifest.invocation_id,
+            planned.context_manifest().invocation_id,
             request.attempt_id,
             request.fence_epoch as i64,
             request.stable_binding_key,
@@ -845,17 +808,19 @@ pub fn prepare(
             bound.as_ref().map(|b| b.fences.byom as i64),
             authorization.act_intent_ref,
             key,
-            planned.external_idempotency_key,
+            planned.external_idempotency_key(),
             profile.model_profile_id,
             binding.model_provider_binding_id,
-            digest_text(&planned.subject_digest)?,
-            digest_text(&planned.host_effect_digest)?,
-            planned.disclosure.disclosure_id,
-            digest_text(&planned.disclosure.digest)?,
-            planned.context_manifest.provider_context_id,
-            digest_text(&planned.context_manifest.digest)?,
+            digest_text(planned.subject_digest())?,
+            digest_text(planned.host_effect_digest())?,
+            planned.disclosure().disclosure_id,
+            digest_text(&planned.disclosure().digest)?,
+            planned.context_manifest().provider_context_id,
+            digest_text(&planned.context_manifest().digest)?,
             EffectState::Prepared.as_str(),
-            wrapped_effect,
+            // No object secret: `host_effect_digest` is unkeyed
+            // `portable_public`, so this row keys nothing (A8).
+            Option::<Vec<u8>>::None,
             at,
         ],
     )
@@ -873,10 +838,10 @@ pub fn prepare(
             "act_intent_ref": authorization.act_intent_ref,
             "model_profile_ref": profile.model_profile_id,
             "provider_kind": binding.provider_kind.as_str(),
-            "disclosure_manifest_ref": planned.disclosure.disclosure_id,
-            "provider_context_manifest_ref": planned.context_manifest.provider_context_id,
+            "disclosure_manifest_ref": planned.disclosure().disclosure_id,
+            "provider_context_manifest_ref": planned.context_manifest().provider_context_id,
             "final_provider_request_digest":
-                planned.context_manifest.final_provider_request_typed_byte_digest,
+                planned.context_manifest().final_provider_request_typed_byte_digest,
             "permit_consumed": false,
             "dispatched": false,
         }),
@@ -922,6 +887,24 @@ pub fn consume_permit(
         Some((_, receipt)) => receipt,
         None => {
             let token = runtime.token(Workload::Permit, &authorization.act_intent_ref)?;
+            // The host-effect REGISTRATION authenticator (byom R3-A02): it
+            // binds this consumption to the ONE Effect Kovee durably created,
+            // under the permit-channel token byomd published for this act. A
+            // caller that never held that token cannot mint it, so a
+            // consumption can no longer name an Effect that does not exist.
+            let credential = host_effect_credential(
+                token.preamble(),
+                &authorization.act_intent_ref,
+                &authorization.stable_execution_key,
+                &prepared.effect_id,
+                prepared.plan.host_effect_digest(),
+            )?;
+            // A8, both directions (D-R3-3): byom's OWN digests — intent,
+            // subject, episode fence — are NOT members. byomd recomputes each
+            // from its committed act and publishes the committed value on the
+            // receipt, so echoing them proved only that byom's value equals
+            // itself. What byom DEMANDS from Kovee travels as
+            // `portable_public` over a frozen fragment it can re-derive.
             let mut body = json!({
                 "version": BPP_VERSION,
                 "op": "execution_permit_consume",
@@ -934,20 +917,20 @@ pub fn consume_permit(
                 },
                 "stable_execution_key": authorization.stable_execution_key,
                 "intent_ref": authorization.act_intent_ref,
-                "intent_digest": authorization.act_intent_digest,
                 "host_effect_ref": prepared.effect_id,
-                "host_effect_digest": prepared.plan.host_effect_digest,
-                "subject_digest": authorization.subject_digest,
-                "disclosure_manifest_ref": prepared.plan.disclosure.disclosure_id,
-                "disclosure_digest": prepared.plan.disclosure.digest,
+                "host_effect_digest": prepared.plan.host_effect_digest(),
+                "host_effect_credential": credential,
+                "disclosure_manifest_ref": prepared.plan.disclosure().disclosure_id,
+                "disclosure_digest": prepared.plan.disclosure().digest,
                 "driver_audience": BROKER_DRIVER_AUDIENCE,
                 "budget_reservation_set_ref": authorization.budget_reservation_set_ref,
                 "byom_fence_epoch": bound.as_ref().map_or(0, |b| b.fences.byom),
                 "host_fence_epoch": bound.as_ref().map_or(0, |b| b.fences.kovee),
             });
-            if let (Some(b), Some(digest)) = (&bound, &side.binding_digest) {
+            // The Episode reference now travels ALONE: its fence digest is
+            // byom's own record and byomd recomputes it (A8).
+            if let Some(b) = &bound {
                 body["episode_ref"] = json!(b.episode_ref);
-                body["episode_fence_digest"] = serde_json::to_value(digest).unwrap_or(Value::Null);
             }
             let reply = runtime.call(&token, &body)?;
             let receipt = ExecutionConsumptionReceipt::from_result(&reply).map_err(|e| {
@@ -975,24 +958,43 @@ pub fn consume_permit(
         }),
         _ => None,
     };
+    // The gate needs an ATTESTED receipt, not a receipt: the attestation is
+    // keyed under a secret derived from the realm object key for this exact
+    // committed consumption row, so a receipt that never went through the
+    // permit channel and this store cannot mint a permit (D-R3-1).
+    let consumption_id = read_consumption(store.conn(), prepared.plan.execution_key())?
+        .map(|(id, _)| id)
+        .ok_or_else(internal)?;
+    let secret = consumption_secret(store.conn(), &consumption_id)?;
+    let attested = ConsumedReceipt::attest(
+        &receipt,
+        &consumption_id,
+        RecordDigestKey::Object {
+            key_ref: &consumption_key_ref(&consumption_id),
+            secret: &secret,
+        },
+    )
+    .map_err(permit_problem)?;
+    // The destination is bound HERE, from the provider binding re-read for
+    // this call — never from the plan, which is what R3 changed after
+    // authorization (R3-B02). The plan must already name the same origin.
+    let (_, bound_binding) = read_profile(store.conn(), request.realm, request.model_profile_ref)?;
     let permit = authorize(
-        Some(&receipt),
+        Some(attested),
         &Expectation {
-            execution_key: &prepared.plan.execution_key,
-            subject_digest: &prepared.plan.subject_digest,
-            disclosure_digest: &prepared.plan.disclosure.digest,
+            execution_key: prepared.plan.execution_key(),
+            subject_digest: prepared.plan.subject_digest(),
+            disclosure_digest: &prepared.plan.disclosure().digest,
             driver_audience: BROKER_DRIVER_AUDIENCE,
             episode,
             endpoint_incarnation: &seam.endpoint_incarnation,
             recovery_epoch: seam.recovery_epoch,
             now: wall(now),
             already_spent,
+            bound_origin: &bound_binding.endpoint,
         },
     )
     .map_err(permit_problem)?;
-    let consumption_id = read_consumption(store.conn(), &prepared.plan.execution_key)?
-        .map(|(id, _)| id)
-        .ok_or_else(internal)?;
     // The local intersection permit, recorded once the gate has passed: it
     // carries every contributing digest AND `owner_unverified_digests`, so an
     // audit can see exactly which of byom's echoes could be re-checked here.
@@ -1010,13 +1012,103 @@ pub fn consume_permit(
     Ok((permit, consumption_id))
 }
 
+/// byom's `$domain` tag for the host-effect registration fragment.
+const HOST_EFFECT_REGISTRATION_TAG: &str = "bpp-host-effect-registration-v0";
+
+/// The host-effect registration authenticator `execution_permit_consume`
+/// requires (byom R3-A02): `HMAC-SHA-256` over the `$domain`-tagged canonical
+/// fragment `{host_effect_digest, host_effect_ref, intent_ref,
+/// stable_execution_key}`, keyed by the **permit-channel token line** byomd
+/// published for this ActIntent — a value only the addressed host holds.
+///
+/// It carries no key material: byomd recomputes it from the request's own
+/// members plus its own token and refuses `forbidden` on a mismatch, before it
+/// reads any state.
+fn host_effect_credential(
+    token_line: &str,
+    intent_ref: &str,
+    stable_execution_key: &str,
+    host_effect_ref: &str,
+    host_effect_digest: &DigestRef,
+) -> Result<String, Problem> {
+    let fragment = json!({
+        "host_effect_digest": host_effect_digest,
+        "host_effect_ref": host_effect_ref,
+        "intent_ref": intent_ref,
+        "stable_execution_key": stable_execution_key,
+    });
+    let preimage = tagged_canonical(HOST_EFFECT_REGISTRATION_TAG, &fragment).map_err(|e| {
+        refuse(
+            ProblemKind::Internal,
+            "the host-effect registration fragment could not be canonicalized",
+            e,
+        )
+    })?;
+    Ok(kovee_core::family::hex(&kovee_core::family::hmac_sha256(
+        token_line.as_bytes(),
+        &preimage,
+    )))
+}
+
+/// The `key_ref` the consumption attestation is keyed under, so an operator
+/// reading a permit's `owner_receipt_provenance` can tell what keys it.
+fn consumption_key_ref(consumption_id: &str) -> String {
+    kovee_effects::object_key_ref("consumption", consumption_id)
+}
+
+/// The per-consumption attestation secret: domain-separated from the realm
+/// object key. It is derived rather than stored because the receipt itself is
+/// already durable — what the attestation adds is that only code holding the
+/// daemon's realm key (never a worker-reachable path) can turn a receipt into
+/// a permit.
+fn consumption_secret(conn: &Connection, consumption_id: &str) -> Result<[u8; 32], Problem> {
+    let realm_key = kovee_store::realm_object_key_of(conn).map_err(store_problem)?;
+    Ok(kovee_core::family::hmac_sha256(
+        &realm_key,
+        format!("{CONSUMPTION_ATTESTATION_DOMAIN}:{consumption_id}").as_bytes(),
+    ))
+}
+
+const CONSUMPTION_ATTESTATION_DOMAIN: &str = "dev.kovee.consumption-attestation.v1";
+
+/// The durable one-shot ledger a permit's single use is claimed against
+/// (D-R3-1). The claim is one conditional `UPDATE` in SQLite's autocommit, so
+/// it is atomic and on disk before any byte leaves: a second permit value for
+/// the same consumption finds `state = 'spent'` and sends nothing.
+struct ConsumptionLedger<'a> {
+    conn: &'a Connection,
+}
+
+impl SpentLedger for ConsumptionLedger<'_> {
+    fn claim_single_use(&self, permit: &ExecutionPermit) -> Result<Claim, String> {
+        let claimed = self
+            .conn
+            .execute(
+                "UPDATE external_authorization_consumptions SET state = 'spent'
+                 WHERE consumption_id = ?1 AND execution_key = ?2 AND state <> 'spent'",
+                params![permit.consumption_ref(), permit.execution_key()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(if claimed == 1 {
+            Claim::Claimed
+        } else {
+            Claim::AlreadySpent
+        })
+    }
+}
+
 /// The whole chain for one worker call. Every step in order, and each one a
 /// refusal.
+///
+/// `egress` is not an arbitrary `Transport`: it converts into the sealed
+/// [`Egress`], whose only variants are the daemon's own [`kovee_effects::HttpsTransport`]
+/// and — under kovee-effects' `testing` feature — the recording double. A
+/// production build therefore has exactly one wire to offer here (R3-B02).
 #[allow(clippy::too_many_arguments)]
-pub fn complete(
+pub fn complete<'e>(
     store: &mut Store,
     runtime: &Runtime,
-    transport: &dyn Transport,
+    egress: impl Into<Egress<'e>>,
     request: &CompleteRequest<'_>,
     authorization: &ActAuthorization,
     now: i64,
@@ -1053,24 +1145,29 @@ pub fn complete(
         EVENT_MODEL_EFFECT_AUTHORIZED,
         json!({
             "state": EffectState::Prepared.as_str(),
-            "owner_protocol": permit.owner_protocol,
-            "phase": permit.phase,
-            "owner_receipt_ref": permit.owner_receipt_ref,
-            "mandate_use_ref": permit.mandate_use_ref,
-            "max_uses": permit.max_uses,
+            "owner_protocol": permit.owner_protocol(),
+            "phase": permit.phase(),
+            "owner_receipt_ref": permit.owner_receipt_ref(),
+            "mandate_use_ref": permit.mandate_use_ref(),
+            "max_uses": permit.max_uses(),
+            "consumption_ref": permit.consumption_ref(),
+            // NOT the bound origin: the destination host is not worker- or
+            // event-visible state (§16.1). It lives in the stored permit,
+            // where the audit needs it and a worker cannot read it.
             "permit_consumed": true,
             "dispatched": false,
         }),
         now,
     )?;
-    // 9-13. the attempt row, then the one egress.
+    // 9-13. the attempt row, then the one egress. The permit is HANDED OVER
+    // here: `complete` cannot use it again after this line.
     dispatch_effect(
         store,
         runtime,
-        transport,
+        egress,
         request,
         &prepared,
-        &permit,
+        permit,
         &consumption_id,
         now,
         fault,
@@ -1078,20 +1175,26 @@ pub fn complete(
 }
 
 /// Steps 9-13: the attempt committed `dispatching` BEFORE the socket opens,
-/// the credential resolved inside the broker, the one exchange, and the
-/// outcome recorded under the broker's own service identity.
+/// the credential resolved inside the broker, the one use claimed durably,
+/// the one exchange, and the outcome recorded under the broker's own service
+/// identity.
+///
+/// The permit arrives **by value** and is handed on to
+/// [`kovee_effects::dispatch`], so no caller can dispatch the same one twice;
+/// and the wire is the sealed [`Egress`], never an arbitrary `Transport`.
 #[allow(clippy::too_many_arguments)]
-pub fn dispatch_effect(
+pub fn dispatch_effect<'e>(
     store: &mut Store,
     runtime: &Runtime,
-    transport: &dyn Transport,
+    egress: impl Into<Egress<'e>>,
     request: &CompleteRequest<'_>,
     prepared: &Prepared,
-    permit: &ExecutionPermit,
+    permit: ExecutionPermit,
     consumption_id: &str,
     now: i64,
     fault: Fault,
 ) -> Result<Completion, Problem> {
+    let egress = egress.into();
     let (_, binding) = read_profile(store.conn(), request.realm, request.model_profile_ref)?;
     let credential_ref = binding.credential_ref().ok_or_else(|| {
         refuse_msg(
@@ -1142,7 +1245,7 @@ pub fn dispatch_effect(
                 prepared.effect_id,
                 ordinal as i64,
                 consumption_id,
-                transport.profile(),
+                egress.profile(),
                 EffectState::Dispatching.as_str(),
                 at,
             ],
@@ -1164,7 +1267,7 @@ pub fn dispatch_effect(
             "state": EffectState::Dispatching.as_str(),
             "effect_attempt_id": attempt_id,
             "attempt_ordinal": ordinal,
-            "transport_profile": transport.profile(),
+            "transport_profile": egress.profile(),
             "permit_consumed": true,
             "dispatched": true,
         }),
@@ -1174,8 +1277,20 @@ pub fn dispatch_effect(
         std::process::abort();
     }
 
-    // 13. the one exchange.
-    let outcome = dispatch_bytes(&prepared.plan, permit, transport, &credential, CALL_TIMEOUT);
+    // 13. the one use, claimed in the durable ledger inside `dispatch`, then
+    //     the one exchange. The permit is moved in: this function cannot
+    //     dispatch it again either.
+    let outcome = {
+        let ledger = ConsumptionLedger { conn: store.conn() };
+        dispatch_bytes(
+            &prepared.plan,
+            permit,
+            &egress,
+            &credential,
+            &ledger,
+            CALL_TIMEOUT,
+        )
+    };
     let event_type = match outcome.state {
         EffectState::Completed => EVENT_MODEL_EFFECT_COMPLETED,
         EffectState::Ambiguous => EVENT_MODEL_EFFECT_AMBIGUOUS,
@@ -1203,14 +1318,9 @@ pub fn dispatch_effect(
         )
         .map_err(|e| store_problem(e.into()))?;
     set_effect_state(store.conn(), &prepared.effect_id, outcome.state, now)?;
-    store
-        .conn()
-        .execute(
-            "UPDATE external_authorization_consumptions SET state = 'spent'
-             WHERE consumption_id = ?1",
-            [consumption_id],
-        )
-        .map_err(|e| store_problem(e.into()))?;
+    // The consumption is already `spent`: `dispatch` claimed the single use
+    // before it opened the socket, so a crash mid-exchange leaves it spent
+    // too. Nothing to mark here.
     emit(
         store,
         request.realm,
@@ -1257,8 +1367,8 @@ pub fn dispatch_effect(
         model: outcome.reply.as_ref().and_then(|r| r.model.clone()),
         stop_reason: outcome.reply.as_ref().and_then(|r| r.stop_reason.clone()),
         external_ref: outcome.external_ref,
-        disclosure_manifest_ref: prepared.plan.disclosure.disclosure_id.clone(),
-        provider_context_manifest_ref: prepared.plan.context_manifest.provider_context_id.clone(),
+        disclosure_manifest_ref: prepared.plan.disclosure().disclosure_id.clone(),
+        provider_context_manifest_ref: prepared.plan.context_manifest().provider_context_id.clone(),
         latency_ms: outcome.latency_ms,
         transport_profile: outcome.transport_profile.to_owned(),
         observation: outcome.observation,
@@ -1270,9 +1380,16 @@ pub fn dispatch_effect(
 // ------------------------------------------------------------- metering ----
 
 /// `usage_report` on byom's METER channel (`rmt1.`), carrying the measured
-/// token counts. Kovee's row is evidence; byom performs the settlement
-/// (§11.4, family contract L33). A stable report key makes a re-report a
-/// replay, never a second charge.
+/// token counts — and the SAME two-sided settlement saga on Kovee's own
+/// subordinate reservation (R3-U02, disposition D-R3-2).
+///
+/// This path used to record `model_usage_reports` and stop. byom settled its
+/// parent from the report while Kovee's subordinate stayed `confirmed,
+/// charged = 0, released_lifetime = 0` — the scripted run charged byom 44
+/// against a Kovee ledger that had never moved. A stable report key still
+/// makes a re-report a replay rather than a second charge; what is new is that
+/// the local half of the settlement now happens at all, in the saga order:
+/// cap locally, record durably, call byom, apply byom's number.
 fn report_usage(
     store: &mut Store,
     runtime: &Runtime,
@@ -1380,6 +1497,20 @@ fn report_usage(
 /// `ambiguous` with retry frozen. A request may have been transmitted, and
 /// "no receipt observed" is not proof of failure (§16.1).
 pub fn recover_dispatching(store: &mut Store, now: i64) -> Result<usize, Problem> {
+    // Whatever the process was doing when it died, that permit's use is
+    // gone: bytes may have left. The claim normally happens inside
+    // `dispatch`, but a crash between the attempt row and the claim would
+    // otherwise leave the consumption reusable, so the sweep spends it too.
+    store
+        .conn()
+        .execute(
+            "UPDATE external_authorization_consumptions SET state = 'spent'
+             WHERE state <> 'spent' AND consumption_id IN
+                 (SELECT consumption_ref FROM model_effect_attempts
+                  WHERE state = 'dispatching')",
+            [],
+        )
+        .map_err(|e| store_problem(e.into()))?;
     let rows: Vec<(String, String)> = {
         let conn = store.conn();
         let mut stmt = conn
@@ -1616,7 +1747,17 @@ fn read_consumption(
         .map_err(|e| store_problem(e.into()))?;
     match row {
         Some((id, text)) => {
-            let receipt = serde_json::from_str(&text).map_err(|_| internal())?;
+            // The SAME door the live reply uses: Kovee's durable copy of
+            // byom's reply re-enters through `from_result`, because the
+            // receipt type has no public `Deserialize` to go round it.
+            let stored: Value = serde_json::from_str(&text).map_err(|_| internal())?;
+            let receipt = ExecutionConsumptionReceipt::from_result(&stored).map_err(|e| {
+                refuse(
+                    ProblemKind::Internal,
+                    "the stored consumption receipt is not the shape Kovee can honor",
+                    e,
+                )
+            })?;
             Ok(Some((id, receipt)))
         }
         None => Ok(None),
@@ -1642,16 +1783,15 @@ fn store_consumption(
                 prepared.effect_id,
                 OWNER_PROTOCOL_BYOM,
                 PHASE_PRE_EGRESS,
-                receipt.byom_endpoint_ref,
-                receipt.intent_ref,
-                receipt.stable_execution_key,
-                receipt.receipt_id,
+                receipt.byom_endpoint_ref(),
+                receipt.intent_ref(),
+                receipt.stable_execution_key(),
+                receipt.receipt_id(),
                 receipt
-                    .digest
-                    .as_ref()
+                    .digest()
                     .map(|d| d.value_hex.clone())
                     .unwrap_or_default(),
-                receipt.mandate_use_ref,
+                receipt.mandate_use_ref(),
                 // The local intersection permit is minted by the gate, so it
                 // is stored once the gate has passed; the receipt is stored
                 // NOW, because byom has already spent the use.
@@ -1768,6 +1908,11 @@ fn permit_problem(error: kovee_effects::PermitError) -> Problem {
         E::Expired(_) | E::UnreadableExpiry(_) => ProblemKind::Forbidden,
         E::WrongEndpoint => ProblemKind::StaleRevision,
         E::Malformed(_) => ProblemKind::Unavailable,
+        // A receipt Kovee cannot attest against its own committed consumption
+        // is a receipt it will not authorize. These are internal wiring
+        // faults, not the caller's: the broker refuses rather than dispatching
+        // on an unattested value.
+        E::UnkeyedProvenance | E::Unattestable => ProblemKind::Internal,
     };
     Problem::new(kind, "the model call is not authorized to leave").with_detail(error.to_string())
 }

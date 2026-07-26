@@ -9,9 +9,8 @@
 //!
 //! What you write:
 //! ```
-//! use kovee_effects::{DisclosureItem, DisclosureManifest, ProviderClaims, RecordDigestKey};
+//! use kovee_effects::{DisclosureItem, DisclosureManifest, ProviderClaims};
 //! use kovee_core::family::DigestRef;
-//! let secret = [7u8; 32];
 //! let manifest = DisclosureManifest::model_egress(
 //!     "disc-1", "realm-personal", Some("proj-1"), Some("space-1"),
 //!     "model-profile:mp-anthropic-1", "purpose-review",
@@ -26,13 +25,12 @@
 //!         training_use: "prohibited".into(),
 //!     },
 //!     "2026-07-26T00:00:00Z",
-//!     RecordDigestKey::Object { key_ref: "kovee-disclosure-object:disc-1", secret: &secret },
 //! ).unwrap();
 //! assert_eq!(manifest.total_bytes, 42);
 //! assert!(manifest.provider_claims.is_complete());
-//! // Kovee's own object: keyed, so destroying that one secret erases
-//! // exactly this disclosure's verifiability (D-R1-2).
-//! assert_eq!(manifest.digest.class, "local_erasure_safe");
+//! // A CROSS-BOUNDARY digest: byom's act binds this exact value and
+//! // re-derives it, so the class is the unkeyed portable one (A8).
+//! assert_eq!(manifest.digest.class, "portable_public");
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -145,13 +143,16 @@ impl DisclosureManifest {
     /// Builds one model-egress disclosure manifest and its digest.
     ///
     /// The digest is over the canonical record WITHOUT the digest member, so
-    /// a holder of the record and the key can re-derive it — which is what
-    /// makes the byom permit's `disclosure_digest` a machine check rather
-    /// than trust. The class comes from `key`: a model disclosure is
-    /// **Kovee's own object**, so it is keyed `local_erasure_safe` under a
-    /// random per-object secret (D-R1-2, and what byom's runtime schemas
-    /// require), which also means destroying that one secret erases exactly
-    /// this disclosure's verifiability.
+    /// any holder of the record can re-derive it — which is what makes the
+    /// byom permit's `disclosure_digest` a machine check rather than trust.
+    ///
+    /// The class is `portable_public` (unkeyed SHA-256), because this digest
+    /// CROSSES the boundary: byom's `act_intent_prepare` pins it into the
+    /// assented subject and `execution_permit_consume` compares the pair it
+    /// committed, so byom must be able to re-derive it without a Kovee secret
+    /// (family profile §6.2 / amendment A8, D-R3-3). A keyed digest here was
+    /// a value byom could only echo, and byomd now answers
+    /// `digest_class_mismatch` for one.
     #[allow(clippy::too_many_arguments)]
     pub fn model_egress(
         disclosure_id: &str,
@@ -165,7 +166,6 @@ impl DisclosureManifest {
         transformations: Vec<Transformation>,
         provider_claims: ProviderClaims,
         created_at: &str,
-        key: RecordDigestKey<'_>,
     ) -> Result<DisclosureManifest, DisclosureError> {
         if !provider_claims.is_complete() {
             return Err(DisclosureError::IncompleteClaims);
@@ -198,7 +198,7 @@ impl DisclosureManifest {
             created_at: created_at.to_owned(),
             digest: DigestRef::portable_public("0".repeat(64)),
         };
-        manifest.digest = manifest.recompute_digest(key)?;
+        manifest.digest = manifest.recompute_digest()?;
         Ok(manifest)
     }
 
@@ -208,11 +208,10 @@ impl DisclosureManifest {
         mut self,
         assembly_ref: &str,
         assembly_digest: DigestRef,
-        key: RecordDigestKey<'_>,
     ) -> Result<DisclosureManifest, DisclosureError> {
         self.context_assembly_ref = Some(assembly_ref.to_owned());
         self.context_assembly_digest = Some(assembly_digest);
-        self.digest = self.recompute_digest(key)?;
+        self.digest = self.recompute_digest()?;
         Ok(self)
     }
 
@@ -226,14 +225,20 @@ impl DisclosureManifest {
         value
     }
 
-    fn recompute_digest(&self, key: RecordDigestKey<'_>) -> Result<DigestRef, DisclosureError> {
-        record_digest(DISCLOSURE_TAG, &self.projection(), key).ok_or(DisclosureError::Uncanonical)
+    fn recompute_digest(&self) -> Result<DigestRef, DisclosureError> {
+        record_digest(
+            DISCLOSURE_TAG,
+            &self.projection(),
+            RecordDigestKey::Portable,
+        )
+        .ok_or(DisclosureError::Uncanonical)
     }
 
-    /// Re-derives the digest under `key` and compares: a tampered manifest,
-    /// or one whose items changed after authorization, fails here.
-    pub fn verify(&self, key: RecordDigestKey<'_>) -> Result<(), DisclosureError> {
-        if self.recompute_digest(key)? == self.digest {
+    /// Re-derives the digest and compares: a tampered manifest, or one whose
+    /// items changed after authorization, fails here. No key is needed — and
+    /// that is the point of the class: byom performs the same check.
+    pub fn verify(&self) -> Result<(), DisclosureError> {
+        if self.recompute_digest()? == self.digest {
             Ok(())
         } else {
             Err(DisclosureError::Uncanonical)
@@ -263,15 +268,6 @@ mod tests {
         }
     }
 
-    const SECRET: [u8; 32] = [7u8; 32];
-
-    fn key() -> RecordDigestKey<'static> {
-        RecordDigestKey::Object {
-            key_ref: "kovee-disclosure-object:disc-1",
-            secret: &SECRET,
-        }
-    }
-
     fn build(
         items: Vec<DisclosureItem>,
         claims: ProviderClaims,
@@ -288,7 +284,6 @@ mod tests {
             Vec::new(),
             claims,
             "2026-07-26T00:00:00Z",
-            key(),
         )
     }
 
@@ -297,26 +292,19 @@ mod tests {
         let manifest = build(vec![item("c-1", 10), item("c-2", 32)], claims()).unwrap();
         assert_eq!(manifest.total_bytes, 42);
         assert_eq!(manifest.recipient_kind, RECIPIENT_MODEL_PROVIDER);
-        // Kovee's own object: keyed under a random per-object secret, which
-        // is also the class byom's runtime schemas require.
-        assert_eq!(manifest.digest.class, "local_erasure_safe");
-        assert_eq!(manifest.digest.algorithm, "hmac-sha-256");
-        assert_eq!(
-            manifest.digest.key_ref.as_deref(),
-            Some("kovee-disclosure-object:disc-1")
-        );
-        manifest.verify(key()).unwrap();
+        // A CROSS-BOUNDARY digest (A8): unkeyed, so byom re-derives the exact
+        // value its act pinned instead of echoing an HMAC it cannot check.
+        assert_eq!(manifest.digest.class, "portable_public");
+        assert_eq!(manifest.digest.algorithm, "sha-256");
+        assert!(manifest.digest.key_ref.is_none());
+        manifest.verify().unwrap();
         // The digest member is excluded from its own preimage.
         assert!(manifest.projection().get("digest").is_none());
-        // A destroyed (here: different) secret cannot re-derive it — which is
-        // exactly what per-object erasure means.
-        let other = [8u8; 32];
-        assert!(manifest
-            .verify(RecordDigestKey::Object {
-                key_ref: "kovee-disclosure-object:disc-1",
-                secret: &other
-            })
-            .is_err());
+        // And it is re-derivable from the record alone, by anyone holding it —
+        // which is exactly what makes byom's comparison a machine check.
+        let echoed: DisclosureManifest =
+            serde_json::from_str(&serde_json::to_string(&manifest).unwrap()).unwrap();
+        echoed.verify().unwrap();
     }
 
     #[test]
@@ -369,10 +357,7 @@ mod tests {
     fn tampering_after_the_fact_is_detected() {
         let mut manifest = build(vec![item("c-1", 10)], claims()).unwrap();
         manifest.provider_claims.training_use = "permitted".to_owned();
-        assert!(
-            manifest.verify(key()).is_err(),
-            "the digest no longer matches"
-        );
+        assert!(manifest.verify().is_err(), "the digest no longer matches");
     }
 
     #[test]
@@ -380,13 +365,9 @@ mod tests {
         let manifest = build(vec![item("c-1", 10)], claims()).unwrap();
         let before = manifest.digest.clone();
         let bound = manifest
-            .with_context_assembly(
-                "ctxasm-1",
-                DigestRef::portable_public("c".repeat(64)),
-                key(),
-            )
+            .with_context_assembly("ctxasm-1", DigestRef::portable_public("c".repeat(64)))
             .unwrap();
         assert_ne!(before, bound.digest);
-        bound.verify(key()).unwrap();
+        bound.verify().unwrap();
     }
 }

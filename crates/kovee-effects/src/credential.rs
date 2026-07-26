@@ -5,23 +5,38 @@
 //! `Credential(redacted, 108 bytes)`. So the ways a key normally escapes —
 //! `serde_json::to_value(record)`, `format!("{state:?}")` in an event
 //! payload, a `Problem.detail` built with `{e}` — cannot compile or cannot
-//! reveal it. [`Credential::expose`] is the single explicit exit, and its
-//! only caller is the transport's header writer.
+//! reveal it.
+//!
+//! `expose()` is the single exit, and it is **crate-private** (D-R3-1): its
+//! only caller is the transport's header writer, and no code outside this
+//! crate can read a key out of a `Credential` at all. [`resolve`] is the only
+//! public way to obtain one, and it reads from the daemon's own environment
+//! or secret table.
 //!
 //! What you write:
 //! ```
-//! use kovee_effects::{Credential, CredentialRef, resolve};
+//! use kovee_effects::{CredentialRef, resolve};
 //! std::env::set_var("KOVEE_DOC_KEY", "sk-secret-value");
 //! let credential = resolve(&CredentialRef::Env("KOVEE_DOC_KEY".into()), |_| None).unwrap();
 //! // Debug never reveals it — an event payload built from `{:?}` is safe.
 //! assert_eq!(format!("{credential:?}"), "Credential(redacted, 15 bytes)");
-//! // The one explicit exit.
-//! assert_eq!(credential.expose(), "sk-secret-value");
+//! ```
+//!
+//! And the exit is not reachable from outside:
+//! ```compile_fail,E0624
+//! # fn f(credential: &kovee_effects::Credential) {
+//! let secret = credential.expose();
+//! # }
+//! ```
+//! nor is the constructor:
+//! ```compile_fail,E0624
+//! let credential = kovee_effects::Credential::new("sk-mine");
 //! ```
 
 use crate::binding::CredentialRef;
 
-/// One resolved provider credential. Never serialized, never displayed.
+/// One resolved provider credential. Never serialized, never displayed, and
+/// never readable outside this crate.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Credential(String);
 
@@ -29,18 +44,28 @@ impl Credential {
     /// Wraps a secret. Trailing whitespace is trimmed: a key read from a
     /// file or a shell export commonly carries a newline, and sending it
     /// produces an opaque provider 401.
-    pub fn new(secret: &str) -> Credential {
+    pub(crate) fn new(secret: &str) -> Credential {
         Credential(secret.trim().to_owned())
     }
 
     /// The single explicit exit, called only where the credential is
-    /// written into an outbound header.
-    pub fn expose(&self) -> &str {
+    /// written into an outbound header — and crate-private, so that is the
+    /// only place it *can* be called from.
+    pub(crate) fn expose(&self) -> &str {
         &self.0
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// A credential built from a literal — **test configuration only**, for
+    /// the suites that dial a provider with a deliberately invalid key. A
+    /// production build has no way to make one except [`resolve`], from the
+    /// daemon's own environment or secret table.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn for_testing(secret: &str) -> Credential {
+        Credential::new(secret)
     }
 }
 

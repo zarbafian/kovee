@@ -11,6 +11,12 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The test-only surface: the recording transport, the in-memory spent ledger,
+# and the plan-rebuilding probe helper. A production build never enables it,
+# so no `Transport` a test wrote can reach `dispatch` there (R3-B02).
+testing = []
+
 [dependencies]
 kovee-core = { workspace = true }
 rustls = { workspace = true }

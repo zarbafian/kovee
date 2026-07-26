@@ -4,8 +4,8 @@
 //!
 //! The [`Transport`] trait exists so the enforcement chain is testable
 //! without a provider account, and so the broker cannot accidentally grow a
-//! second egress path: the broker holds one `&dyn Transport` and has no
-//! other way to send bytes.
+//! second egress path: the broker sends through one [`Egress`] and has no
+//! other way to move bytes.
 //!
 //! [`HttpsTransport`] is the live one:
 //!
@@ -21,30 +21,31 @@
 //! - **the credential is injected here**, from the resolved `Credential`,
 //!   into exactly one header, and is not part of the request record.
 //!
-//! [`RecordingTransport`] is the test double: it records the origin,
-//! headers, and body it was asked to send and returns a scripted response.
-//! An effect dispatched through it records `transport_profile:
-//! recording-test-double`, so a receipt can never silently claim a real
-//! provider call.
+//! `RecordingTransport` is the test double: it records the origin, headers,
+//! and body it was asked to send and returns a scripted response. An effect
+//! dispatched through it records `transport_profile: recording-test-double`,
+//! so a receipt can never silently claim a real provider call. It exists
+//! **only** under `cfg(test)` or the `testing` feature — a production build
+//! has no such type to pass (R3-B02).
+//!
+//! [`Egress`] is what seals that: [`crate::dispatch`] takes an `Egress`, not
+//! a `&dyn Transport`, and the only ways to make one are the daemon's own
+//! [`HttpsTransport`] and (test-only) the recording double. A third-party
+//! `impl Transport` cannot be handed to the broker.
 //!
 //! What you write:
 //! ```no_run
-//! use kovee_effects::{HttpsTransport, Transport};
-//! # use kovee_effects::{Credential, ModelDriver, ModelRequest, Origin, ANTHROPIC};
-//! # fn f() -> Result<(), Box<dyn std::error::Error>> {
-//! let transport = HttpsTransport::new();
-//! let prepared = ANTHROPIC.build(&ModelRequest {
-//!     model: "claude-haiku-4-5-20251001", system: None,
-//!     prompt: "Say OK.", max_output_tokens: 16 })?;
-//! let response = transport.send(
-//!     &Origin::https("api.anthropic.com", 443), &prepared,
-//!     &Credential::new("sk-ant-…"), std::time::Duration::from_secs(60))?;
-//! # let _ = response; Ok(()) }
+//! use kovee_effects::{Egress, HttpsTransport};
+//! let wire = HttpsTransport::new();
+//! let egress: Egress<'_> = Egress::live(&wire);
+//! assert_eq!(egress.profile(), kovee_effects::PROFILE_HTTPS);
 //! ```
 
 use std::io::{Read as _, Write as _};
 use std::net::{IpAddr, TcpStream, ToSocketAddrs as _};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::credential::Credential;
@@ -102,6 +103,74 @@ pub trait Transport: Send + Sync {
         credential: &Credential,
         timeout: Duration,
     ) -> Result<RawResponse, TransportError>;
+}
+
+// ------------------------------------------------------------- the seal ----
+
+/// The sealed egress: the only value [`crate::dispatch`] will send bytes
+/// through.
+///
+/// There is no `From<&dyn Transport>` and no public constructor beyond these
+/// two, so the set of wires the broker can use is closed: the daemon's own
+/// [`HttpsTransport`], or — only where `cfg(test)` or the `testing` feature
+/// is on — the recording double. That is what "the live transport is sealed
+/// inside the Daemon" means as a type rather than a habit (R3-B02).
+#[derive(Debug)]
+pub struct Egress<'a> {
+    wire: Wire<'a>,
+}
+
+#[derive(Debug)]
+enum Wire<'a> {
+    Live(&'a HttpsTransport),
+    #[cfg(any(test, feature = "testing"))]
+    Recording(&'a RecordingTransport),
+}
+
+impl<'a> Egress<'a> {
+    /// The live TLS 1.3 wire the daemon holds.
+    pub fn live(transport: &'a HttpsTransport) -> Egress<'a> {
+        Egress {
+            wire: Wire::Live(transport),
+        }
+    }
+
+    /// The recording double — test configuration only.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn recording(transport: &'a RecordingTransport) -> Egress<'a> {
+        Egress {
+            wire: Wire::Recording(transport),
+        }
+    }
+
+    /// The profile recorded on the effect, so an audit can tell a real
+    /// provider call from a test one.
+    pub fn profile(&self) -> &'static str {
+        self.transport().profile()
+    }
+
+    /// Crate-private: nothing outside this crate can extract the wire and
+    /// send bytes through it directly.
+    pub(crate) fn transport(&self) -> &dyn Transport {
+        match self.wire {
+            Wire::Live(transport) => transport,
+            #[cfg(any(test, feature = "testing"))]
+            Wire::Recording(transport) => transport,
+        }
+    }
+}
+
+impl<'a> From<&'a HttpsTransport> for Egress<'a> {
+    fn from(transport: &'a HttpsTransport) -> Egress<'a> {
+        Egress::live(transport)
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl<'a> From<&'a RecordingTransport> for Egress<'a> {
+    fn from(transport: &'a RecordingTransport) -> Egress<'a> {
+        Egress::recording(transport)
+    }
 }
 
 // ----------------------------------------------------------------- https ----
@@ -324,6 +393,7 @@ fn dechunk(mut body: &[u8]) -> Option<Vec<u8>> {
 /// One recorded send: everything the transport was asked to transmit,
 /// including the credential header, so a test can prove the key reached the
 /// wire and *only* the wire.
+#[cfg(any(test, feature = "testing"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentRequest {
     pub origin: Origin,
@@ -333,6 +403,7 @@ pub struct SentRequest {
     pub body: Vec<u8>,
 }
 
+#[cfg(any(test, feature = "testing"))]
 impl SentRequest {
     /// The value of one header, case-insensitively.
     pub fn header(&self, name: &str) -> Option<&str> {
@@ -345,12 +416,16 @@ impl SentRequest {
 
 /// A [`Transport`] that records instead of dialing. It is how the
 /// enforcement chain is proven: "zero sends" is a machine-checkable fact.
+/// Test configuration only: a production build has no such type, so nothing
+/// there can hand the broker a wire of its own (R3-B02).
+#[cfg(any(test, feature = "testing"))]
 #[derive(Debug, Default)]
 pub struct RecordingTransport {
     sent: Mutex<Vec<SentRequest>>,
     script: Mutex<Vec<Result<RawResponse, String>>>,
 }
 
+#[cfg(any(test, feature = "testing"))]
 impl RecordingTransport {
     /// A transport that answers `200` with `body` for every send.
     pub fn answering(body: &[u8]) -> RecordingTransport {
@@ -389,6 +464,7 @@ impl RecordingTransport {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
 impl Transport for RecordingTransport {
     fn profile(&self) -> &'static str {
         PROFILE_RECORDING
