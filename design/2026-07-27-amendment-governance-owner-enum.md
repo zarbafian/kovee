@@ -68,9 +68,20 @@ under a new binding epoch, never a reverse cutover.
 ## Not changed, deliberately
 
 `spec/registry-README.md`'s §9.2 blockquote and its A5 pinned→resolved tables
-still carry predecessor-era spellings in their left-hand columns. That is
-their function: they map the byte-frozen `DESIGN.md` text onto the live
-registry, and rewriting them would make the mapping false while that text
-stays pinned. `registry_parity::no_superseded_era_operation_name_survives`
-keeps the same spellings in its banned-substring list for the same reason —
-the string is the guard, not a use of it.
+still carry predecessor-era spellings in their left-hand columns, as does the
+A5 wire-name table in `design/2026-07-25-amendment-governance-owner.md` that
+they join on. That is their function: they map the byte-frozen v0.1
+`DESIGN.md` text onto the live registry, and rewriting them would make the
+mapping false while that text stays pinned.
+`registry_parity::no_superseded_era_operation_name_survives` keeps the same
+spellings in its banned-substring list for the same reason — the string is the
+guard, not a use of it.
+
+## Landed
+
+The `DESIGN.md` §16.6 field block was re-cut in **design-v0.1.2**
+(2026-07-27): `governance_owner` reads `byom|none`, and the surrounding
+paragraph states that there is no third owner and no cutover machine. The
+ratified byte-frozen v0.1 (sha256 `40820c47…`, repo `7aad4a6`) is unchanged
+and is what the family contract and implementation plan still pin, so this
+record continues to control for readers of that text.

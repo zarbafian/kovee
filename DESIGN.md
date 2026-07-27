@@ -1,12 +1,13 @@
 # Kovee: an agent-native collaboration environment
 
-Status: **Draft specification v0.1.1** — v0.1's scope, with the governance-owner
-amendment's naming and ontology corrections (A1, A3, A5) folded into the text.
+Status: **Draft specification v0.1.2** — v0.1's scope, with the governance-owner
+amendment's naming and ontology corrections (A1, A3, A5) and the owner-enum
+narrowing (A9: `governance_owner` is `byom | none`) folded into the text.
 The ratified byte-frozen **v0.1** remains sha256
 `40820c476d59ebdd458955fd5939289b3ef2bff03c3d1266f5e80f3087935860` (repo
 `7aad4a6`), which is what the family contract and the implementation plan pin.
 
-Date: 2026-07-25 (v0.1.1: 2026-07-27)
+Date: 2026-07-25 (v0.1.1: 2026-07-27; v0.1.2: 2026-07-27)
 
 Companion designs:
 
@@ -1133,7 +1134,7 @@ KoveeSocietyMapping {
 KoveeGovernanceOwnerBinding {
   realm_ref, exact_scope_selector, exact_scope_digest,
   revision, binding_epoch,
-  governance_owner: sage|byom|none,
+  governance_owner: byom|none,
   owner_endpoint_ref?, owner_binding_ref?, cutover_ref?,
   status: active|frozen, digest
 }
@@ -1185,12 +1186,12 @@ and the `KoveeGovernanceOwnerBinding` is then compare-and-swapped from `none` to
 `byom` at an exact expected revision; only that CAS activates them. Overlapping
 `exact_scope_selector` scopes are rejected, an exact retry returns the identical
 binding, and a failure before activation rolls back rather than leaving a
-half-owned realm. Only `none` and `byom` are ever written. The enum carries one
-further arm, `sage`, purely so the wire schema stays byte-compatible with the
-frozen `byom_governed_work_v1` shapes; it names a discarded predecessor design,
-no code path writes it, no milestone exercises it, and the cutover machine that
-would have consumed it is deliberately unbuilt. Byom is this stack's governance
-owner from day one (kovee amendment A1, family-contract amendment A2). Kovee is
+half-owned realm. The enum has exactly these two arms: a governed scope is
+owned by byom or by nothing (amendment A9). There is no third owner and no
+cutover machine — greenfield enablement is the only owner transition, and
+`governance_disable` freezes the row rather than handing it to anyone else.
+Byom is this stack's governance owner from day one (kovee amendment A1,
+family-contract amendment A2). Kovee is
 never the genesis governance actor — the Society must already be `active` when
 the binding is created, which the adapter proves with a `society_show` read.
 
