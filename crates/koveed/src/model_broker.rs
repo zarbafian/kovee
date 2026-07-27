@@ -1419,24 +1419,37 @@ pub fn dispatch_effect<'e>(
     // 14. the metering report on byom's METER channel. Evidence from
     //     Kovee's side; the ledger move is byom's.
     //
-    //     **A measured ZERO is reported (R3-U02, second wave).** This branch
-    //     used to run only when the total exceeded zero, on the reasoning that
-    //     "there is nothing to charge". But zero is a MEASUREMENT: it is what
-    //     makes byom's bridge `settled` with `settled_charge: 0` so byom
-    //     releases the whole reservation at terminalization, instead of
-    //     reaching terminalization with an unmeasured bridge and charging its
-    //     conservative maximum. Skipping the report because the number was
-    //     zero is the same class of defect as skipping it because the call
-    //     failed: the two ledgers stop sharing a fact.
-    let usage_reported = report_usage(
-        store,
-        runtime,
-        request,
-        &prepared.effect_id,
-        &attempt_id,
-        outcome.usage,
-        now,
-    )?;
+    //     **A measured ZERO is reported (R3-U02, second wave)** — and only a
+    //     MEASURED one. The gate is the OUTCOME, not the number.
+    //
+    //     This branch used to run only when the total exceeded zero, on the
+    //     reasoning that "there is nothing to charge". But an observed zero is
+    //     a MEASUREMENT: it is what makes byom's bridge `settled` with
+    //     `settled_charge: 0`, so byom releases the whole reservation at
+    //     terminalization instead of reaching it with an unmeasured bridge and
+    //     charging its conservative maximum.
+    //
+    //     An AMBIGUOUS outcome is the opposite case and must not be reported at
+    //     all: the request may have been transmitted and the model may have been
+    //     billed, so its `usage: 0` is an absence of observation, not a
+    //     measurement of nothing. Metering it would report a zero byom could
+    //     settle on, for an outcome nobody has established — §16.1 freezes that
+    //     attempt for an operator instead. `Completed` and `Failed` are the two
+    //     observed outcomes: the provider answered in full, or nothing left.
+    let observed = matches!(outcome.state, EffectState::Completed | EffectState::Failed);
+    let usage_reported = if observed {
+        report_usage(
+            store,
+            runtime,
+            request,
+            &prepared.effect_id,
+            &attempt_id,
+            outcome.usage,
+            now,
+        )?
+    } else {
+        false
+    };
 
     Ok(Completion {
         effect_id: prepared.effect_id.clone(),

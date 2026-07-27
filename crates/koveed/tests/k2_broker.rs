@@ -1012,6 +1012,34 @@ fn an_uncertain_send_is_ambiguous_and_frozen_until_reconciled() {
             .any(|t| t == "dev.kovee.model-effect.ambiguous.v1"),
         "{types:?}"
     );
+    // **Nothing is METERED for an unobserved outcome (R3-U02).** An observed
+    // zero is a measurement and is reported; this zero is an ABSENCE of
+    // observation — the request may have been transmitted and the model may
+    // have been billed — so reporting it would hand byom a number to settle on
+    // for an outcome nobody has established. §16.1 freezes the attempt for an
+    // operator instead. The gate is the outcome, not the total.
+    assert!(
+        !outcome.usage_reported,
+        "an ambiguous outcome must not reach byom's meter channel"
+    );
+    assert_eq!(
+        live.store
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM model_usage_reports WHERE effect_attempt_id = ?1",
+                [&outcome.effect_attempt_id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0,
+        "and no local evidence row claims it was measured"
+    );
+    assert!(
+        !types
+            .iter()
+            .any(|t| t == "dev.kovee.model-effect.usage-reported.v1"),
+        "{types:?}"
+    );
 
     // Reconciliation is an operator act. It records what was observed and
     // clears the freeze; it cannot unconsume the byom permit.
@@ -1425,9 +1453,11 @@ fn a_measured_zero_is_reported_on_byoms_meter_channel() {
             &bridge
         ),
         Some("settled".to_owned()),
-        "and byom saw the bridge MEASURED, which is what keeps terminalization from          charging its conservative maximum"
+        "and byom saw the bridge MEASURED, which is what keeps terminalization from \
+         charging its conservative maximum"
     );
-    let _ = before;
+    // The account's own totals still balance across the zero settlement.
+    assert_eq!(before.ceiling, ledger.ceiling);
     // And byom's own counterparty row settled in the SAME transaction as that
     // charge, rather than staying `confirmed` until terminalization (R3-U02).
     assert_eq!(
