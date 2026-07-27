@@ -1263,6 +1263,39 @@ ALTER TABLE byom_subordinate_reservations ADD COLUMN parent_budget_fragment TEXT
 ALTER TABLE byom_subordinate_reservations ADD COLUMN parent_budget_digest TEXT;
 "#;
 
+/// V10 (R3-U02, second wave): the TERMINAL TAIL of an Episode completion.
+///
+/// `kovee_settlement_saga` covers steps 1-3 only, and once `settle_commit`
+/// resolves that row the saga is no longer unresolved — so the sweep stopped
+/// looking at exactly the point where three more committed steps remained:
+/// byom's `episode_complete`, the local binding update, and the release of the
+/// unspent remainder. Two crash windows were therefore unrepairable: after
+/// byom terminalized but before the binding moved (byom terminal, Kovee still
+/// running against a reserved subordinate), and after the binding moved but
+/// before the release (the remainder leaked, held for ever).
+///
+/// This row is committed BEFORE the tail starts and advances through it, so a
+/// restart knows which step an Episode died on and resumes from there. Every
+/// step it resumes is idempotent: byom's `episode_complete` replays from its
+/// §15.3 idempotency record, the binding update is a CAS-free overwrite of a
+/// terminal value, and `budget::release` on an already-released reservation is
+/// a no-op.
+const V10: &str = r#"
+CREATE TABLE kovee_episode_terminal_saga (
+    stable_binding_key          TEXT PRIMARY KEY,
+    realm_ref                   TEXT NOT NULL REFERENCES realms(realm_id),
+    episode_ref                 TEXT NOT NULL,
+    subordinate_reservation_ref TEXT NOT NULL,
+    lease_revision              INTEGER NOT NULL,
+    byom_fence_epoch            INTEGER NOT NULL,
+    kovee_invocation_fence      INTEGER NOT NULL,
+    phase                       TEXT NOT NULL,
+    detail                      TEXT,
+    created_at                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+) STRICT;
+"#;
+
 /// Each numbered migration and the `user_version` it establishes.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, V1),
@@ -1274,6 +1307,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (7, V7),
     (8, V8),
     (9, V9),
+    (10, V10),
 ];
 
 /// Opens pragmas and applies pending migrations. Returns the resulting

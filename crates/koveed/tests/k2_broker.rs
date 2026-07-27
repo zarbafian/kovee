@@ -21,6 +21,7 @@
 //! | the disclosure manifest is complete, incl. `training_use` | `the_disclosure_manifest_is_complete_and_names_training_use` | Kovee |
 //! | the credential is nowhere a worker or an event can see it | `the_credential_never_reaches_worker_visible_state` | Kovee |
 //! | the host-effect digest is the pinned frozen fragment byom re-derives (R3-L01) | `the_host_effect_binding_fragment_matches_the_pinned_family_vector` | BOTH (pinned vector) |
+//! | a MEASURED ZERO is reported on byom's meter channel, not skipped (R3-U02) | `a_measured_zero_is_reported_on_byoms_meter_channel` | BOTH |
 //!
 //! Gated on the byom repository being present — `$KOVEE_BYOM_REPO`, else the
 //! sibling `../byom`. When present it always runs; it never silently passes
@@ -1337,6 +1338,106 @@ fn usage_is_metered_to_byoms_meter_channel() {
             .iter()
             .any(|t| t == "dev.kovee.model-effect.usage-reported.v1"),
         "{types:?}"
+    );
+}
+
+/// **R3-U02: a measured ZERO is a measurement, and it is REPORTED.**
+///
+/// The metering branch used to run only when the token total exceeded zero, on
+/// the reasoning that there was nothing to charge. But a zero the meter channel
+/// never carries is a bridge byom never saw measured — and byom's
+/// terminalization charges an unmeasured bridge its CONSERVATIVE MAXIMUM. The
+/// branch itself was also untested at zero, so nothing noticed.
+#[test]
+fn a_measured_zero_is_reported_on_byoms_meter_channel() {
+    const NOTHING: &[u8] = br#"{"id":"msg_01zero","model":"claude-haiku-4-5-20251001",
+        "stop_reason":"end_turn","content":[{"type":"text","text":""}],
+        "usage":{"input_tokens":0,"output_tokens":0}}"#;
+    let Some(mut live) = live("k2-broker-zero-usage") else {
+        return skipped("k2_broker");
+    };
+    let runtime = live.runtime();
+    let call = live.call("");
+    let authorization = authorize(&mut live, "z0", &call, BROKER);
+    let before = live.byomd.ledger(PARENT_ACCOUNT);
+    let bridge = live.bound.record.external_budget_bridge_ref.clone();
+    let transport = RecordingTransport::answering(NOTHING);
+    let completed = model_broker::complete(
+        &mut live.store,
+        &runtime,
+        &transport,
+        &call.request(),
+        &authorization,
+        0,
+        Fault::None,
+    )
+    .expect("the call");
+    assert_eq!(completed.usage.total(), 0, "the provider measured nothing");
+    assert!(
+        completed.usage_reported,
+        "a measured zero is reported: skipping it leaves byom's bridge UNMEASURED, and an \
+         unmeasured bridge is charged its conservative maximum at terminalization"
+    );
+
+    // Kovee's evidence row exists, at zero — the row `metered_total` sums when
+    // the completion settles.
+    let (input, output): (i64, i64) = live
+        .store
+        .conn()
+        .query_row(
+            "SELECT input_tokens, output_tokens FROM model_usage_reports
+             WHERE effect_attempt_id = ?1",
+            [&completed.effect_attempt_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("the zero report is recorded, not skipped");
+    assert_eq!((input, output), (0, 0));
+
+    // BYOM: a MEASURED settlement of zero, and not one unit charged.
+    assert!(
+        live.byomd.count("SELECT COUNT(*) FROM usage_reports") >= 1,
+        "byom holds the zero report"
+    );
+    assert_eq!(
+        live.byomd.count(
+            "SELECT COUNT(*) FROM usage_settlements WHERE status = 'measured'
+               AND charged_quantities LIKE '%\"amount\":0%'"
+        ),
+        1,
+        "byom settled the bridge at a MEASURED zero"
+    );
+    let ledger = live.byomd.ledger(PARENT_ACCOUNT);
+    assert!(ledger.conserves(), "{ledger:?}");
+    // The BRIDGE — the only thing this report settles — is `settled` at zero.
+    // (The account's `committed` also carries the act's own reservation, which
+    // the permit consumption commits and which this call does not touch.)
+    assert_eq!(
+        live.byomd.number(
+            "SELECT settled_charge FROM external_budget_bridges WHERE bridge_id = ?1",
+            &bridge
+        ),
+        Some(0),
+        "nothing was charged for a call that used nothing"
+    );
+    assert_eq!(
+        live.byomd.row(
+            "SELECT state FROM external_budget_bridges WHERE bridge_id = ?1",
+            &bridge
+        ),
+        Some("settled".to_owned()),
+        "and byom saw the bridge MEASURED, which is what keeps terminalization from          charging its conservative maximum"
+    );
+    let _ = before;
+    // And byom's own counterparty row settled in the SAME transaction as that
+    // charge, rather than staying `confirmed` until terminalization (R3-U02).
+    assert_eq!(
+        live.byomd.row(
+            "SELECT state FROM subordinate_reservations
+             WHERE subordinate_reservation_ref = ?1",
+            &live.bound.record.kovee_subordinate_reservation_ref
+        ),
+        Some("settled".to_owned()),
+        "the charge and the counterparty row are one transaction"
     );
 }
 

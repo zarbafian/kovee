@@ -218,13 +218,13 @@ pub fn verify_parent_fragment(
         )
     })?;
     let recomputed = portable_of(PARENT_BUDGET_TAG, &covered)?;
-    if declared.value_hex != recomputed.value_hex || declared.class != recomputed.class {
-        return Err(stale(
-            "the parent-budget fragment does not verify",
-            "the portable_public bpp-parent-budget-fragment-v0 digest must re-derive \
-             from exactly the published members",
-        ));
-    }
+    same_typed_digest(
+        "the parent-budget fragment",
+        &declared,
+        &recomputed,
+        "the portable_public bpp-parent-budget-fragment-v0 digest must re-derive \
+         from exactly the published members",
+    )?;
     let items = parent_items_of(object)?;
     let set_ref = text_of(object, "byom_budget_reservation_set_ref")?;
     let set_revision = number_of(object, "byom_budget_reservation_set_revision")?;
@@ -249,13 +249,12 @@ pub fn verify_parent_fragment(
             "items": object.get("items").cloned().unwrap_or(Value::Null),
         }),
     )?;
-    if set_digest.value_hex != set_recomputed.value_hex || set_digest.class != set_recomputed.class
-    {
-        return Err(stale(
-            "the published reservation-set digest does not verify",
-            "the set digest is portable_public over {reservation_set_id, revision, items}",
-        ));
-    }
+    same_typed_digest(
+        "the published reservation-set digest",
+        &set_digest,
+        &set_recomputed,
+        "the set digest is portable_public over {reservation_set_id, revision, items}",
+    )?;
     Ok(Parent {
         byom_reservation_set_ref: set_ref,
         byom_reservation_set_revision: set_revision,
@@ -271,7 +270,51 @@ pub fn verify_parent_fragment(
     })
 }
 
-fn portable_of(tag: &str, projection: &Value) -> Result<DigestRef, Problem> {
+/// **The WHOLE typed digest, member by member (R3-L02, second wave).**
+///
+/// This used to compare `class` and `value_hex` and nothing else, so a
+/// fragment could declare `algorithm: "md5"` or hang a `key_ref:
+/// "attacker-key"` on an unkeyed cross-boundary digest and be accepted — a
+/// digest whose type is not checked is an unlabelled hash, which is the one
+/// thing PROFILE §6.1 exists to forbid. `DigestRef` is a closed four-member
+/// wire shape, so the whole of it is compared against the value this side
+/// re-derived, and the refusal names the member that disagreed.
+fn same_typed_digest(
+    what: &str,
+    declared: &DigestRef,
+    recomputed: &DigestRef,
+    why: &str,
+) -> Result<(), Problem> {
+    if declared == recomputed {
+        return Ok(());
+    }
+    let member = if declared.value_hex != recomputed.value_hex {
+        "value_hex"
+    } else if declared.class != recomputed.class {
+        "class"
+    } else if declared.algorithm != recomputed.algorithm {
+        "algorithm"
+    } else {
+        "key_ref"
+    };
+    Err(stale(
+        &format!("{what} does not verify"),
+        format!(
+            "{why}; the declared {member} is not the one this side re-derives \
+             ({declared:?} against {recomputed:?})"
+        ),
+    ))
+}
+
+/// The `portable_public` digest of one `$domain`-tagged projection — the
+/// CROSS-BOUNDARY primitive both sides re-derive (PROFILE §6.2).
+///
+/// Public so a test can SEAL a tampered fragment: a probe that only edits a
+/// member is caught by the outer digest whatever else is or is not checked, so
+/// the exact-member, nested-digest and digest-class guards each need a probe
+/// whose outer digest is honest over the bytes it publishes. Without that,
+/// deleting any of the three left all eleven `k2_budget` tests green.
+pub fn portable_of(tag: &str, projection: &Value) -> Result<DigestRef, Problem> {
     let preimage = tagged_canonical(tag, projection).map_err(|_| internal())?;
     Ok(DigestRef::portable_public(kovee_core::family::sha256_hex(
         &preimage,

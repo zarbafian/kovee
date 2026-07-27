@@ -136,6 +136,72 @@ impl Daemon {
         self
     }
 
+    /// **The two cross-boundary recovery sweeps, in order** (R3-U02).
+    ///
+    /// Extracted from `Daemon::new` so the shipped sweep can be CALLED by a
+    /// test rather than reimplemented beside it: the confirmation deleted the
+    /// whole invocation from `Daemon::new` and
+    /// `the_durable_saga_record_applies_only_what_the_peer_answers` stayed
+    /// green, because that test's "peer" was a closure and its reconciler was
+    /// its own. This is the production entry point, and
+    /// `k2_episode_live::a_crash_between_the_two_sides_reconciles_to_byoms_truth`
+    /// drives it against the real `byomd`.
+    ///
+    /// Settlement first, then the terminal tail: a tail stuck in `settling` has
+    /// an unresolved settlement row underneath it, and resolving that is what
+    /// tells the tail whether it may go on at all.
+    pub fn reconcile_across_the_boundary(store: &mut Store) -> (usize, usize) {
+        let unresolved = crate::budget::unresolved_sagas(store.conn())
+            .map(|rows| rows.len())
+            .unwrap_or_default();
+        let open_tails = episode::unfinished_tails(store.conn())
+            .map(|rows| rows.len())
+            .unwrap_or_default();
+        if unresolved == 0 && open_tails == 0 {
+            return (0, 0);
+        }
+        eprintln!(
+            "koveed: {unresolved} settlement saga row(s) unresolved and {open_tails} terminal \
+             tail(s) unfinished; reconciling against byom"
+        );
+        let endpoint = Endpoint::local("local");
+        let runtime = match episode::Runtime::configured(&endpoint) {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                eprintln!(
+                    "koveed: cross-boundary reconciliation deferred, no byom runtime: {}",
+                    e.title
+                );
+                return (0, 0);
+            }
+        };
+        let mut settled = 0;
+        match episode::reconcile_settlements(store, &runtime, unix_now()) {
+            Ok(done) => {
+                settled = done.settled;
+                eprintln!(
+                    "koveed: settlement reconciliation: {} settled, {} denied, {} still \
+                     unknown of {}",
+                    done.settled, done.denied, done.still_unknown, done.examined
+                );
+            }
+            Err(e) => eprintln!("koveed: settlement reconciliation: {}", e.title),
+        }
+        let mut completed = 0;
+        match episode::reconcile_terminations(store, &runtime, unix_now()) {
+            Ok(done) => {
+                completed = done.completed;
+                eprintln!(
+                    "koveed: terminal-tail reconciliation: {} completed, {} abandoned, {} \
+                     still open of {}",
+                    done.completed, done.abandoned, done.still_open, done.examined
+                );
+            }
+            Err(e) => eprintln!("koveed: terminal-tail reconciliation: {}", e.title),
+        }
+        (settled, completed)
+    }
+
     pub fn new(store: Store, abort: Option<AbortSpec>, data_dir: &Path) -> Daemon {
         let paths = ArtifactPaths::new(data_dir);
         match kovee_artifacts::sweep_staging(&store, &paths) {
@@ -173,33 +239,14 @@ impl Daemon {
         //    the two sides of a settlement left a durable local record; the
         //    sweep asks byom what it really committed under the same stable
         //    settlement key and applies exactly that. Unknown stays unknown.
-        match crate::budget::unresolved_sagas(store.conn()) {
-            Ok(rows) if rows.is_empty() => {}
-            Ok(rows) => {
-                eprintln!(
-                    "koveed: {} settlement saga row(s) unresolved; reconciling against byom",
-                    rows.len()
-                );
-                let endpoint = Endpoint::local("local");
-                match episode::Runtime::configured(&endpoint) {
-                    Ok(runtime) => {
-                        match episode::reconcile_settlements(&mut store, &runtime, unix_now()) {
-                            Ok(done) => eprintln!(
-                                "koveed: settlement reconciliation: {} settled, {} denied, {} \
-                                 still unknown of {}",
-                                done.settled, done.denied, done.still_unknown, done.examined
-                            ),
-                            Err(e) => eprintln!("koveed: settlement reconciliation: {}", e.title),
-                        }
-                    }
-                    Err(e) => eprintln!(
-                        "koveed: settlement reconciliation deferred, no byom runtime: {}",
-                        e.title
-                    ),
-                }
-            }
-            Err(e) => eprintln!("koveed: settlement saga sweep: {}", e.title),
-        }
+        //    Step 4b (R3-U02, second wave) is the TERMINAL TAIL. A settlement
+        //    that COMMITTED stops being unresolved, and three committed steps
+        //    still followed it — byom's `episode_complete`, the local binding
+        //    update and the release of the unspent remainder — so a crash in
+        //    the tail left byom terminal over a subordinate this side still
+        //    held, or leaked the remainder, with the settlement sweep no longer
+        //    looking. Both sweeps run here, settlement first.
+        Daemon::reconcile_across_the_boundary(&mut store);
         Daemon {
             store: Mutex::new(store),
             abort,

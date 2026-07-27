@@ -1014,23 +1014,97 @@ fn the_parent_comes_only_from_byoms_verified_fragment() {
         refused.detail.as_ref().unwrap().contains("re-derive"),
         "{refused:?}"
     );
-    // So does a fragment with an extra member, and one with a missing one.
-    let mut widened = fragment.clone();
+    // -- and the three guards the OUTER digest was masking -----------------
+    //
+    // Every probe above only EDITS a member, so the outer digest refuses it
+    // whatever else is or is not checked: deleting the exact-member guard, the
+    // nested-digest verification or the digest-class comparisons left all
+    // eleven tests in this file green. Each probe below is therefore RE-SEALED
+    // over the bytes it publishes, so the outer digest agrees and only the
+    // guard under test can refuse it.
+    let seal = |covered: &Value| {
+        let mut published = covered.clone();
+        published["digest"] =
+            serde_json::to_value(budget::portable_of(budget::PARENT_BUDGET_TAG, covered).unwrap())
+                .unwrap();
+        published
+    };
+    let covered = |fragment: &Value| {
+        let mut bare = fragment.clone();
+        bare.as_object_mut().unwrap().remove("digest");
+        bare
+    };
+
+    // (1) THE EXACT MEMBER SET. A member added on one side and not the other
+    //     silently changes a preimage the other side already verified, so an
+    //     honestly-sealed fragment with one member more — or one fewer — is
+    //     still refused.
+    let mut widened = covered(&fragment);
     widened["parent_amount"] = json!(4_096);
-    assert_eq!(
-        budget::verify_parent_fragment(&widened, "soc-1", 0)
-            .unwrap_err()
-            .kind,
-        ProblemKind::StaleRevision
+    let refused = budget::verify_parent_fragment(&seal(&widened), "soc-1", 0).unwrap_err();
+    assert_eq!(refused.kind, ProblemKind::StaleRevision);
+    assert!(
+        refused.title.contains("frozen member set"),
+        "a correctly sealed fragment with an EXTRA member must be refused by the \
+         exact-member guard, not by the digest: {refused:?}"
     );
-    let mut narrowed = fragment.clone();
-    narrowed.as_object_mut().unwrap().remove("items");
-    assert!(budget::verify_parent_fragment(&narrowed, "soc-1", 0).is_err());
-    // And a tampered nested SET digest, which is the value Kovee used to mint
-    // for itself under its own key.
-    let mut faked = fragment.clone();
+    for member in budget::PARENT_BUDGET_FIELDS {
+        let mut narrowed = covered(&fragment);
+        narrowed.as_object_mut().unwrap().remove(member);
+        let refused = budget::verify_parent_fragment(&seal(&narrowed), "soc-1", 0).unwrap_err();
+        assert!(
+            refused.title.contains("frozen member set"),
+            "a correctly sealed fragment MISSING {member} must be refused by the \
+             exact-member guard: {refused:?}"
+        );
+    }
+
+    // (2) THE NESTED reservation-set digest — the value Kovee used to mint for
+    //     itself under its own key. Sealed honestly, only its own verification
+    //     catches it.
+    let mut faked = covered(&fragment);
     faked["byom_budget_reservation_set_digest"]["value_hex"] = json!("f".repeat(64));
-    assert!(budget::verify_parent_fragment(&faked, "soc-1", 0).is_err());
+    let refused = budget::verify_parent_fragment(&seal(&faked), "soc-1", 0).unwrap_err();
+    assert!(
+        refused
+            .title
+            .contains("reservation-set digest does not verify"),
+        "the NESTED digest is re-derived on this side too: {refused:?}"
+    );
+
+    // (3) THE TYPED DIGEST, WHOLE (R3-L02, second wave). The comparison used to
+    //     read `class` and `value_hex` only, so `md5` and an attacker's
+    //     `key_ref` on an unkeyed cross-boundary digest were accepted — a
+    //     digest whose type nobody checks is an unlabelled hash. Both digests,
+    //     all four members.
+    for (member, value) in [
+        ("class", json!("local_erasure_safe")),
+        ("algorithm", json!("md5")),
+        ("key_ref", json!("attacker-key")),
+    ] {
+        let mut outer = fragment.clone();
+        outer["digest"][member] = value.clone();
+        let refused = budget::verify_parent_fragment(&outer, "soc-1", 0).unwrap_err();
+        assert!(
+            refused
+                .detail
+                .as_ref()
+                .unwrap()
+                .contains(&format!("declared {member}")),
+            "the OUTER digest's {member} must be compared: {refused:?}"
+        );
+        let mut nested = covered(&fragment);
+        nested["byom_budget_reservation_set_digest"][member] = value;
+        let refused = budget::verify_parent_fragment(&seal(&nested), "soc-1", 0).unwrap_err();
+        assert!(
+            refused
+                .detail
+                .as_ref()
+                .unwrap()
+                .contains(&format!("declared {member}")),
+            "the NESTED digest's {member} must be compared: {refused:?}"
+        );
+    }
 
     // The reservation stores BYOM's verified digest, never a minted one, and
     // keeps the exact bytes it verified.

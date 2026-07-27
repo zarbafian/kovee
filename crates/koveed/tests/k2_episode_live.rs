@@ -26,6 +26,7 @@
 //! | reclaim refused before the lease deadline, permitted after | `the_lease_expiry_is_clocked_not_liveness_guessed` | BOTH |
 //! | a crash between the two sides converges on byom's truth, through the REAL `koveed` start-up sweep (R3-U02) | `a_crash_between_the_two_sides_reconciles_to_byoms_truth` | BOTH |
 //! | a zero-usage completion settles before byom can charge its maximum (R3-U02) | `a_zero_usage_completion_settles_before_byom_can_charge_the_maximum` | BOTH |
+//! | a crash INSIDE the terminal tail — after byom terminalized, or after the binding moved — is finished by the REAL start-up sweep (R3-U02) | `a_crash_inside_the_terminal_tail_is_finished_by_the_startup_sweep` | BOTH |
 //!
 //! Gated on the byom repository being present — `$KOVEE_BYOM_REPO`, else
 //! the sibling `../byom` — mirroring the plan's env-gated real-harness
@@ -995,6 +996,287 @@ fn a_zero_usage_completion_settles_before_byom_can_charge_the_maximum() {
         "nothing charged, everything back in `remaining`"
     );
     assert_eq!(account.remaining, account.ceiling);
+}
+
+/// **R3-U02, the TERMINAL TAIL — the part that was not crash-reconcilable.**
+///
+/// The nominal order was right and the settlement saga was durable, but the
+/// saga row stops being *unresolved* the moment step 3 commits, and the startup
+/// sweep only scanned unresolved sagas. Three committed steps came after it:
+/// byom's `episode_complete`, the local binding update, and the release of the
+/// unspent remainder. Two crash windows were therefore unrepairable — nothing
+/// on either side recorded that they were open:
+///
+/// | window | the split it leaves |
+/// |---|---|
+/// | after byom's `episode_complete`, before the local binding update | byom TERMINAL, Kovee `active` over a still-reserved subordinate |
+/// | after the binding update, before the release | the unspent remainder held for ever |
+///
+/// Both are manufactured here with the PRODUCTION writers — which is exactly
+/// what a crash leaves behind — and repaired by the real `koveed` binary's own
+/// start-up sweep against the real `byomd`. Nothing in this test calls a
+/// reconciliation helper.
+#[test]
+fn a_crash_inside_the_terminal_tail_is_finished_by_the_startup_sweep() {
+    let Some(mut live) = live("k2-episode-live-tail-crash") else {
+        return skipped("k2_episode_live");
+    };
+    let before = live.byomd.ledger(PARENT_ACCOUNT);
+
+    // Two Episodes, one per window. Each is driven to the point where its
+    // window opens and then abandoned mid-tail.
+    let mut opened = Vec::new();
+    for (tag, stop_at) in [
+        ("t1", episode::TailPhase::PeerPending),
+        ("t2", episode::TailPhase::Releasing),
+    ] {
+        let (notice, episode_ref) = live.activate(tag);
+        let bound = activate_attempt(&mut live, &notice, &episode_ref, 300);
+        let parent = parent_of(&notice);
+        let subordinate =
+            koveed::budget::read(live.store.conn(), &parent.stable_external_reservation_key)
+                .unwrap()
+                .expect("Kovee's confirmed subordinate reservation");
+        let reference = subordinate.subordinate_reservation_ref.clone();
+        let narrowed = subordinate.reserved("unit");
+        let key = bound.stable_binding_key.clone();
+
+        // STEP 0 and STEPS 1-3, exactly as production writes them: the tail
+        // row, then the terminal settlement under the tail's own stable key.
+        episode::tail_begin(&mut live.store, REALM, &bound, bound.fences, 0).unwrap();
+        let settlement_key = format!("kovee-settle-complete-{key}");
+        let pending = koveed::budget::settle_begin(
+            &mut live.store,
+            &reference,
+            "unit",
+            0,
+            kovee_byom::budget::Meter::TrustedBroker,
+            &settlement_key,
+            0,
+        )
+        .unwrap();
+        let meter = runtime::token(&live.channels, Workload::Meter, &episode_ref).unwrap();
+        let reply = runtime::call(
+            &live.endpoint,
+            &meter,
+            &json!({
+                "version": "0.2", "op": "usage_report",
+                "meta": {
+                    "request_id": format!("kovee-usg-{settlement_key}"),
+                    "idempotency_key": format!("kovee-usg-{settlement_key}"),
+                    "expected_endpoint_incarnation": live.agent.incarnation,
+                    "expected_recovery_epoch": 0,
+                },
+                "episode_ref": episode_ref,
+                "generation": bound.record.generation,
+                "byom_attempt_ref": bound.byom_attempt_ref,
+                "byom_fence_epoch": bound.fences.byom,
+                "kovee_invocation_fence": bound.fences.kovee,
+                "source": "trusted_meter",
+                "stable_report_key": format!("kovee-report-{key}"),
+                "quantities": [{"dimension": "unit", "unit": "unit", "amount": 0}],
+                "meter_ref": format!("kovee-meter-{}", live.agent.society_id),
+                "meter_attestation_ref": format!("kovee-meter-attestation-{key}"),
+                "stable_settlement_key": settlement_key,
+                "charged_quantities": [{"dimension": "unit", "unit": "unit", "amount": 0}],
+            }),
+        )
+        .expect("byom's meter channel settled the measured zero")
+        .result;
+        assert_eq!(reply["settlement"]["settled"], json!(true), "{reply}");
+        koveed::budget::settle_commit(&mut live.store, &pending, None, 0, 0).unwrap();
+        episode::set_tail_phase(
+            live.store.conn(),
+            &key,
+            episode::TailPhase::PeerPending,
+            "manufactured: settled locally, byom not yet asked",
+            0,
+        )
+        .unwrap();
+
+        // STEP 4's REMOTE half, which is where the first window opens: byom is
+        // terminal and this side has committed nothing about it.
+        let worker = runtime::token(&live.channels, Workload::Worker, &episode_ref).unwrap();
+        let terminal = runtime::call(
+            &live.endpoint,
+            &worker,
+            &json!({
+                "version": "0.2", "op": "episode_complete",
+                "meta": {
+                    "request_id": format!("kovee-cmp-{key}"),
+                    "idempotency_key": format!("kovee-cmp-{key}"),
+                    "expected_endpoint_incarnation": live.agent.incarnation,
+                    "expected_recovery_epoch": 0,
+                    "expected_revision": bound.lease_revision,
+                },
+                "episode_ref": episode_ref,
+                "generation": bound.record.generation,
+                "byom_attempt_ref": bound.byom_attempt_ref,
+                "byom_fence_epoch": bound.fences.byom,
+                "kovee_invocation_fence": bound.fences.kovee,
+                "output_refs": [],
+                "evidence_refs": [format!("kovee-evidence-{key}")],
+                "usage_report_refs": [],
+            }),
+        )
+        .expect("byom terminalized")
+        .result;
+        assert_eq!(
+            terminal["settlement"]["status"],
+            json!("measured"),
+            "{terminal}"
+        );
+        assert_eq!(
+            live.byomd.row(
+                "SELECT state FROM external_budget_bridges WHERE bridge_id = ?1",
+                &parent.external_budget_bridge_ref
+            ),
+            Some("released".to_owned()),
+            "byom is TERMINAL: this is the state the two windows both start from"
+        );
+
+        if stop_at == episode::TailPhase::Releasing {
+            // The SECOND window: the binding update landed, the release did
+            // not. Written exactly as the tail's own transaction writes it.
+            live.store
+                .conn()
+                .execute(
+                    "UPDATE byom_episode_bindings
+                     SET state = 'released', episode_state = 'completed', updated_at = ?2
+                     WHERE stable_binding_key = ?1",
+                    rusqlite::params![key, "1970-01-01T00:00:00Z"],
+                )
+                .unwrap();
+            episode::set_tail_phase(
+                live.store.conn(),
+                &key,
+                episode::TailPhase::Releasing,
+                "manufactured: binding released, remainder still held",
+                0,
+            )
+            .unwrap();
+        }
+
+        // The window, as the durable store now holds it.
+        assert_eq!(
+            koveed::budget::state_of(live.store.conn(), &reference).unwrap(),
+            Some(kovee_byom::budget::ReservationState::Settled),
+            "the settlement committed; only the tail after it is unfinished"
+        );
+        assert_eq!(
+            episode::tail_of(live.store.conn(), &key).unwrap(),
+            Some(stop_at)
+        );
+        opened.push((key, reference, narrowed, stop_at));
+    }
+
+    // The remainder of BOTH Episodes is still held: this is the leak.
+    let mid = koveed::budget::account(
+        live.store.conn(),
+        &koveed::budget::realm_account_ref(REALM),
+        "unit",
+    )
+    .unwrap()
+    .unwrap();
+    let held: u64 = opened.iter().map(|(_, _, narrowed, _)| *narrowed).sum();
+    assert!(held > 0);
+    assert_eq!(
+        mid.reserved, held,
+        "both remainders are still reserved — the state the old sweep could not see: {mid:?}"
+    );
+    assert_eq!(
+        koveed::budget::unresolved_sagas(live.store.conn())
+            .unwrap()
+            .len(),
+        0,
+        "and NOT ONE settlement saga row is unresolved, which is exactly why the \
+         settlement sweep alone could never repair this"
+    );
+    assert_eq!(
+        episode::unfinished_tails(live.store.conn()).unwrap().len(),
+        2,
+        "the tail rows are the evidence the settlement rows no longer are"
+    );
+
+    // -- the crash: this process's handle on the durable store goes ------
+    let dead = std::mem::replace(&mut live.store, Store::open_in_memory().unwrap());
+    drop(dead);
+
+    // -- a fresh koveed PROCESS over the same durable store ---------------
+    //
+    // Nothing below calls a reconciliation helper. `Daemon::new` answers only
+    // once its sweeps have returned, so one served request is proof the sweep
+    // ran to completion.
+    let koveed = DaemonProc::start_with_env(
+        &live.data_dir,
+        &live.run_dir,
+        None,
+        &[
+            (
+                "KOVEE_BYOM_RUNTIME_DIR",
+                &live.byomd.run_dir.to_string_lossy(),
+            ),
+            ("KOVEE_BYOM_CHANNELS_DIR", &live.channels.to_string_lossy()),
+        ],
+    );
+    koveed.expect_ok(&json!({
+        "version": "0.1", "op": "hello",
+        "args": {
+            "supported_versions": ["0.1"],
+            "implementation": "k2-episode-live",
+            "implementation_version": "0.0.1",
+            "requested_features": [],
+        },
+    }));
+    drop(koveed);
+
+    // -- both windows are closed, from both sides ------------------------
+    let store = Store::open(&live.data_dir.join("kovee.db")).unwrap();
+    for (key, reference, _, stop_at) in &opened {
+        assert_eq!(
+            episode::tail_of(store.conn(), key).unwrap(),
+            Some(episode::TailPhase::Done),
+            "the tail stopped at {stop_at:?} and the production sweep finished it"
+        );
+        assert_eq!(
+            koveed::budget::state_of(store.conn(), reference).unwrap(),
+            Some(kovee_byom::budget::ReservationState::Released),
+            "the remainder no longer leaks"
+        );
+        let binding: String = store
+            .conn()
+            .query_row(
+                "SELECT state FROM byom_episode_bindings WHERE stable_binding_key = ?1",
+                [key],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            binding, "released",
+            "byom was terminal and this side is terminal too: not `active` over a \
+             reservation byom had already finished with"
+        );
+    }
+    assert!(episode::unfinished_tails(store.conn()).unwrap().is_empty());
+    let account = koveed::budget::account(
+        store.conn(),
+        &koveed::budget::realm_account_ref(REALM),
+        "unit",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(account.conserves(), "{account:?}");
+    assert_eq!(
+        (account.reserved, account.committed),
+        (0, 0),
+        "nothing charged for two zero-usage Episodes, and everything back in `remaining`"
+    );
+    assert_eq!(account.remaining, account.ceiling);
+    let closed = live.byomd.ledger(PARENT_ACCOUNT);
+    assert_eq!(
+        closed.committed, before.committed,
+        "and byom charged nothing either: one number on both sides"
+    );
 }
 
 // ------------------------------------------------------- dual fences ----

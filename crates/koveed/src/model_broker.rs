@@ -1418,19 +1418,25 @@ pub fn dispatch_effect<'e>(
 
     // 14. the metering report on byom's METER channel. Evidence from
     //     Kovee's side; the ledger move is byom's.
-    let usage_reported = if outcome.usage.total() > 0 {
-        report_usage(
-            store,
-            runtime,
-            request,
-            &prepared.effect_id,
-            &attempt_id,
-            outcome.usage,
-            now,
-        )?
-    } else {
-        false
-    };
+    //
+    //     **A measured ZERO is reported (R3-U02, second wave).** This branch
+    //     used to run only when the total exceeded zero, on the reasoning that
+    //     "there is nothing to charge". But zero is a MEASUREMENT: it is what
+    //     makes byom's bridge `settled` with `settled_charge: 0` so byom
+    //     releases the whole reservation at terminalization, instead of
+    //     reaching terminalization with an unmeasured bridge and charging its
+    //     conservative maximum. Skipping the report because the number was
+    //     zero is the same class of defect as skipping it because the call
+    //     failed: the two ledgers stop sharing a fact.
+    let usage_reported = report_usage(
+        store,
+        runtime,
+        request,
+        &prepared.effect_id,
+        &attempt_id,
+        outcome.usage,
+        now,
+    )?;
 
     Ok(Completion {
         effect_id: prepared.effect_id.clone(),

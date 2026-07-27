@@ -12,6 +12,7 @@
 //! | a successor attempt gets a NEW row under a NEW key | `a_successor_invocation_binds_afresh` |
 //! | the read surface reports both fences and byom's lease revision | `the_read_surface_reports_both_fences_and_the_byom_lease_revision` |
 //! | the per-object secret is random and wrapped, and the episode digests byom recomputes are cross-boundary | `the_placement_secret_is_a_random_wrapped_blob_and_the_episode_digests_are_cross_boundary` |
+//! | the terminal settlement is attempted BEFORE byom's terminalization, and the tail is recorded open (R3-U02) | `the_terminal_settlement_is_attempted_before_byoms_terminalization` |
 //!
 //! There is NO scripted byom endpoint here: the whole four-stage path
 //! against a live `byomd` — `episode_request`, `placement_admit`,
@@ -493,6 +494,112 @@ fn the_placement_secret_is_a_random_wrapped_blob_and_the_episode_digests_are_cro
             .contains("can no longer be re-derived"),
         "{refused:?}"
     );
+}
+
+// ------------------------------------- the terminal order and its tail ----
+
+/// **R3-U02, locked WITHOUT byom.** The confirmer removed the terminal
+/// settlement call from `episode::complete` and all seven non-live tests in
+/// this file stayed green: not one of them reached the terminalization at all,
+/// so the ordering claim rested entirely on the env-gated live suite.
+///
+/// The order is observable here without any byom process, because each of the
+/// two calls leaves a DIFFERENT durable trace before it fails against an
+/// unreachable peer:
+///
+/// - settlement first (steps 1-3) commits the local saga row under
+///   `kovee-settle-complete-…` and opens the tail at `settling`;
+/// - terminalization first (step 4) commits neither, and the first thing that
+///   fails is byom's worker token.
+///
+/// So a completion that dies against an unreachable byom must leave: the
+/// Episode NOT completed, an UNRESOLVED settlement saga row, and an OPEN tail
+/// row — three facts that together say the settlement was attempted before
+/// byom was asked to terminalize, and that BOTH start-up sweeps can see it.
+#[test]
+fn the_terminal_settlement_is_attempted_before_byoms_terminalization() {
+    let (mut store, endpoint, channels) = fixture("k2-episode-terminal-order");
+    koveed::budget::grant_capacity(&mut store, REALM, "unit", "unit", 1_000, 0).unwrap();
+    // byom's published parent, verified, and the subordinate Kovee narrowed
+    // against it — reserved BEFORE the binding, exactly as the four-stage
+    // activation does, so `bind` picks it up as its own.
+    let parent = koveed::budget::verify_parent_fragment(&notice().parent_budget, "soc-1", 0)
+        .expect("byom's published parent fragment");
+    let items = koveed::budget::subordinate_items(store.conn(), REALM, &parent).unwrap();
+    let reserved = koveed::budget::reserve(&mut store, REALM, &parent, items, 0).unwrap();
+    let bound = bind_attempt(&mut store, 4, 1);
+    let key = bound.stable_binding_key.clone();
+    assert_eq!(
+        bound.record.kovee_subordinate_reservation_ref,
+        reserved.subordinate_reservation_ref
+    );
+    assert_eq!(
+        koveed::budget::state_of(store.conn(), &reserved.subordinate_reservation_ref).unwrap(),
+        Some(kovee_byom::budget::ReservationState::Confirmed)
+    );
+
+    // The peer is unreachable: no socket, no tokens. Whichever call runs FIRST
+    // is the one that fails.
+    let runtime = unreachable_runtime(&endpoint, &channels);
+    let refused = episode::complete(&mut store, &runtime, &key, bound.fences, 0)
+        .expect_err("an unreachable byom cannot terminalize an Episode");
+    assert_eq!(refused.kind, ProblemKind::Unavailable, "{refused:?}");
+
+    // 1. The Episode is NOT completed — the whole point of settling first.
+    let binding = show(&store, json!({"stable_binding_key": key.clone()}))["bindings"][0].clone();
+    assert_ne!(binding["state"], json!("released"), "{binding}");
+    assert_ne!(binding["episode_state"], json!("completed"), "{binding}");
+
+    // 2. The settlement was ATTEMPTED, and its durable local record survives
+    //    unresolved. Remove the terminal-settlement call and this row is never
+    //    written at all.
+    let settlement_key = format!("kovee-settle-complete-{key}");
+    let saga = koveed::budget::saga_of(store.conn(), &settlement_key)
+        .unwrap()
+        .expect(
+            "the terminal settlement must be attempted BEFORE byom is asked to terminalize: \
+             its durable local record is missing, so step 4 ran first",
+        );
+    assert_eq!(
+        saga.subordinate_reservation_ref,
+        reserved.subordinate_reservation_ref
+    );
+    assert!(
+        koveed::budget::unresolved_sagas(store.conn())
+            .unwrap()
+            .iter()
+            .any(|row| row.stable_settlement_key == settlement_key),
+        "and it is unresolved, so the settlement sweep will ask byom about it"
+    );
+
+    // 3. The TAIL row is open at `settling`: the three steps after the
+    //    settlement are recorded as unfinished, which is what the second sweep
+    //    reads. Nothing was released.
+    assert_eq!(
+        episode::tail_of(store.conn(), &key).unwrap(),
+        Some(episode::TailPhase::Settling)
+    );
+    assert_eq!(
+        episode::unfinished_tails(store.conn())
+            .unwrap()
+            .iter()
+            .map(|tail| tail.stable_binding_key.clone())
+            .collect::<Vec<_>>(),
+        vec![key],
+    );
+    assert_eq!(
+        koveed::budget::state_of(store.conn(), &reserved.subordinate_reservation_ref).unwrap(),
+        Some(kovee_byom::budget::ReservationState::Confirmed),
+        "nothing is charged and nothing is released on the strength of an unanswered peer"
+    );
+    let account = koveed::budget::account(
+        store.conn(),
+        &koveed::budget::realm_account_ref(REALM),
+        "unit",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(account.conserves(), "{account:?}");
 }
 
 // ------------------------------------------------------------------ helpers ----

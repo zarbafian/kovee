@@ -1583,18 +1583,85 @@ pub fn complete(
     )?;
     let realm = binding_realm(store.conn(), stable_binding_key)?;
     let subordinate = bound.record.kovee_subordinate_reservation_ref.clone();
-    let mut local = json!({"subordinate_reservation_ref": subordinate});
 
-    // STEPS 1-3: the terminal settlement, BEFORE byom is asked to terminalize.
-    terminal_settlement(
+    // STEP 0: the durable TAIL record, committed before the tail starts
+    // (R3-U02, second wave). Everything from here to the release is a
+    // multi-step commit across two daemons, and the settlement saga row stops
+    // being unresolved the moment step 3 succeeds — so without this row the
+    // last three steps had no evidence a restart could find.
+    tail_begin(store, &realm, &bound, presented, now)?;
+    terminal_tail(
         store,
         runtime,
         &bound,
-        presented,
+        &realm,
         &subordinate,
-        &mut local,
+        presented,
+        TailPhase::Settling,
         now,
-    )?;
+    )
+}
+
+/// **Steps 1-5 of one Episode's terminalization, resumable from any phase.**
+///
+/// `from` is where this run picks up: `Settling` re-runs the terminal
+/// settlement, and `PeerPending`/`Releasing` start at byom's own
+/// terminalization. Every step is idempotent under its stable key, so resuming
+/// one that in fact completed is a replay and not a second effect:
+///
+/// - `settle_begin` returns the recorded row for an identical ask, and
+///   `usage_report` replays byom's stored settlement under the same stable
+///   settlement key;
+/// - `episode_complete` replays byom's §15.3 idempotency record — the record is
+///   looked up BEFORE the revision CAS and the projected request digest
+///   excludes `expected_revision`, so a resumed call carrying the pre-crash
+///   lease revision still gets byom's stored answer rather than a stale-lease
+///   refusal;
+/// - the binding update writes a terminal value, and `budget::release` on an
+///   already-released reservation moves nothing.
+#[allow(clippy::too_many_arguments)]
+fn terminal_tail(
+    store: &mut Store,
+    runtime: &Runtime,
+    bound: &Bound,
+    realm: &str,
+    subordinate: &str,
+    presented: Fences,
+    from: TailPhase,
+    now: i64,
+) -> Result<Value, Problem> {
+    let stable_binding_key = bound.stable_binding_key.as_str();
+    let mut local = json!({"subordinate_reservation_ref": subordinate});
+    if from == TailPhase::Settling {
+        // STEPS 1-3: the terminal settlement, BEFORE byom is asked to
+        // terminalize. A refusal or an unknown leaves the tail row where it is
+        // and returns, so the Episode stays running and BOTH sweeps see it.
+        if let Err(problem) = terminal_settlement(
+            store,
+            runtime,
+            bound,
+            presented,
+            subordinate,
+            &mut local,
+            now,
+        ) {
+            set_tail_phase(
+                store.conn(),
+                stable_binding_key,
+                TailPhase::Settling,
+                &format!("the terminal settlement is unresolved: {}", problem.title),
+                now,
+            )?;
+            return Err(problem);
+        }
+        set_tail_phase(
+            store.conn(),
+            stable_binding_key,
+            TailPhase::PeerPending,
+            "settled locally; byom has not been asked to terminalize yet",
+            now,
+        )?;
+    }
 
     // STEP 4: byom's terminalization. The bridge is `settled` by now, so byom
     // releases its reserved remainder instead of charging the maximum.
@@ -1603,37 +1670,87 @@ pub fn complete(
         &bound.record.society_ref,
         bound.record.recovery_epoch,
     )?;
-    let token = runtime.token(Workload::Worker, &bound.episode_ref)?;
-    let result = runtime.call(
-        &token,
-        &json!({
-            "version": BPP_VERSION,
-            "op": "episode_complete",
-            "meta": update_meta(&seam, "cmp", stable_binding_key, bound.lease_revision),
-            "episode_ref": bound.episode_ref,
-            "generation": bound.record.generation,
-            "byom_attempt_ref": bound.byom_attempt_ref,
-            "byom_fence_epoch": presented.byom,
-            "kovee_invocation_fence": presented.kovee,
-            "output_refs": [],
-            "evidence_refs": [format!("kovee-evidence-{stable_binding_key}")],
-            "usage_report_refs": [],
-        }),
-    )?;
-    store
+    let request = json!({
+        "version": BPP_VERSION,
+        "op": "episode_complete",
+        "meta": update_meta(&seam, "cmp", stable_binding_key, bound.lease_revision),
+        "episode_ref": bound.episode_ref,
+        "generation": bound.record.generation,
+        "byom_attempt_ref": bound.byom_attempt_ref,
+        "byom_fence_epoch": presented.byom,
+        "kovee_invocation_fence": presented.kovee,
+        "output_refs": [],
+        "evidence_refs": [format!("kovee-evidence-{stable_binding_key}")],
+        "usage_report_refs": [],
+    });
+    let answered = runtime
+        .token(Workload::Worker, &bound.episode_ref)
+        .and_then(|token| runtime.call(&token, &request));
+    let result = match answered {
+        Ok(result) => result,
+        // **On the NOMINAL path any failure is the caller's answer**: the
+        // Episode stays running and the tail row stays where it is.
+        Err(problem) if from == TailPhase::Settling => return Err(problem),
+        // **On a RESUME, byom's silence can be a STATE answer.** byom withdraws
+        // an Episode's worker token together with its terminal state, so the
+        // very fact that terminalized this Episode is what makes its
+        // `episode_complete` unreachable — the idempotency replay cannot be
+        // asked for. What licenses going on is not the missing token, though;
+        // it is THIS side's own committed settlement. A `settled` bridge cannot
+        // be charged again (byom's SettleOnce head replays it) and cannot reach
+        // byom's conservative-maximum arm (that arm fires only on a `confirmed`
+        // bridge), so the unspent remainder is demonstrably unspent whatever
+        // byom's terminal outcome was.
+        Err(problem) => {
+            let settled = matches!(
+                crate::budget::state_of(store.conn(), subordinate)?,
+                Some(kovee_byom::budget::ReservationState::Settled)
+                    | Some(kovee_byom::budget::ReservationState::Released)
+            );
+            if !settled {
+                // No committed settlement, no licence: nothing is released on
+                // the strength of an unanswered peer.
+                return Err(problem);
+            }
+            local["peer_unreachable_on_resume"] = json!(problem.title);
+            local["licensed_by"] = json!(
+                "this side's own committed settlement of the subordinate: a settled bridge \
+                 can be neither recharged nor conservatively maxed"
+            );
+            Value::Null
+        }
+    };
+    // The binding update and the phase advance are ONE transaction: the window
+    // between them was the first unrepairable state — byom terminal, this side
+    // still `active` over a reserved subordinate, and nothing recording it.
+    let txn = store
         .conn()
-        .execute(
-            "UPDATE byom_episode_bindings
-             SET state = ?2, episode_state = 'completed', lease_revision = ?3, updated_at = ?4
-             WHERE stable_binding_key = ?1",
-            params![
-                stable_binding_key,
-                BindingState::Released.as_str(),
-                number_of(&result, "lease_revision").unwrap_or(bound.lease_revision) as i64,
-                rfc3339_utc(now),
-            ],
-        )
+        .unchecked_transaction()
         .map_err(|e| store_problem(e.into()))?;
+    txn.execute(
+        "UPDATE byom_episode_bindings
+         SET state = ?2, episode_state = 'completed', lease_revision = ?3, updated_at = ?4
+         WHERE stable_binding_key = ?1",
+        params![
+            stable_binding_key,
+            BindingState::Released.as_str(),
+            number_of(&result, "lease_revision").unwrap_or(bound.lease_revision) as i64,
+            rfc3339_utc(now),
+        ],
+    )
+    .map_err(|e| store_problem(e.into()))?;
+    txn.execute(
+        "UPDATE kovee_episode_terminal_saga SET phase = ?2, detail = ?3, updated_at = ?4
+         WHERE stable_binding_key = ?1",
+        params![
+            stable_binding_key,
+            TailPhase::Releasing.as_str(),
+            "byom terminalized and the binding is released; the remainder is not",
+            rfc3339_utc(now),
+        ],
+    )
+    .map_err(|e| store_problem(e.into()))?;
+    txn.commit().map_err(|e| store_problem(e.into()))?;
 
     // STEP 5. byom reports what its own terminalization did. `measured` means
     // the settled bridge released its remainder and this side releases the
@@ -1653,7 +1770,7 @@ pub fn complete(
         adopt_terminal_charge(
             store,
             stable_binding_key,
-            &subordinate,
+            subordinate,
             &terminal,
             &mut local,
             now,
@@ -1662,7 +1779,7 @@ pub fn complete(
         // The release: only the demonstrably unspent remainder, and an
         // `uncertain` reservation is left for the R38 seat rather than guessed
         // away at completion.
-        match crate::budget::release(store, &subordinate, now) {
+        match crate::budget::release(store, subordinate, now) {
             Ok(remainder) => local["released_remainder"] = json!(remainder),
             Err(problem) if problem.kind == ProblemKind::Ambiguous => {
                 local["release_blocked"] = json!(problem.title);
@@ -1673,9 +1790,18 @@ pub fn complete(
             Err(problem) => return Err(problem),
         }
     }
+    // The tail is closed only now: a `release_blocked` remainder is an R38
+    // seat's business, not an unfinished step, so it closes too and says why.
+    set_tail_phase(
+        store.conn(),
+        stable_binding_key,
+        TailPhase::Done,
+        &local.to_string(),
+        now,
+    )?;
     emit(
         store,
-        &realm,
+        realm,
         &bound.record,
         EVENT_EPISODE_BINDING_RELEASED,
         json!({
@@ -1692,6 +1818,280 @@ pub fn complete(
         map.insert("kovee_settlement".to_owned(), local);
     }
     Ok(result)
+}
+
+// ================================ the terminal tail's own saga row ========
+//
+// `kovee_settlement_saga` covers steps 1-3. Once `settle_commit` resolves that
+// row the settlement is no longer unresolved and the start-up sweep stops
+// looking — which is precisely where three committed steps still remained. Two
+// crash windows were therefore unrepairable:
+//
+//   * after byom's `episode_complete` and before the local binding update:
+//     byom terminal, this side `active` over a still-reserved subordinate;
+//   * after the binding update and before the release: the unspent remainder
+//     held for ever.
+//
+// The tail row below is committed BEFORE step 1 and advances through the tail,
+// so a restart knows which step an Episode died on. `reconcile_terminations`
+// resumes from there.
+
+/// The phases of the terminal tail. `Done` and `Abandoned` are terminal;
+/// everything else is a step a restart must finish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TailPhase {
+    /// The tail is recorded; steps 1-3 (the terminal settlement) are not
+    /// resolved on this side yet.
+    Settling,
+    /// Settled locally; byom has not answered `episode_complete`.
+    PeerPending,
+    /// byom terminalized and the binding is released; the unspent remainder is
+    /// still held.
+    Releasing,
+    /// Every step committed on both sides.
+    Done,
+    /// byom REFUSED the terminal settlement, so this Episode was never
+    /// completed. Nothing is charged and the lease is still running; a fresh
+    /// completion opens a fresh tail.
+    Abandoned,
+}
+
+impl TailPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TailPhase::Settling => "settling",
+            TailPhase::PeerPending => "peer_pending",
+            TailPhase::Releasing => "releasing",
+            TailPhase::Done => "done",
+            TailPhase::Abandoned => "abandoned",
+        }
+    }
+
+    fn parse(text: &str) -> Option<TailPhase> {
+        match text {
+            "settling" => Some(TailPhase::Settling),
+            "peer_pending" => Some(TailPhase::PeerPending),
+            "releasing" => Some(TailPhase::Releasing),
+            "done" => Some(TailPhase::Done),
+            "abandoned" => Some(TailPhase::Abandoned),
+            _ => None,
+        }
+    }
+}
+
+/// One unfinished terminal tail — what a restart must finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnfinishedTail {
+    pub stable_binding_key: String,
+    pub realm: String,
+    pub episode_ref: String,
+    pub subordinate_reservation_ref: String,
+    pub fences: Fences,
+    pub phase: TailPhase,
+}
+
+/// Opens (or reopens) the durable tail record at [`TailPhase::Settling`].
+///
+/// A retried completion over the same binding key reuses the row: the tail is
+/// the identity of "this Episode's terminalization", and a second attempt
+/// after a refusal starts the same tail again rather than a second one.
+///
+/// Public for the same reason [`crate::budget::settle_begin`] is: the crash
+/// tests manufacture the exact durable state a crash leaves by calling the
+/// PRODUCTION writers, and then hand the store to the production daemon.
+pub fn tail_begin(
+    store: &mut Store,
+    realm: &str,
+    bound: &Bound,
+    presented: Fences,
+    now: i64,
+) -> Result<(), Problem> {
+    let at = rfc3339_utc(now);
+    store
+        .conn()
+        .execute(
+            "INSERT INTO kovee_episode_terminal_saga (stable_binding_key, realm_ref,
+                 episode_ref, subordinate_reservation_ref, lease_revision, byom_fence_epoch,
+                 kovee_invocation_fence, phase, detail, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)
+             ON CONFLICT(stable_binding_key) DO UPDATE SET
+                 lease_revision = excluded.lease_revision,
+                 byom_fence_epoch = excluded.byom_fence_epoch,
+                 kovee_invocation_fence = excluded.kovee_invocation_fence,
+                 phase = excluded.phase, detail = excluded.detail,
+                 updated_at = excluded.updated_at",
+            params![
+                bound.stable_binding_key,
+                realm,
+                bound.episode_ref,
+                bound.record.kovee_subordinate_reservation_ref,
+                bound.lease_revision as i64,
+                presented.byom as i64,
+                presented.kovee as i64,
+                TailPhase::Settling.as_str(),
+                "the terminal tail is open; nothing after this point is committed yet",
+                at,
+            ],
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    Ok(())
+}
+
+/// Advances (or re-stamps) one tail row. Public for the crash tests, which
+/// stop the tail at each phase using the writer production uses.
+pub fn set_tail_phase(
+    conn: &Connection,
+    stable_binding_key: &str,
+    phase: TailPhase,
+    detail: &str,
+    now: i64,
+) -> Result<(), Problem> {
+    conn.execute(
+        "UPDATE kovee_episode_terminal_saga SET phase = ?2, detail = ?3, updated_at = ?4
+         WHERE stable_binding_key = ?1",
+        params![stable_binding_key, phase.as_str(), detail, rfc3339_utc(now)],
+    )
+    .map_err(|e| store_problem(e.into()))?;
+    Ok(())
+}
+
+/// One tail row by its binding key, whatever its phase — what an assertion
+/// reads to say which step an Episode really reached.
+pub fn tail_of(conn: &Connection, stable_binding_key: &str) -> Result<Option<TailPhase>, Problem> {
+    conn.query_row(
+        "SELECT phase FROM kovee_episode_terminal_saga WHERE stable_binding_key = ?1",
+        [stable_binding_key],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|e| store_problem(e.into()))
+    .map(|text| text.as_deref().and_then(TailPhase::parse))
+}
+
+/// The terminal tails a restart must finish — every phase that is neither
+/// `done` nor `abandoned`.
+pub fn unfinished_tails(conn: &Connection) -> Result<Vec<UnfinishedTail>, Problem> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT stable_binding_key, realm_ref, episode_ref, subordinate_reservation_ref,
+                    byom_fence_epoch, kovee_invocation_fence, phase
+             FROM kovee_episode_terminal_saga
+             WHERE phase IN ('settling', 'peer_pending', 'releasing')
+             ORDER BY created_at ASC, stable_binding_key ASC",
+        )
+        .map_err(|e| store_problem(e.into()))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(UnfinishedTail {
+                stable_binding_key: r.get(0)?,
+                realm: r.get(1)?,
+                episode_ref: r.get(2)?,
+                subordinate_reservation_ref: r.get(3)?,
+                fences: Fences {
+                    byom: r.get::<_, i64>(4)? as u64,
+                    kovee: r.get::<_, i64>(5)? as u64,
+                },
+                phase: TailPhase::parse(&r.get::<_, String>(6)?).unwrap_or(TailPhase::Settling),
+            })
+        })
+        .map_err(|e| store_problem(e.into()))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| store_problem(e.into()))?);
+    }
+    Ok(out)
+}
+
+/// What one terminal-tail sweep finished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Finished {
+    pub examined: usize,
+    pub completed: usize,
+    pub abandoned: usize,
+    pub still_open: usize,
+}
+
+/// **Crash recovery for the TERMINAL TAIL** (R3-U02, second wave).
+///
+/// Runs after [`reconcile_settlements`], because a tail stuck in `settling`
+/// usually has an unresolved settlement saga row underneath it and that sweep
+/// resolves the settlement half first. Each unfinished tail is then resumed
+/// from its recorded phase against the real byom, and every step it resumes is
+/// idempotent under a stable key — so an Episode that died after byom
+/// terminalized converges on byom's answer instead of leaving byom terminal
+/// over a subordinate this side still holds.
+///
+/// A tail whose Episode byom REFUSED to settle is abandoned rather than forced:
+/// nothing is charged, the lease is still running, and a later completion opens
+/// the tail again.
+pub fn reconcile_terminations(
+    store: &mut Store,
+    runtime: &Runtime,
+    now: i64,
+) -> Result<Finished, Problem> {
+    let mut out = Finished::default();
+    for tail in unfinished_tails(store.conn())? {
+        out.examined += 1;
+        let Some(bound) = read_binding(store.conn(), &tail.stable_binding_key)? else {
+            set_tail_phase(
+                store.conn(),
+                &tail.stable_binding_key,
+                TailPhase::Abandoned,
+                "the episode binding is gone, so there is no tail left to finish",
+                now,
+            )?;
+            out.abandoned += 1;
+            continue;
+        };
+        // A settlement byom DEFINITELY refused is not retried: the Episode was
+        // never completed, and completing it now is exactly the split-ledger
+        // condition the ordering exists to prevent.
+        if tail.phase == TailPhase::Settling
+            && matches!(
+                crate::budget::saga_of(
+                    store.conn(),
+                    &format!("kovee-settle-complete-{}", tail.stable_binding_key)
+                )?,
+                Some(pending) if pending.phase == crate::budget::SagaPhase::Denied
+            )
+        {
+            set_tail_phase(
+                store.conn(),
+                &tail.stable_binding_key,
+                TailPhase::Abandoned,
+                "byom refused the terminal settlement; the Episode is NOT completed and \
+                 nothing is charged on either side",
+                now,
+            )?;
+            out.abandoned += 1;
+            continue;
+        }
+        match terminal_tail(
+            store,
+            runtime,
+            &bound,
+            &tail.realm,
+            &tail.subordinate_reservation_ref,
+            tail.fences,
+            tail.phase,
+            now,
+        ) {
+            Ok(_) => out.completed += 1,
+            Err(problem) => {
+                // A failed resume is not evidence of anything: the row keeps
+                // its phase and the next sweep tries again.
+                set_tail_phase(
+                    store.conn(),
+                    &tail.stable_binding_key,
+                    tail.phase,
+                    &format!("the terminal-tail resume failed: {}", problem.title),
+                    now,
+                )?;
+                out.still_open += 1;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// **Steps 1-3 of the terminal saga**, run BEFORE `episode_complete` (R3-U02).
