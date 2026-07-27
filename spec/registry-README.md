@@ -568,16 +568,33 @@ The bundle's remaining operations —
 `governed_work_binding_v1` is still not advertised. The formation half's own
 operations are live and dispatch.
 
-## Counts (frozen)
+## K2 slice 3 — the `model_complete` worker row
+
+One entry, and the only K2 row that lands in a K1 bundle. §11.6.1's
+worker-operations family carries a `model` operation; K2's model broker makes
+it real, so `model_complete` is extracted into `developer_assistant_v1` on the
+`worker` surface, from DESIGN.md §16.1-§16.3 read with byom DESIGN.md
+§13.1-§13.3 (`act_intent_prepare`/`position`/`finalize`, then
+`execution_permit_consume`).
+
+It changes no other row, and it does not affect bundle advertisement:
+`developer_assistant_v1` was already complete and stays complete, because the
+operation is added to the bundle and implemented in the same revision.
+
+## Counts (current, `k2-4`)
 
 | Bundle | Operations | Entries (operation × surface) |
 |---|---:|---:|
 | `core_v1` | 3 | 3 |
 | `shared_space_v1` | 62 | 65 |
-| `developer_assistant_v1` | 21 | 22 |
+| `developer_assistant_v1` (incl. the `k2-3` `model_complete` worker row) | 22 | 23 |
 | `governed_work_binding_v1` (binding + formation halves; K2 slices 1-2) | 9 | 9 |
-| **Total** | **95** | **99** |
+| **Total** | **96** | **100** |
+
+At K0 closure the first three bundles alone were 86 operations over 90
+entries; the K2 slices added `model_complete` and the nine
+`governed_work_binding_v1` rows.
 
 Dual-surface operations: `contribution_append`, `relation_assert`,
 `context_assembly_create` (external + worker), `invocation_cancel`
-(external + worker). The nine K2 entries are single-surface.
+(external + worker). The ten K2 entries are single-surface.

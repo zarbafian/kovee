@@ -9,6 +9,19 @@ on the droplets, `enable-linger` so user units survive logout.**
 Everything runs from *here*, on the driver. Evidence lands here too, never on
 the droplets.
 
+## Status: written and dry-run validated, never run for real
+
+Read this before quoting the gate. **No DigitalOcean resource has ever been
+created by these scripts.** They are exercised only through `--dry-run` and
+`test-no-token-leak.sh`, both of which make no API call.
+
+Of the nine scenarios, **two run today** — `no-credentials` and
+`bench-matrix`. The other seven need the per-side transcript driver
+(`side.py`), which does not exist yet in any repository; see *Where the
+cross-host transcript comes from* below. So the "full gate, start to finish"
+sequence in the next section is the intended shape, not a sequence anyone has
+completed. I2 has not passed and is not claimed to have.
+
 ## See it before you spend anything
 
 Every script takes `--dry-run`, which prints the exact command sequence and
@@ -154,8 +167,11 @@ by folding them into one file.
 
 ```sh
 ./test-no-token-leak.sh    # 15 checks, no API call, nothing created
-shellcheck -x *.sh         # clean
+shellcheck -x *.sh         # clean at shellcheck 0.10.0
 ```
+
+A green run of the first prints `── 15 passed, 0 failed` and removes its
+scratch tree.
 
 `test-no-token-leak.sh` plants a **fake** token and checks four layers:
 
@@ -185,7 +201,12 @@ shellcheck -x *.sh         # clean
 | `FLEET_RELEASE_TAG` | unset | fetch + verify a cut release instead of source-building |
 | `FLEET_PROVIDER_KEYS` | `0` | place `~/.api/{claude,openai}` on the hosts |
 | `DO_TOKEN_FILE` | `~/.api/do` | where the token is read from |
-| `FLEET_EVIDENCE_DIR` | `./evidence` | where evidence lands |
+| `FLEET_EVIDENCE_DIR` | `harness/fleet/evidence` | where evidence lands — resolved from the *scripts'* own directory, not the working directory, so it is the same path wherever you invoke from |
+| `FLEET_HOURLY_USD` | `0.036` | per-droplet rate the cost lines above are computed from |
+
+`lib.sh` and `run-scenario.sh` carry further knobs the gate does not normally
+need: `FLEET_FIREWALL_NAME`, `FLEET_RELEASE_REPO`, `RECEIVE_PORT_ALICE` /
+`RECEIVE_PORT_BOB`, `FLEET_FORBIDDEN_PORTS`, `FLEET_ITERS`, `FLEET_DRY_RUN`.
 
 On a non-22.04 image, `provision.sh` applies
 `kernel.apparmor_restrict_unprivileged_userns=0` and records it in the

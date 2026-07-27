@@ -1,8 +1,8 @@
 # kovee-mcp — C3a participant tool schemas
 
 The versioned MCP tool bundle for the C3a kovee-mcp **participant
-profile** (`../plan/sheets/C3a.md`, family plan repository): one profile,
-14 tools, bound to the K0-frozen registry's operation names.
+profile** (`../../plan/sheets/C3a.md`, in the family plan repository): one
+profile, 14 tools, bound to the K0-frozen registry's operation names.
 
 ## Try it
 
@@ -112,5 +112,15 @@ before dispatch.
 `run-checks.sh` runs `python3 mcp/check.py` as its own step (the wiring
 deferred while K1 was in flight, now landed). `xcheck/run.py` and
 `tscheck/check.mjs` stay untouched — they rederive `spec/vectors`, not
-this bundle. The lock-manifest row for this bundle remains deferred
-C3a work.
+this bundle.
+
+Both files here are now **digest-pinned** in the family lock
+(`../../plan/family-lock.json`), as required rows
+`kovee-mcp-tools-v0.1.0` (`kovee-mcp.tools.json`) and
+`kovee-mcp-meta-schema` (`mcp-tools.schema.json`), both at release tag
+`c3a-r1`. Editing either without re-pinning the manifest fails
+`plan/check-dag.py`, which a pre-commit hook runs.
+
+One gap, stated rather than papered over: `mcp/check.py` is a step in
+`run-checks.sh` but **not** a job in `.github/workflows/ci.yml`, so the
+bundle is gated locally and by the lock, not by CI.

@@ -31,8 +31,9 @@ Asserts, against the committed repo state only (no network, no writes):
    committed document (at least one valid and one negative).
 8. self-test — ten in-memory document mutations must each be caught.
 
-Standalone by design: not wired into xcheck/run.py, tscheck/check.mjs,
-or run-checks.sh (C3a runner wiring is deferred; see mcp/README.md).
+Standalone by design: it shares no code with xcheck/run.py or
+tscheck/check.mjs, which rederive spec/vectors rather than this bundle.
+run-checks.sh runs it as its own step; ci.yml does not (see mcp/README.md).
 """
 
 import copy

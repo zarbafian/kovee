@@ -1,4 +1,4 @@
-# KCP envelope schemas — extraction notes (K0)
+# KCP envelope schemas — extraction notes (K0, extended at K2)
 
 Five schemas pin the DESIGN.md §11 envelope surface, verbatim where the
 design is exact and with every unpinned choice recorded here. Conventions
@@ -18,9 +18,19 @@ ops README gap note KG21); admission re-bounding of free text stays
 code-side.
 
 The per-operation request/result suite lives under `ops/` with its own
-README carrying the KG-numbered gap notes; slice 1 (`core_v1`,
-`developer_assistant_v1`) and slice 2 (`shared_space_v1`) are both
-delivered, completing the suite.
+README carrying the KG-numbered gap notes. K0 delivered it in two slices —
+slice 1 (`core_v1`, `developer_assistant_v1`) and slice 2
+(`shared_space_v1`) — completing the three K1 bundles. K2 added the nine
+`governed_work_binding_v1` operations and the `model_complete` worker row,
+bringing the tree to 197 schemas covering all 100 registry entries.
+
+These five envelope schemas are unchanged by the K2 extensions: an
+operation added to the registry adds a request/result pair under `ops/`,
+never a member here. K2's one narrowing under `ops/` follows the same rule
+item 6 below states for widening — amendment A9 cut the governance-owner
+enum to `byom | none` in `governance-show/enable/disable-result`, and it
+carries registry revision `k2-4` behind it rather than being a silent
+schema change.
 
 | Schema | Pins | Source |
 |---|---|---|

@@ -2,10 +2,14 @@
 
 Implementation-independent test vectors, one `family/name.json` file per
 case, each an object with `name` (equal to `family/name`), `description`,
-`input`, and `expected`. The K0 spec extraction populates this tree;
-`python3 xcheck/run.py spec/vectors` and the `tscheck/` suite re-derive every
-expected value with implementations that share no code with the Rust
-workspace.
+`input`, and `expected`. The K0 spec extraction populates this tree and the
+K2 slices extend it; `python3 xcheck/run.py spec/vectors` and the `tscheck/`
+suite re-derive every expected value with implementations that share no code
+with the Rust workspace.
+
+Two families, 415 vectors: `envelope/` (78) and `ops/` (337). Both rederivers
+report the same split — 60 schema-valid, 324 schema-invalid, 23 acceptance,
+8 digest — and disagreement between them fails CI.
 
 Schema vectors name their target schema by file basename
 (`<name>.schema.json`), found recursively under `spec/schemas/`. The
