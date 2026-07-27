@@ -859,18 +859,21 @@ mod tests {
             plan.execution_key(),
             &plan.disclosure().digest,
             plan.origin().clone(),
+            crate::permit::fixture::CONSUMPTION,
         )
     }
 
     /// The same gate, with each bound value chooseable — so a test can hold a
-    /// permit that authorizes another key, another disclosure, or another
-    /// destination, without ever writing a permit field.
+    /// permit that authorizes another key, another disclosure, another
+    /// destination or another consumption row, without ever writing a permit
+    /// field.
     fn gate(
         authority: &ConsumptionAuthority<'_>,
         plan: &CallPlan,
         execution_key: &str,
         disclosure_digest: &DigestRef,
         bound_origin: Origin,
+        consumption: &str,
     ) -> ExecutionPermit {
         use crate::permit::fixture;
         let fence = fixture::digest(0x05);
@@ -881,7 +884,7 @@ mod tests {
             &fence,
         );
         let receipt = authority.admit(&reply).unwrap();
-        let consumed = authority.attest(&receipt, fixture::CONSUMPTION).unwrap();
+        let consumed = authority.attest(&receipt, consumption).unwrap();
         authority
             .authorize(
                 Some(consumed),
@@ -909,9 +912,50 @@ mod tests {
     /// A ledger that fails rather than answering: a use that cannot be
     /// recorded is a use that does not happen.
     struct BrokenLedger;
+    impl crate::sealed::LedgerSeal for BrokenLedger {}
     impl SpentLedger for BrokenLedger {
         fn claim_single_use(&self, _permit: &ExecutionPermit) -> Result<Claim, String> {
             Err("the consumption row is unwritable".to_owned())
+        }
+    }
+
+    /// The daemon's ledger as koveed's really is: one conditional `UPDATE` on
+    /// a row that a real byom consumption created. A permit naming no such
+    /// row claims nothing — which is what makes the durable ledger, and not
+    /// the permit value, the thing that authorizes egress.
+    struct RowLedger {
+        unspent: std::sync::Mutex<Vec<String>>,
+        consulted: std::sync::atomic::AtomicUsize,
+    }
+
+    impl RowLedger {
+        /// The daemon's table, holding exactly the consumptions byom really
+        /// granted.
+        fn holding(rows: &[&str]) -> RowLedger {
+            RowLedger {
+                unspent: std::sync::Mutex::new(rows.iter().map(|r| (*r).to_owned()).collect()),
+                consulted: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn consulted(&self) -> usize {
+            self.consulted.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::sealed::LedgerSeal for RowLedger {}
+    impl SpentLedger for RowLedger {
+        fn claim_single_use(&self, permit: &ExecutionPermit) -> Result<Claim, String> {
+            self.consulted
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut unspent = self.unspent.lock().map_err(|e| e.to_string())?;
+            match unspent.iter().position(|r| r == permit.consumption_ref()) {
+                Some(row) => {
+                    unspent.remove(row);
+                    Ok(Claim::Claimed)
+                }
+                None => Ok(Claim::AlreadySpent),
+            }
         }
     }
 
@@ -1116,6 +1160,129 @@ mod tests {
         );
     }
 
+    /// The seal is over the permit's own recorded projection, and `dispatch`
+    /// is where that matters: a permit this authority really did mint, with
+    /// one member rewritten afterwards, is refused **by the seal** — before
+    /// the execution-key check that would otherwise have caught this one.
+    ///
+    /// Without this, "sealed" only ever meant "keyed by the same secret":
+    /// R3's confirmation replaced both seal computations with an HMAC over a
+    /// constant and every test here stayed green.
+    #[test]
+    fn a_permit_altered_after_it_was_sealed_sends_nothing() {
+        let plan = planned();
+        let ledger = MemorySpentLedger::default();
+        let daemon = authority(&ledger);
+        for member in ExecutionPermit::SEALED_MEMBERS {
+            let mut permit = permit_for(&daemon, &plan);
+            permit.tamper(member);
+            let transport = RecordingTransport::answering(REPLY);
+            let outcome = dispatch(
+                &plan,
+                permit,
+                &Egress::recording(&transport),
+                &Credential::new("k"),
+                &daemon,
+                DEFAULT_TIMEOUT,
+            );
+            assert_eq!(outcome.state, EffectState::Failed, "{member}");
+            assert!(
+                outcome
+                    .observation
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("was not sealed by the consumption authority"),
+                "{member} was rewritten after authorization and the seal did not \
+                 notice: {:?}",
+                outcome.observation
+            );
+            assert_eq!(transport.send_count(), 0, "{member}: not one byte left");
+        }
+    }
+
+    /// R3-B01, the hard half: a permit from an authority of one's own, where
+    /// "one's own" is as close to the daemon's as key material can get.
+    ///
+    /// The old adversary probe handed the forged permit to an authority with
+    /// a *different* secret, so it only ever proved that two keys differ.
+    /// This forger shares the daemon's `key_ref` and secret — the seal cannot
+    /// tell them apart, and does not — and differs in what R3's confirmation
+    /// actually chose: its own receipt, its own consumption row, and a ledger
+    /// that forgets. It is the daemon's **durable ledger** that refuses it,
+    /// because the row it names is not a consumption byom ever granted.
+    #[test]
+    fn a_permit_from_an_authority_of_ones_own_sends_nothing() {
+        let plan = planned();
+        // The daemon's table: exactly the one row a real byom consumption
+        // created for this effect.
+        let rows = RowLedger::holding(&[crate::permit::fixture::CONSUMPTION]);
+        let daemon = authority(&rows);
+        // The forger: the daemon's own key material, its own row, its own
+        // ledger that always says "first use".
+        let forgetful = MemorySpentLedger::default();
+        let forger = authority(&forgetful);
+        let forged = gate(
+            &forger,
+            &plan,
+            plan.execution_key(),
+            &plan.disclosure().digest,
+            plan.origin().clone(),
+            "eac-forged",
+        );
+        assert!(
+            daemon.sealed(&forged),
+            "the premise: identical key material seals identically, so the \
+             refusal below is not a key mismatch"
+        );
+
+        let transport = RecordingTransport::answering(REPLY);
+        let outcome = dispatch(
+            &plan,
+            forged,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &daemon,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(outcome.state, EffectState::Failed);
+        assert!(
+            outcome
+                .observation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("already spent"),
+            "the daemon's own row is what refuses it: {:?}",
+            outcome.observation
+        );
+        assert_eq!(transport.send_count(), 0, "not one byte left");
+        assert_eq!(
+            rows.consulted(),
+            1,
+            "the DAEMON's ledger was consulted, not the forger's"
+        );
+        // The forger's permissive ledger was never asked: `dispatch` takes the
+        // authority, and a ledger is not something a call site supplies.
+        assert_eq!(
+            forgetful
+                .claim_single_use(&permit_for(&forger, &plan))
+                .unwrap(),
+            crate::permit::Claim::Claimed
+        );
+        // And the real row is untouched, so the lawful call still works.
+        let lawful = permit_for(&daemon, &plan);
+        let transport = RecordingTransport::answering(REPLY);
+        let outcome = dispatch(
+            &plan,
+            lawful,
+            &Egress::recording(&transport),
+            &Credential::new("k"),
+            &daemon,
+            DEFAULT_TIMEOUT,
+        );
+        assert_eq!(outcome.state, EffectState::Completed);
+        assert_eq!(transport.send_count(), 1);
+    }
+
     #[test]
     fn an_uncertain_transport_failure_is_ambiguous_not_failed() {
         let plan = planned();
@@ -1183,6 +1350,7 @@ mod tests {
             "exec-someone-elses",
             &plan.disclosure().digest,
             plan.origin().clone(),
+            crate::permit::fixture::CONSUMPTION,
         );
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(
@@ -1202,6 +1370,7 @@ mod tests {
             plan.execution_key(),
             &d(0xdd),
             plan.origin().clone(),
+            crate::permit::fixture::CONSUMPTION,
         );
         let transport = RecordingTransport::answering(REPLY);
         assert_eq!(
@@ -1235,6 +1404,7 @@ mod tests {
             plan.execution_key(),
             &plan.disclosure().digest,
             plaintext,
+            crate::permit::fixture::CONSUMPTION,
         );
         let transport = RecordingTransport::answering(REPLY);
         let outcome = dispatch(

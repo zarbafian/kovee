@@ -8,12 +8,13 @@
 //! execution key of an already-committed local Effect, and stores the one
 //! immutable receipt byom returns (§16.1 steps 1-4, byom R34).
 //!
-//! # One door, and it is keyed
+//! # One door, and no outside crate can build it
 //!
 //! Everything on this page hangs off a single value: the
-//! [`ConsumptionAuthority`]. The daemon builds exactly one, from key material
-//! no worker-reachable path holds and the **durable** spent ledger, and it is
-//! then the only way to
+//! [`ConsumptionAuthority`]. There is **no public constructor**. The daemon
+//! obtains the one authority in its process through a grant it can take
+//! exactly once ([`take_daemon_authority`], compiled only into a build that
+//! asks for the `daemon` feature), and it is then the only way to
 //!
 //! 1. turn byom's reply into a receipt ([`ConsumptionAuthority::admit`]),
 //! 2. attest that receipt against its committed consumption row
@@ -27,47 +28,46 @@
 //! so the chain reply → receipt → attestation → permit → egress is
 //! authenticated end to end under one secret (R3-B01, D-R3-1).
 //!
-//! What you write:
+//! What you write — everything an ordinary consumer of this crate can do with
+//! an authority, which is to be handed one and get a refusal out of it:
 //! ```
-//! use kovee_effects::{Claim, ConsumptionAuthority, Expectation, ExecutionPermit,
-//!                     PermitError, SpentLedger};
+//! use kovee_effects::{ConsumptionAuthority, Expectation, PermitError};
 //! # use kovee_core::family::DigestRef;
 //! # use kovee_effects::Origin;
-//! # let subject = DigestRef::portable_public("11".repeat(32));
-//! # let disclosure = DigestRef::portable_public("22".repeat(32));
-//! # let origin = Origin::https("api.anthropic.com", 443);
-//! struct Rows;                       // the daemon's durable consumption table
-//! impl SpentLedger for Rows {
-//!     fn claim_single_use(&self, _p: &ExecutionPermit) -> Result<Claim, String> {
-//!         Ok(Claim::Claimed)
-//!     }
+//! fn no_receipt_no_call(authority: &ConsumptionAuthority<'_>, subject: &DigestRef,
+//!                       disclosure: &DigestRef, origin: &Origin) {
+//!     let expect = Expectation {
+//!         execution_key: "exec-abc", subject_digest: subject,
+//!         disclosure_digest: disclosure,
+//!         driver_audience: kovee_effects::BROKER_DRIVER_AUDIENCE,
+//!         episode: None, endpoint_incarnation: "inst-1", recovery_epoch: 0,
+//!         now: 1_800_000_000, already_spent: false, bound_origin: origin,
+//!     };
+//!     // No receipt, no call. This is the whole point of the broker.
+//!     assert_eq!(authority.authorize(None, &expect).unwrap_err(), PermitError::NoPermit);
 //! }
-//! // The daemon's one authority: its realm-derived secret and its own ledger.
-//! let authority = ConsumptionAuthority::new(
-//!     "kovee-consumption-object:realm-personal", [7u8; 32], &Rows);
-//!
-//! let expect = Expectation {
-//!     execution_key: "exec-abc", subject_digest: &subject,
-//!     disclosure_digest: &disclosure,
-//!     driver_audience: kovee_effects::BROKER_DRIVER_AUDIENCE,
-//!     episode: None, endpoint_incarnation: "inst-1", recovery_epoch: 0,
-//!     now: 1_800_000_000, already_spent: false, bound_origin: &origin,
-//! };
-//! // No receipt, no call. This is the whole point of the broker.
-//! assert_eq!(authority.authorize(None, &expect).unwrap_err(), PermitError::NoPermit);
 //! ```
 //!
-//! # Why these types are opaque, and why that is not the whole fix (D-R3-1)
+//! The daemon's own side, which no other crate compiles, is two lines:
+//!
+//! ```text
+//! let grant = take_daemon_authority(&key_ref, secret).expect("the one grant");
+//! let authority = grant.authority(&DurableClaim::new(&claim));  // koveed's own UPDATE
+//! ```
+//!
+//! # What is closed, and what is not (D-R3-1, R3's third confirmation)
 //!
 //! Opacity came first and is still here: every field is private, no type has
 //! a public constructor or a `Deserialize`, [`ExecutionPermit`] is not
 //! `Clone`, and [`crate::dispatch`] takes it **by value**.
 //!
-//! R3's confirmation showed opacity alone is not a gate. A caller could
-//! author the receipt JSON, hand it to a public parser, attest it under a key
-//! **of its own choosing**, and dispatch it against a ledger **of its own
-//! writing** — every value opaque, every value forged. So the parser, the
-//! attestation and the ledger all moved behind the authority:
+//! Opacity alone was not a gate: R3's confirmation authored the receipt JSON,
+//! attested it under a key **of its own choosing**, and dispatched it against
+//! a ledger **of its own writing**. Moving those three choices into a public
+//! `ConsumptionAuthority::new` did not remove that path either — it moved the
+//! choice one call earlier, and the confirmation's next probe simply built the
+//! authority. So the constructor left the public surface, and with it every
+//! way an outside crate could obtain one:
 //!
 //! - a receipt exists only as [`ConsumptionAuthority::admit`] returns it, and
 //!   it carries a keyed admission tag over its exact members;
@@ -77,18 +77,29 @@
 //!   authority's, never the call site's;
 //! - the minted permit carries a keyed **seal** over its whole authorized
 //!   projection, and `dispatch` re-verifies it under the same authority;
-//! - the single use is claimed in the ledger the authority **owns**, so no
-//!   call site can substitute a permissive one.
+//! - the single use is claimed in the ledger the authority **owns**;
+//! - [`SpentLedger`] is **sealed**: its supertrait is unnameable outside this
+//!   crate, so no other crate can be a ledger at all; and
+//! - [`ConsumptionAuthority::new`] is crate-private *and* `cfg(test)`, so it
+//!   is not in any artifact a consumer links. The only public way to a value
+//!   of that type is [`take_daemon_authority`], which exists only in a
+//!   `daemon` build and answers `Some` **once per process**.
 //!
-//! What that leaves, stated plainly: code that can construct a
-//! `ConsumptionAuthority` *is* the daemon, because it supplies the daemon's
-//! secret and the daemon's ledger. A library cannot distinguish it from the
-//! daemon; only byom signing its own receipts could, and byom does not sign
-//! them today. What is closed is everything short of that — no receipt, no
-//! attestation, no permit and no spent use can be produced by any code that
-//! does not already hold both.
+//! What that leaves, stated plainly and without decoration: this removes the
+//! **external-crate** path — the one every probe so far exercised. It does
+//! not, and cannot, distinguish the daemon from other code compiled into the
+//! daemon. Code inside a `daemon` build that runs before koveed takes the
+//! grant can take it instead; code that holds a reference to the daemon's
+//! authority can call `admit`/`attest`/`authorize` with material of its own.
+//! Even then the forged permit must claim its single use in the daemon's own
+//! durable ledger, which moves a row that only a real byom consumption
+//! created — so a fabricated `consumption_ref` still sends nothing
+//! (`broker::tests::a_permit_from_an_authority_of_ones_own_sends_nothing`).
+//! Closing the rest needs byom to sign its `receipt_result` so Kovee can
+//! verify provenance against a peer key; that is a cross-boundary protocol
+//! change, and it is not invented here.
 //!
-//! Each opacity claim is a compile error rather than a convention, and
+//! Each of those claims is a compile error rather than a convention, and
 //! `tests/compile_gate.rs` is how that is proven against rustc's own
 //! diagnostics.
 
@@ -307,11 +318,13 @@ impl ConsumedReceipt<'_> {
 /// every step from byom's reply to an outbound byte, and the **durable**
 /// ledger the single use is claimed in.
 ///
-/// Both are chosen **here**, once, by the code that owns the daemon's key
-/// material and its database — never at a dispatch call site. That is the
-/// difference R3's confirmation demanded: a caller can no longer pick the
-/// attestation secret, and can no longer pair a permit with a ledger that
-/// forgets.
+/// Both are fixed when the authority is made, and it can only be made inside
+/// this crate — [`new`](ConsumptionAuthority::new) is crate-private and
+/// `cfg(test)`, and the only public door is [`take_daemon_authority`], which
+/// a build without the `daemon` feature does not compile at all and which
+/// answers `Some` once per process. A caller cannot pick the attestation
+/// secret, cannot pair a permit with a ledger that forgets, and cannot
+/// construct the value `dispatch` trusts.
 ///
 /// The secret must be per-realm key material the daemon derives (koveed
 /// derives it from the realm object key), not a constant and not anything a
@@ -319,6 +332,10 @@ impl ConsumedReceipt<'_> {
 pub struct ConsumptionAuthority<'a> {
     key_ref: String,
     secret: [u8; 32],
+    /// Where the one authorized use lands. [`SpentLedger`] is sealed, so this
+    /// is always one of **this crate's** ledgers: the daemon's durable claim
+    /// wears [`DurableClaim`], and the tests' in-memory one is
+    /// [`MemorySpentLedger`]. There is no third kind and no way to write one.
     ledger: &'a dyn SpentLedger,
 }
 
@@ -335,7 +352,15 @@ impl<'a> ConsumptionAuthority<'a> {
     /// The daemon's authority. `key_ref` names the secret in the audit record
     /// — it is what a later reader of a permit's `owner_receipt_provenance`
     /// uses to tell which key would have to be destroyed to erase it.
-    pub fn new(
+    ///
+    /// **Test-only, and crate-private besides (R3-B01, third confirmation).**
+    /// A public constructor was the whole forgery: it let a caller choose the
+    /// secret and the ledger, which is exactly the authority the daemon has.
+    /// The daemon's own door is [`take_daemon_authority`]; this one is how
+    /// this crate's tests build the authorities they compare, and it is not
+    /// compiled into anything a consumer links.
+    #[cfg(test)]
+    pub(crate) fn new(
         key_ref: &str,
         secret: [u8; 32],
         ledger: &'a dyn SpentLedger,
@@ -572,6 +597,116 @@ impl<'a> ConsumptionAuthority<'a> {
     }
 }
 
+// -------------------------------------------------- the daemon's grant ----
+
+/// The daemon's one-time grant: the only public way a
+/// [`ConsumptionAuthority`] comes into existence.
+///
+/// It is not a constructor a caller can call with inputs of its own choosing
+/// — it is taken once, by [`take_daemon_authority`], and after that call
+/// there is no second one in this process. The one thing the holder still
+/// supplies is its **durable claim**, because durability is the daemon's
+/// database and not this crate's; and it can supply it only through
+/// [`authority`](DaemonGrant::authority), never at a `dispatch` call site.
+#[cfg(feature = "daemon")]
+pub struct DaemonGrant {
+    key_ref: String,
+    secret: [u8; 32],
+}
+
+#[cfg(feature = "daemon")]
+impl std::fmt::Debug for DaemonGrant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DaemonGrant")
+            .field("key_ref", &self.key_ref)
+            .field("secret", &"redacted")
+            .finish()
+    }
+}
+
+/// Whether the one grant has been taken. A process has exactly one.
+#[cfg(feature = "daemon")]
+static GRANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// THE consumption authority of this process, taken **once**.
+///
+/// The first call answers `Some`; every later call answers `None`, so a
+/// second authority — with a secret of someone else's choosing, or a ledger
+/// that forgets — cannot exist alongside the daemon's. koveed takes it while
+/// serving the first model call and holds it for the life of the process.
+///
+/// Two honest limits, in the code because they belong next to the mechanism:
+///
+/// 1. this function is compiled only into a build that asks for the `daemon`
+///    feature. A crate that does not is not merely refused at run time, it
+///    has no such name — which is what closes the external path;
+/// 2. within a `daemon` build, "the daemon" means "whoever got here first".
+///    Rust cannot tell one caller in one process from another, and this crate
+///    does not pretend to. The cross-boundary fix is byom signing its own
+///    `receipt_result`.
+#[cfg(feature = "daemon")]
+pub fn take_daemon_authority(key_ref: &str, secret: [u8; 32]) -> Option<DaemonGrant> {
+    if GRANTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    Some(DaemonGrant {
+        key_ref: key_ref.to_owned(),
+        secret,
+    })
+}
+
+#[cfg(feature = "daemon")]
+impl DaemonGrant {
+    /// The authority, over the daemon's own durable claim.
+    pub fn authority<'a>(&'a self, ledger: &'a DurableClaim<'a>) -> ConsumptionAuthority<'a> {
+        ConsumptionAuthority {
+            key_ref: self.key_ref.clone(),
+            secret: self.secret,
+            ledger,
+        }
+    }
+}
+
+/// The daemon's durable claim, wearing this crate's sealed [`SpentLedger`].
+///
+/// The daemon cannot *implement* the ledger — nothing outside this crate can
+/// — so it hands over the one operation instead: its atomic conditional
+/// update. That claim must survive a crash; koveed's is a single conditional
+/// `UPDATE` on the consumption row, which is why a permit whose
+/// `consumption_ref` names no unspent row of a real byom consumption claims
+/// nothing and sends nothing, however it came to be sealed.
+///
+/// A `DurableClaim` on its own does nothing: the only thing that accepts one
+/// is [`DaemonGrant::authority`], and there is one grant per process.
+#[cfg(feature = "daemon")]
+pub struct DurableClaim<'a> {
+    claim: &'a dyn Fn(&ExecutionPermit) -> Result<Claim, String>,
+}
+
+#[cfg(feature = "daemon")]
+impl<'a> DurableClaim<'a> {
+    pub fn new(claim: &'a dyn Fn(&ExecutionPermit) -> Result<Claim, String>) -> DurableClaim<'a> {
+        DurableClaim { claim }
+    }
+}
+
+#[cfg(feature = "daemon")]
+impl std::fmt::Debug for DurableClaim<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DurableClaim")
+    }
+}
+
+#[cfg(feature = "daemon")]
+impl crate::sealed::LedgerSeal for DurableClaim<'_> {}
+
+#[cfg(feature = "daemon")]
+impl SpentLedger for DurableClaim<'_> {
+    fn claim_single_use(&self, permit: &ExecutionPermit) -> Result<Claim, String> {
+        (self.claim)(permit)
+    }
+}
+
 /// The Episode and fence pair a governed model call must be bound to
 /// (family contract L21: one current fence is not enough).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -797,6 +932,64 @@ impl ExecutionPermit {
     }
 }
 
+/// Tampering with a minted permit — the one thing no caller can do, so the
+/// only way to *test* that the seal is over the permit's own recorded
+/// projection rather than over anything at all.
+///
+/// It exists under `cfg(test)` only, so it is not in any artifact a consumer
+/// links. Without it the seal's content had no oracle: R3's confirmation
+/// replaced both seal computations with an HMAC over a **constant** and the
+/// whole suite stayed green, because every test that touched the seal varied
+/// the *key* and never the *bytes*.
+#[cfg(test)]
+#[allow(clippy::panic)]
+impl ExecutionPermit {
+    pub(crate) fn tamper(&mut self, member: &str) {
+        match member {
+            "execution_key" => self.execution_key = "exec-someone-elses".to_owned(),
+            "consumption_ref" => self.consumption_ref = "eac-someone-elses".to_owned(),
+            "mandate_use_ref" => self.mandate_use_ref = "muse-someone-elses".to_owned(),
+            "max_uses" => self.max_uses += 1,
+            "expires_at" => self.expires_at = "2099-01-15T09:00:00Z".to_owned(),
+            "bound_origin" => self.bound_origin = Origin::https("exfil.example", 443),
+            "bound_egress_policy" => {
+                self.bound_egress_policy =
+                    EgressPolicy::allowing([Origin::https("exfil.example", 443)])
+            }
+            "subject_digest" => self.subject_digest = DigestRef::portable_public("ee".repeat(32)),
+            "disclosure_digest" => {
+                self.disclosure_digest = DigestRef::portable_public("dd".repeat(32))
+            }
+            "owner_receipt_provenance" => {
+                self.owner_receipt_provenance = DigestRef::portable_public("cc".repeat(32))
+            }
+            "owner_unverified_digests" => self.owner_unverified_digests.push("subject".to_owned()),
+            "episode_ref" => self.episode_ref = Some("ep-someone-elses".to_owned()),
+            "byom_fence_epoch" => self.byom_fence_epoch += 1,
+            "driver_audience" => self.driver_audience = "kovee-other-broker".to_owned(),
+            other => panic!("no such permit member: {other}"),
+        }
+    }
+
+    /// Every member the seal must cover — the list the tests sweep.
+    pub(crate) const SEALED_MEMBERS: [&'static str; 14] = [
+        "execution_key",
+        "consumption_ref",
+        "mandate_use_ref",
+        "max_uses",
+        "expires_at",
+        "bound_origin",
+        "bound_egress_policy",
+        "subject_digest",
+        "disclosure_digest",
+        "owner_receipt_provenance",
+        "owner_unverified_digests",
+        "episode_ref",
+        "byom_fence_epoch",
+        "driver_audience",
+    ];
+}
+
 // ------------------------------------------------------- the spent ledger ----
 
 /// Whether this dispatch won the permit's single use.
@@ -821,7 +1014,24 @@ pub enum Claim {
 /// and `dispatch` takes the authority rather than a ledger: R3's confirmation
 /// dispatched a forged permit against a ledger of its own writing, and that
 /// argument no longer exists.
-pub trait SpentLedger {
+///
+/// **Sealed (R3-B01, third confirmation).** The supertrait lives in a private
+/// module, so no crate outside this one can implement this trait — being a
+/// ledger is not a plug-in point, and "supply a ledger that forgets" is not a
+/// move that exists any more. The daemon's durable claim is a function it
+/// installs through [`DaemonGrant::authority`], not an implementation of
+/// this:
+///
+/// ```compile_fail,E0277
+/// # use kovee_effects::{Claim, ExecutionPermit, SpentLedger};
+/// struct Forgetful;
+/// impl SpentLedger for Forgetful {
+///     fn claim_single_use(&self, _p: &ExecutionPermit) -> Result<Claim, String> {
+///         Ok(Claim::Claimed)
+///     }
+/// }
+/// ```
+pub trait SpentLedger: crate::sealed::LedgerSeal {
     /// Moves this permit's consumption from unspent to spent, atomically.
     /// `Err` is a ledger failure and is treated as a refusal: a use that
     /// cannot be recorded is a use that does not happen.
@@ -834,6 +1044,9 @@ pub trait SpentLedger {
 pub struct MemorySpentLedger {
     spent: std::sync::Mutex<Vec<String>>,
 }
+
+#[cfg(any(test, feature = "testing"))]
+impl crate::sealed::LedgerSeal for MemorySpentLedger {}
 
 #[cfg(any(test, feature = "testing"))]
 impl SpentLedger for MemorySpentLedger {
@@ -994,6 +1207,95 @@ mod tests {
         assert!(!json.contains("seal"));
         // And no credential rides along.
         assert!(!json.contains("api-key") && !json.contains("sk-"));
+    }
+
+    /// The daemon's door, in the only build that has one: it opens once.
+    ///
+    /// A second authority — with a secret of someone else's choosing, or a
+    /// ledger that forgets — cannot exist alongside the daemon's, because
+    /// there is no second grant to make one from.
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn the_daemons_grant_is_taken_exactly_once_per_process() {
+        let first = take_daemon_authority(KEY_REF, SECRET);
+        assert!(first.is_some(), "the daemon takes the one grant");
+        assert!(
+            take_daemon_authority(KEY_REF, SECRET).is_none(),
+            "a second caller — in this crate or any other — gets nothing"
+        );
+        assert!(
+            take_daemon_authority("kovee-consumption-object:mine", [0xffu8; 32]).is_none(),
+            "and choosing other key material does not make a second door"
+        );
+        // The grant's authority seals permits as this daemon's, and it never
+        // shows its secret.
+        let grant = first.unwrap();
+        let claim = |_: &ExecutionPermit| Ok(Claim::Claimed);
+        let ledger = DurableClaim::new(&claim);
+        let authority = grant.authority(&ledger);
+        assert_eq!(authority.key_ref(), KEY_REF);
+        assert!(!format!("{grant:?}").contains(&format!("{}", SECRET[0])));
+        let permit = minted(&authority);
+        assert!(authority.sealed(&permit));
+    }
+
+    /// One permit through the whole chain, for the seal tests below.
+    fn minted(authority: &ConsumptionAuthority<'_>) -> ExecutionPermit {
+        let (s, di, f, o) = (d(0x03), d(0x04), d(0x05), origin());
+        let receipt = authority.admit(&reply_ok()).unwrap();
+        let consumed = authority.attest(&receipt, CONSUMPTION).unwrap();
+        authority
+            .authorize(Some(consumed), &expectation(&s, &di, &f, &o))
+            .unwrap()
+    }
+
+    /// The seal is an HMAC over **this permit's** recorded projection, and the
+    /// test re-derives it independently rather than asking `sealed` whether it
+    /// agrees with itself.
+    ///
+    /// R3's confirmation replaced both seal computations with an HMAC over a
+    /// constant object and the entire suite stayed green — the seal was
+    /// keyed, but nothing checked that it was keyed over anything in
+    /// particular. This is that check: the preimage is named, byte for byte.
+    #[test]
+    fn the_seal_is_the_keyed_tag_of_the_permits_own_recorded_projection() {
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        let permit = minted(&authority);
+        // The projection a later reader sees — `seal` is `skip`ped, so this is
+        // exactly the recorded permit.
+        let projection = serde_json::to_value(&permit).unwrap();
+        assert!(projection.get("seal").is_none(), "the seal is not recorded");
+        let preimage = tagged_canonical(PERMIT_SEAL_TAG, &projection).unwrap();
+        assert_eq!(
+            permit.seal,
+            hmac_sha256(&SECRET, &preimage),
+            "the seal must be the tag of THIS permit's projection, not of some \
+             other value that happens to be keyed the same way"
+        );
+        assert!(authority.sealed(&permit));
+        // And the domain tag is part of it: the same bytes under another tag
+        // are a different seal.
+        let other_domain = tagged_canonical(RECEIPT_PROVENANCE_TAG, &projection).unwrap();
+        assert_ne!(permit.seal, hmac_sha256(&SECRET, &other_domain));
+    }
+
+    /// Every recorded member is under the seal: change any one of them and
+    /// this authority no longer recognizes the value as its own.
+    #[test]
+    fn the_seal_covers_every_member_the_permit_records() {
+        let ledger = MemorySpentLedger::default();
+        let authority = authority(&ledger);
+        for member in ExecutionPermit::SEALED_MEMBERS {
+            let mut permit = minted(&authority);
+            assert!(authority.sealed(&permit), "{member}: sealed before");
+            permit.tamper(member);
+            assert!(
+                !authority.sealed(&permit),
+                "{member} was changed after authorization and the seal still \
+                 accepted the permit: the seal is not over the permit"
+            );
+        }
     }
 
     #[test]

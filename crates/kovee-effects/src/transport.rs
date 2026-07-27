@@ -39,9 +39,18 @@
 //! - [`Transport`], [`HttpsTransport`], [`RawResponse`] and [`TransportError`]
 //!   are **crate-private**. Outside this crate there is no trait to call, no
 //!   type to construct, and no `send` to name.
+//! - …and this **module is private too**. That is the second half, and it was
+//!   missing: while `transport` was a public module, `pub` on any raw item
+//!   here republished the whole bypass through `kovee_effects::transport::*`
+//!   — which R3's confirmation did, recompiling the old no-permit consumer
+//!   while the compile gate, checking only root re-exports, stayed green.
+//!   `tests/compile_gate.rs` now asserts rustc's own "module `transport` is
+//!   private" diagnostic, so re-publishing it fails the gate.
 //! - The one public egress value is [`Egress`], and it has exactly one
 //!   production constructor, [`Egress::live`], which hands back the process's
-//!   single wire without ever exposing it.
+//!   single wire — one value per process, not one per call
+//!   (`the_live_wire_is_one_transport_per_process`) — without ever exposing
+//!   it.
 //! - An `Egress` does nothing on its own. The only function that moves a byte
 //!   through one is [`crate::dispatch`], which needs an
 //!   [`ExecutionPermit`](crate::ExecutionPermit) by value and claims its
@@ -674,6 +683,38 @@ mod tests {
                 .all(|v| *v == rustls::ProtocolVersion::TLSv1_3),
             "TLS 1.3 only, got {versions:?}"
         );
+    }
+
+    /// The live wire is **one value per process**, not one per `Egress::live()`.
+    ///
+    /// It is a claim the module makes ("created on first use and never
+    /// exposed", "who may send is not a question a caller gets to answer"),
+    /// and R3's confirmation showed nothing checked it: replacing the
+    /// singleton with a fresh transport per call left every claimed test
+    /// green. Identity is the only observable difference, so identity is what
+    /// this asserts.
+    #[test]
+    fn the_live_wire_is_one_transport_per_process() {
+        fn live() -> *const HttpsTransport {
+            match Egress::live().wire {
+                Wire::Live(transport) => transport as *const HttpsTransport,
+                #[cfg(any(test, feature = "testing"))]
+                Wire::Recording(_) => panic!("`live` handed back a recording double"),
+            }
+        }
+        assert_eq!(
+            live(),
+            live(),
+            "every `Egress::live()` must wrap the SAME wire: a per-call \
+             transport is a per-call rustls config, and a second place bytes \
+             can leave from"
+        );
+        // …and it is the singleton, not merely some stable address.
+        assert_eq!(
+            live(),
+            LIVE.get().expect("the singleton is initialized") as *const HttpsTransport
+        );
+        assert_eq!(Egress::live().profile(), PROFILE_HTTPS);
     }
 
     #[test]

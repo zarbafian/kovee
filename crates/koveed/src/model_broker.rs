@@ -58,6 +58,7 @@
 //!   METER channel with the measured token counts. Kovee's row is evidence;
 //!   the ledger move is byom's (§11.4, family contract L33).
 
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use kovee_byom::bpp::BPP_VERSION;
@@ -71,12 +72,12 @@ use kovee_core::family::{tagged_canonical, DigestRef};
 use kovee_core::problem::{Problem, ProblemKind};
 use kovee_core::time::rfc3339_utc;
 use kovee_effects::{
-    dispatch as dispatch_bytes, plan, ByomSourceFields, CallPlan, Claim, ConsumptionAuthority,
-    DisclosureItem, DisclosureManifest, EffectState, Egress, EpisodeFence,
-    ExecutionConsumptionReceipt, ExecutionPermit, Expectation, ModelProfile, ModelProviderBinding,
-    PlanInput, PlanKeys, ProviderClaims, ProviderContextManifest, ProviderKind, RecordDigestKey,
-    RequestLimits, Segment, SegmentKind, SpentLedger, Usage, BROKER_DRIVER_AUDIENCE,
-    OWNER_PROTOCOL_BYOM, PHASE_PRE_EGRESS,
+    dispatch as dispatch_bytes, plan, take_daemon_authority, ByomSourceFields, CallPlan, Claim,
+    ConsumptionAuthority, DaemonGrant, DisclosureItem, DisclosureManifest, DurableClaim,
+    EffectState, Egress, EpisodeFence, ExecutionConsumptionReceipt, ExecutionPermit, Expectation,
+    ModelProfile, ModelProviderBinding, PlanInput, PlanKeys, ProviderClaims,
+    ProviderContextManifest, ProviderKind, RecordDigestKey, RequestLimits, Segment, SegmentKind,
+    Usage, BROKER_DRIVER_AUDIENCE, OWNER_PROTOCOL_BYOM, PHASE_PRE_EGRESS,
 };
 use kovee_store::{new_id, NewEvent, Store};
 use rusqlite::{params, Connection, OptionalExtension as _};
@@ -894,25 +895,24 @@ pub fn consume_permit(
         None => Default::default(),
     };
     let seam = crate::episode::seam_of_binding(store.conn(), request.realm)?;
-    // THE authority (R3-B01): one value, built from this daemon's own
-    // realm-derived secret and its own durable ledger. Every receipt that
-    // exists was admitted by it, every attestation was made by it, and it is
-    // what `dispatch` verifies the permit's seal against. Nothing in this
-    // module can author a receipt or choose a key any more.
-    let key_ref = authority_key_ref();
-    let secret = authority_secret(store.conn())?;
+    // THE authority (R3-B01): one value, made from the process's ONE grant
+    // over this daemon's own durable claim. Every receipt that exists was
+    // admitted by it, every attestation was made by it, and it is what
+    // `dispatch` verifies the permit's seal against. Nothing in this module —
+    // and nothing in any other crate — can author a receipt, choose a key, or
+    // build an authority any more: the constructor is crate-private in
+    // kovee-effects and the grant is taken once.
+    let grant = grant(store.conn())?;
 
     // Recover an already-stored consumption first: a crash after byom
     // consumed but before Kovee stored the reply is repaired by re-asking
     // with the same key, and byom replays the retained receipt.
     let stored = {
-        let ledger = ConsumptionLedger { conn: store.conn() };
-        let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
-        read_consumption(
-            store.conn(),
-            &authorization.stable_execution_key,
-            &authority,
-        )?
+        let conn = store.conn();
+        let claim = |permit: &ExecutionPermit| claim_consumption(conn, permit);
+        let ledger = DurableClaim::new(&claim);
+        let authority = grant.authority(&ledger);
+        read_consumption(conn, &authorization.stable_execution_key, &authority)?
     };
     let receipt = match stored {
         Some((_, receipt)) => receipt,
@@ -992,8 +992,10 @@ pub fn consume_permit(
             // this authority's keyed admission tag over the parsed members.
             // JSON someone had to hand is not a receipt here.
             let receipt = {
-                let ledger = ConsumptionLedger { conn: store.conn() };
-                let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
+                let conn = store.conn();
+                let claim = |permit: &ExecutionPermit| claim_consumption(conn, permit);
+                let ledger = DurableClaim::new(&claim);
+                let authority = grant.authority(&ledger);
                 authority.admit(&reply).map_err(|e| {
                     // The reply is byom's own record, not a credential: naming
                     // the member that did not fit is what makes a shape drift
@@ -1026,9 +1028,11 @@ pub fn consume_permit(
     // refuses a receipt this authority did not admit before computing
     // anything over it, and binds the attestation to this exact committed
     // consumption row (D-R3-1).
-    let ledger = ConsumptionLedger { conn: store.conn() };
-    let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
-    let consumption_id = read_consumption(store.conn(), prepared.plan.execution_key(), &authority)?
+    let conn = store.conn();
+    let claim = |permit: &ExecutionPermit| claim_consumption(conn, permit);
+    let ledger = DurableClaim::new(&claim);
+    let authority = grant.authority(&ledger);
+    let consumption_id = read_consumption(conn, prepared.plan.execution_key(), &authority)?
         .map(|(id, _)| id)
         .ok_or_else(internal)?;
     let attested = authority
@@ -1137,30 +1141,66 @@ fn authority_secret(conn: &Connection) -> Result<[u8; 32], Problem> {
 
 const CONSUMPTION_ATTESTATION_DOMAIN: &str = "dev.kovee.consumption-attestation.v1";
 
-/// The durable one-shot ledger a permit's single use is claimed against
-/// (D-R3-1). The claim is one conditional `UPDATE` in SQLite's autocommit, so
-/// it is atomic and on disk before any byte leaves: a second permit value for
-/// the same consumption finds `state = 'spent'` and sends nothing.
-struct ConsumptionLedger<'a> {
-    conn: &'a Connection,
+/// The durable one-shot claim a permit's single use is made against (D-R3-1).
+/// It is one conditional `UPDATE` in SQLite's autocommit, so it is atomic and
+/// on disk before any byte leaves: a second permit value for the same
+/// consumption finds `state = 'spent'` and sends nothing, and a permit naming
+/// a row byom never granted finds nothing to move at all.
+///
+/// It is a **function**, not an implementation of `SpentLedger`: that trait is
+/// sealed in kovee-effects, so not even this crate can be a ledger. The one
+/// thing that accepts this claim is [`DaemonGrant::authority`], and there is
+/// one grant per process.
+fn claim_consumption(conn: &Connection, permit: &ExecutionPermit) -> Result<Claim, String> {
+    let claimed = conn
+        .execute(
+            "UPDATE external_authorization_consumptions SET state = 'spent'
+             WHERE consumption_id = ?1 AND execution_key = ?2 AND state <> 'spent'",
+            params![permit.consumption_ref(), permit.execution_key()],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(if claimed == 1 {
+        Claim::Claimed
+    } else {
+        Claim::AlreadySpent
+    })
 }
 
-impl SpentLedger for ConsumptionLedger<'_> {
-    fn claim_single_use(&self, permit: &ExecutionPermit) -> Result<Claim, String> {
-        let claimed = self
-            .conn
-            .execute(
-                "UPDATE external_authorization_consumptions SET state = 'spent'
-                 WHERE consumption_id = ?1 AND execution_key = ?2 AND state <> 'spent'",
-                params![permit.consumption_ref(), permit.execution_key()],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(if claimed == 1 {
-            Claim::Claimed
-        } else {
-            Claim::AlreadySpent
-        })
+/// THE grant of this process, taken once (R3-B01).
+///
+/// `take_daemon_authority` answers `Some` on the first call and `None` ever
+/// after, so after this line no second `ConsumptionAuthority` can exist — not
+/// in this crate and not in any other. Every authority below is made from
+/// this one grant, over this daemon's own realm-derived secret and its own
+/// durable claim; there is no constructor left that takes either as an
+/// argument.
+///
+/// The honest limit, since it lives here: within one process "the daemon" is
+/// whoever reached this line first. Rust cannot check that claim, and this
+/// code does not pretend it can — the cross-boundary fix is byom signing its
+/// own `receipt_result`.
+fn grant(conn: &Connection) -> Result<&'static DaemonGrant, Problem> {
+    static GRANT: OnceLock<DaemonGrant> = OnceLock::new();
+    static TAKING: Mutex<()> = Mutex::new(());
+    if let Some(grant) = GRANT.get() {
+        return Ok(grant);
     }
+    // One taker at a time, so two threads racing here cannot burn the grant.
+    let _serialized = TAKING.lock().map_err(|_| internal())?;
+    if let Some(grant) = GRANT.get() {
+        return Ok(grant);
+    }
+    let key_ref = authority_key_ref();
+    let secret = authority_secret(conn)?;
+    let taken = take_daemon_authority(&key_ref, secret).ok_or_else(|| {
+        refuse(
+            ProblemKind::Internal,
+            "the consumption authority of this process was already taken",
+            "kovee-effects grants it once; something else in this process took it first, and \
+             this daemon will not run a model call under an authority it did not make",
+        )
+    })?;
+    Ok(GRANT.get_or_init(|| taken))
 }
 
 /// The whole chain for one worker call. Every step in order, and each one a
@@ -1352,10 +1392,10 @@ pub fn dispatch_effect<'e>(
         // anything else, and claims the single use in the authority's own
         // ledger: there is no ledger argument to hand it any more, and a
         // well-formed permit minted anywhere else authorizes nothing here.
-        let ledger = ConsumptionLedger { conn: store.conn() };
-        let key_ref = authority_key_ref();
-        let secret = authority_secret(store.conn())?;
-        let authority = ConsumptionAuthority::new(&key_ref, secret, &ledger);
+        let conn = store.conn();
+        let claim = |permit: &ExecutionPermit| claim_consumption(conn, permit);
+        let ledger = DurableClaim::new(&claim);
+        let authority = grant(conn)?.authority(&ledger);
         dispatch_bytes(
             &prepared.plan,
             permit,

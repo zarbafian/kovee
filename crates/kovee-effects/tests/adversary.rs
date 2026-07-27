@@ -1,36 +1,47 @@
 //! R3's own probes, kept as tests, from an OUTSIDE crate using only the
 //! public production API — which is where the forgery lived.
 //!
-//! The probes themselves no longer compile: `ExecutionConsumptionReceipt::
-//! from_result`, `ConsumedReceipt::attest`, the free `authorize`, the ledger
-//! argument to `dispatch`, `HttpsTransport` and the `Transport` trait are all
-//! gone from the public surface, and `tests/compile_gate.rs` proves each
-//! refusal against rustc's own diagnostic.
+//! What is left here is small, and that is the result rather than a gap.
+//! R3's third confirmation stopped forging the *pieces* and built the
+//! **authority**: its own secret, its own ledger that forgets, its own
+//! receipt JSON, and that same authority handed to `dispatch` — two permits,
+//! two claims, two sends. So the authority itself left the public surface.
+//! From out here there is now no way to
 //!
-//! What is left to check at *runtime* is the part a compiler cannot state:
-//! that an authority which is not this daemon's buys nothing. So the
-//! adversary here does the strongest thing still available to an outside
-//! crate — it builds a [`ConsumptionAuthority`] of its own, with its own
-//! secret and a ledger that forgets, and mints a perfectly well-formed permit
-//! — and that permit is refused, claims nothing, and sends nothing.
+//! - construct a [`ConsumptionAuthority`] (`new` is crate-private and
+//!   test-only),
+//! - be a [`SpentLedger`] (the trait is sealed by an unnameable supertrait),
+//! - take the daemon's grant (`take_daemon_authority` is compiled only into a
+//!   `daemon` build), or
+//! - therefore admit a receipt, attest one, mint a permit, or call `dispatch`
+//!   at all.
 //!
-//! The honest boundary, stated where it is easiest to check: code that can
-//! construct a `ConsumptionAuthority` supplies the daemon's secret and the
-//! daemon's ledger, so a library cannot tell it apart from the daemon. Only
-//! byom signing its own receipts could, and byom does not sign them today.
+//! Every one of those is a compile error with a diagnostic asserted in
+//! `tests/compile_gate.rs` — including R3's probe reproduced **verbatim** as
+//! one program — because a refusal that is a compile error cannot be a
+//! runtime test. The runtime half of the old file (a forged permit refused by
+//! the daemon's authority, and the lawful control that reaches the wire) moved
+//! into the crate's own tests, where it could be made stronger than it was:
+//! `broker::tests::a_permit_from_an_authority_of_ones_own_sends_nothing` now
+//! gives the forger the daemon's **own key material**, so the refusal is the
+//! daemon's durable ledger and not a key mismatch, and
+//! `a_permit_altered_after_it_was_sealed_sends_nothing` sweeps every sealed
+//! member.
+//!
+//! What remains testable from out here is what an outside crate can still
+//! reach — and it is inert.
+//!
+//! The honest boundary, stated where it is easiest to check: this closes the
+//! external-crate path. It does not distinguish the daemon from other code
+//! compiled into a `daemon` build; only byom signing its own receipts could,
+//! and byom does not sign them today.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
 use kovee_core::family::DigestRef;
 use kovee_effects::*;
 use serde_json::json;
 
 const CONTEXT_SECRET: [u8; 32] = [7u8; 32];
-/// The daemon's per-realm consumption secret. A worker never sees it.
-const DAEMON_SECRET: [u8; 32] = [11u8; 32];
-const DAEMON_KEY_REF: &str = "kovee-consumption-object:realm-personal";
 
 /// A destination that certainly does not resolve, so a probe that reaches the
 /// socket makes no real network request — and reaching it at all is visible.
@@ -208,144 +219,43 @@ fn expectation<'a>(plan: &'a CallPlan, fence: &'a DigestRef, bound: &'a Origin) 
     }
 }
 
-/// A ledger that counts. As the daemon's, "claims == 0" proves a refusal
-/// happened before the socket could open; as the adversary's, it is the
-/// permissive ledger R3's confirmation supplied at the call site.
-#[derive(Default)]
-struct CountingLedger {
-    claims: AtomicUsize,
-}
-
-impl CountingLedger {
-    fn claims(&self) -> usize {
-        self.claims.load(Ordering::SeqCst)
-    }
-}
-
-impl SpentLedger for CountingLedger {
-    fn claim_single_use(&self, _permit: &ExecutionPermit) -> Result<Claim, String> {
-        self.claims.fetch_add(1, Ordering::SeqCst);
-        Ok(Claim::Claimed)
-    }
-}
-
-/// R3-B01. The adversary authors the receipt, chooses the secret and writes
-/// the ledger — all of it, exactly as the confirmation did, except that the
-/// three separate public entry points are now one authority it has to build
-/// itself. The permit it gets is well formed and worthless: the daemon's
-/// dispatch refuses it before the first check that could have let it through,
-/// and the daemon's ledger never records a use.
+/// R3-B01. Everything the adversary still holds after building the whole
+/// chain by hand: the plan, the receipt JSON it authored, and the
+/// `Expectation` it would have passed — every input to the gate except the
+/// one that matters.
+///
+/// It cannot turn any of it into a receipt, an attestation or a permit,
+/// because all three exist only as a `ConsumptionAuthority` returns them and
+/// there is no way out here to have one. That step is a compile error, so
+/// what this test pins is the runtime fact underneath it: these values are
+/// data, and no public function turns data into authority.
 #[test]
-fn a_permit_from_an_authority_of_ones_own_sends_nothing() {
+fn everything_an_outside_crate_can_still_author_is_only_data() {
     let plan = planned();
     let fence = d(0x05);
     let bound = origin();
 
-    // The adversary's authority: its own secret, and a ledger that forgets.
-    let forgetful = CountingLedger::default();
-    let forger =
-        ConsumptionAuthority::new("kovee-consumption-object:mine", [0xffu8; 32], &forgetful);
-    let receipt = forger.admit(&reply(&plan, &fence)).unwrap();
-    let consumed = forger.attest(&receipt, "eac-forged").unwrap();
-    let forged = forger
-        .authorize(Some(consumed), &expectation(&plan, &fence, &bound))
-        .expect("a well-formed permit, minted by a well-formed authority");
-    assert_eq!(forged.execution_key(), "exec-forged");
+    // The receipt JSON R3's confirmation authored — still perfectly writable,
+    // and still just JSON. `admit` is the only thing that makes a receipt of
+    // it, and `admit` is a method on a value this crate cannot obtain.
+    let forged = reply(&plan, &fence);
+    assert_eq!(forged["max_uses"], 1);
+    assert_eq!(forged["stable_execution_key"], "exec-forged");
+    assert_eq!(forged["driver_audience"], BROKER_DRIVER_AUDIENCE);
 
-    // The daemon's authority: its own secret, its own ledger.
-    let rows = CountingLedger::default();
-    let daemon = ConsumptionAuthority::new(DAEMON_KEY_REF, DAEMON_SECRET, &rows);
-    let outcome = dispatch(
-        &plan,
-        forged,
-        &Egress::live(),
-        &credential(),
-        &daemon,
-        Duration::from_millis(200),
-    );
-    assert_eq!(outcome.state, EffectState::Failed);
-    let observation = outcome.observation.unwrap_or_default();
-    assert!(
-        observation.contains("was not sealed by the consumption authority"),
-        "the seal must be what refused it, not something downstream: {observation}"
-    );
-    assert!(
-        !observation.contains("resolve"),
-        "nothing may reach the transport: {observation}"
-    );
-    assert_eq!(rows.claims(), 0, "the daemon's ledger recorded no use");
-    assert_eq!(
-        forgetful.claims(),
-        0,
-        "and the adversary's own ledger was never consulted either — \
-         `dispatch` takes the authority, not a ledger"
-    );
-}
+    // The Expectation is public — it is what the DAEMON passes in, and it
+    // carries no authority of its own.
+    let expect = expectation(&plan, &fence, &bound);
+    assert_eq!(expect.execution_key, "exec-forged");
+    assert!(!expect.already_spent);
 
-/// A receipt or an attestation that came from somewhere else is refused
-/// before it can become a permit at all — the two halves of R3's "any caller
-/// can supply both the receipt and the supposed attestation secret".
-#[test]
-fn a_receipt_or_attestation_from_elsewhere_never_becomes_a_permit() {
-    let plan = planned();
-    let fence = d(0x05);
-    let bound = origin();
-    let rows = CountingLedger::default();
-    let daemon = ConsumptionAuthority::new(DAEMON_KEY_REF, DAEMON_SECRET, &rows);
-    let forgetful = CountingLedger::default();
-    let forger =
-        ConsumptionAuthority::new("kovee-consumption-object:mine", [0xffu8; 32], &forgetful);
-
-    // A receipt the daemon did not admit.
-    let theirs = forger.admit(&reply(&plan, &fence)).unwrap();
-    assert_eq!(
-        daemon.attest(&theirs, "eac-1").unwrap_err(),
-        PermitError::UnadmittedReceipt
-    );
-    // An attestation the daemon did not make.
-    let elsewhere = forger.attest(&theirs, "eac-1").unwrap();
-    assert_eq!(
-        daemon
-            .authorize(Some(elsewhere), &expectation(&plan, &fence, &bound))
-            .unwrap_err(),
-        PermitError::UnadmittedReceipt
-    );
-}
-
-/// The control that makes the two refusals above mean something: the same
-/// chain, with the daemon's own authority throughout, does reach the wire.
-/// The destination is `forged.invalid`, so "reached the wire" is a name
-/// lookup and not a provider call.
-#[test]
-fn the_daemons_own_permit_does_reach_the_wire() {
-    let plan = planned();
-    let fence = d(0x05);
-    let bound = origin();
-    let rows = CountingLedger::default();
-    let daemon = ConsumptionAuthority::new(DAEMON_KEY_REF, DAEMON_SECRET, &rows);
-    let receipt = daemon.admit(&reply(&plan, &fence)).unwrap();
-    let consumed = daemon.attest(&receipt, "eac-1").unwrap();
-    let permit = daemon
-        .authorize(Some(consumed), &expectation(&plan, &fence, &bound))
+    // And the plan is sealed over the exact bytes, so even the one input the
+    // adversary fully controls cannot be edited after the fact.
+    plan.context_manifest()
+        .check_bytes(&plan.request().body)
         .unwrap();
-    let outcome = dispatch(
-        &plan,
-        permit,
-        &Egress::live(),
-        &credential(),
-        &daemon,
-        Duration::from_millis(200),
-    );
-    assert_eq!(
-        rows.claims(),
-        1,
-        "the one use was claimed before the socket"
-    );
-    let observation = outcome.observation.unwrap_or_default();
-    assert!(
-        observation.contains("resolve"),
-        "a lawful permit reaches the transport: {observation}"
-    );
+    assert_eq!(plan.origin(), &bound);
+    assert!(plan.host_effect_digest().key_ref.is_none());
 }
 
 /// R3-B02's residue: what a caller holding a real provider credential can
@@ -372,4 +282,21 @@ fn a_credential_and_an_egress_are_inert_without_a_permit() {
         })
         .unwrap();
     assert_eq!(request.path, "/v1/messages");
+}
+
+/// The one wire an outside crate can name is `Egress`, and naming it is all
+/// it can do: no transport to construct, no `send` to call, and no second
+/// egress-shaped thing in the crate. (`tests/compile_gate.rs` proves the
+/// absences, by the root path and by the module path both.)
+#[test]
+fn the_only_reachable_wire_is_the_sealed_one() {
+    let live = Egress::live();
+    assert_eq!(live.profile(), PROFILE_HTTPS);
+    assert_eq!(Egress::live().profile(), live.profile());
+    // The profile is what an audit reads to tell a real provider call from a
+    // test one, and a production build has only this one to report.
+    assert_ne!(PROFILE_HTTPS, PROFILE_RECORDING);
+    // The egress carries no destination and no credential of its own: both
+    // arrive at `dispatch`, from the permit and the daemon's secret table.
+    assert!(!format!("{live:?}").contains("sk-"));
 }

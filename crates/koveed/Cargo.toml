@@ -23,7 +23,11 @@ workspace = true
 kovee-core = { workspace = true }
 kovee-artifacts = { workspace = true }
 kovee-byom = { workspace = true }
-kovee-effects = { workspace = true }
+# `daemon` is the one-time door to the one `ConsumptionAuthority` (R3-B01).
+# koveed is the daemon, so koveed enables it; no other crate in this workspace
+# does, and a crate that does not cannot construct an authority, implement the
+# sealed `SpentLedger`, or mint a permit `dispatch` accepts.
+kovee-effects = { workspace = true, features = ["daemon"] }
 kovee-store = { workspace = true }
 libc = { workspace = true }
 rusqlite = { workspace = true }

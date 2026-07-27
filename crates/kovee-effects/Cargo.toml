@@ -16,6 +16,15 @@ workspace = true
 # and the plan-rebuilding probe helper. A production build never enables it,
 # so no `Transport` a test wrote can reach `dispatch` there (R3-B02).
 testing = []
+# The daemon's one-time door to the one `ConsumptionAuthority` (R3-B01).
+# koveed — the daemon — enables it; nothing else in this workspace does, and a
+# crate that does not enable it cannot name `take_daemon_authority`, cannot
+# call the crate-private `ConsumptionAuthority::new`, and cannot implement the
+# sealed `SpentLedger`, so it has no way to mint a permit `dispatch` accepts.
+# Enabling it is a declaration that you are the daemon: inside one process
+# Rust cannot check that claim, which is why byom signing its own
+# `receipt_result` is the fix for the rest.
+daemon = []
 
 [dependencies]
 kovee-core = { workspace = true }

@@ -48,8 +48,17 @@ struct Case {
 
 const PRELUDE: &str = "extern crate kovee_effects;\n";
 
+/// How many refusals this build proves. The daemon's door is one more case in
+/// a build that does not have it (see `cases`), so the number is a property of
+/// the feature set rather than a magic constant.
+#[cfg(not(feature = "daemon"))]
+const EXPECTED_CASES: usize = 24;
+#[cfg(feature = "daemon")]
+const EXPECTED_CASES: usize = 23;
+
 fn cases() -> Vec<Case> {
-    vec![
+    #[allow(unused_mut)]
+    let mut cases = vec![
         // ------------------------------------------------- the permit ----
         Case {
             what: "a permit literal (private fields, no public constructor)",
@@ -250,19 +259,60 @@ fn cases() -> Vec<Case> {
             denied: r#"
                 use kovee_effects::*;
                 use std::time::Duration;
-                pub struct Forgetful;
-                impl SpentLedger for Forgetful {
-                    fn claim_single_use(&self, _p: &ExecutionPermit) -> Result<Claim, String> {
-                        Ok(Claim::Claimed)
-                    }
-                }
                 pub fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
-                         credential: &Credential) {
-                    let _ = dispatch(plan, permit, egress, credential, &Forgetful,
+                         credential: &Credential, forgetful: &dyn SpentLedger) {
+                    let _ = dispatch(plan, permit, egress, credential, forgetful,
                                      Duration::from_secs(1));
                 }
             "#,
             control: r#"
+                use kovee_effects::*;
+                use std::time::Duration;
+                pub fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
+                         credential: &Credential, authority: &ConsumptionAuthority<'_>) {
+                    let _ = dispatch(plan, permit, egress, credential, authority,
+                                     Duration::from_secs(1));
+                }
+            "#,
+        },
+        // R3's confirmation, third round: it stopped forging the pieces and
+        // built the AUTHORITY, with a secret of its own and a ledger that
+        // forgets, then handed that same authority to `dispatch`. Two permits
+        // completed, two claims, two sends. The constructor is gone.
+        Case {
+            what: "constructing the consumption authority (R3's third probe, the whole of it)",
+            expect: &[
+                "error[E0599]",
+                "no function or associated item named `new` found for struct `ConsumptionAuthority<'a>`",
+            ],
+            denied: r#"
+                use kovee_effects::{ConsumptionAuthority, SpentLedger};
+                pub fn f(mine: &dyn SpentLedger) -> ConsumptionAuthority<'_> {
+                    ConsumptionAuthority::new("kovee-consumption-object:mine", [0xffu8; 32], mine)
+                }
+            "#,
+            control: r#"
+                use kovee_effects::ConsumptionAuthority;
+                pub fn f(authority: &ConsumptionAuthority<'_>) -> String {
+                    authority.key_ref().to_owned()
+                }
+            "#,
+        },
+        // The whole of R3's third-confirmation probe as one program, exactly
+        // as it was written: caller-authored receipt JSON, a caller-selected
+        // secret, a ledger that forgets, and that same authority handed to
+        // `dispatch`. On the build it was run against this printed "2 permits
+        // completed, 2 claims, 2 sends". It now fails at both of the two lines
+        // that made it possible.
+        Case {
+            what: "R3's third-confirmation probe, verbatim (authority + forgetful ledger + dispatch)",
+            expect: &[
+                "error[E0277]",
+                "the trait bound `Forgetful: kovee_effects::sealed::LedgerSeal` is not satisfied",
+                "error[E0599]",
+                "no function or associated item named `new` found for struct `kovee_effects::ConsumptionAuthority<'a>`",
+            ],
+            denied: r#"
                 use kovee_effects::*;
                 use std::time::Duration;
                 pub struct Forgetful;
@@ -271,11 +321,56 @@ fn cases() -> Vec<Case> {
                         Ok(Claim::Claimed)
                     }
                 }
-                pub fn f(plan: &CallPlan, permit: ExecutionPermit, egress: &Egress<'_>,
-                         credential: &Credential) {
-                    let authority = ConsumptionAuthority::new("k", [0u8; 32], &Forgetful);
-                    let _ = dispatch(plan, permit, egress, credential, &authority,
-                                     Duration::from_secs(1));
+                pub fn probe(plan: &CallPlan, egress: &Egress<'_>, credential: &Credential,
+                             reply: &kovee_effects::serde_json::Value,
+                             expect: &Expectation<'_>) -> Outcome {
+                    let forgetful = Forgetful;
+                    let mine = ConsumptionAuthority::new(
+                        "kovee-consumption-object:mine", [0xffu8; 32], &forgetful);
+                    let receipt = mine.admit(reply).unwrap();
+                    let consumed = mine.attest(&receipt, "eac-forged").unwrap();
+                    let permit = mine.authorize(Some(consumed), expect).unwrap();
+                    dispatch(plan, permit, egress, credential, &mine, Duration::from_secs(1))
+                }
+            "#,
+            control: r#"
+                use kovee_effects::*;
+                use std::time::Duration;
+                pub fn probe(plan: &CallPlan, egress: &Egress<'_>, credential: &Credential,
+                             reply: &kovee_effects::serde_json::Value,
+                             expect: &Expectation<'_>,
+                             daemon: &ConsumptionAuthority<'_>) -> Outcome {
+                    let receipt = daemon.admit(reply).unwrap();
+                    let consumed = daemon.attest(&receipt, "eac-1").unwrap();
+                    let permit = daemon.authorize(Some(consumed), expect).unwrap();
+                    dispatch(plan, permit, egress, credential, daemon, Duration::from_secs(1))
+                }
+            "#,
+        },
+        // …and the other half of that probe: being the ledger. `SpentLedger`
+        // is sealed, so "a ledger that forgets" is not a type an outside crate
+        // can define at all.
+        Case {
+            what: "implementing the spent ledger from outside (the forgetful ledger itself)",
+            expect: &[
+                "error[E0277]",
+                "the trait bound `Forgetful: kovee_effects::sealed::LedgerSeal` is not satisfied",
+                "`SpentLedger` is a \"sealed trait\"",
+            ],
+            denied: r#"
+                use kovee_effects::{Claim, ExecutionPermit, SpentLedger};
+                pub struct Forgetful;
+                impl SpentLedger for Forgetful {
+                    fn claim_single_use(&self, _p: &ExecutionPermit) -> Result<Claim, String> {
+                        Ok(Claim::Claimed)
+                    }
+                }
+            "#,
+            control: r#"
+                use kovee_effects::{Claim, ExecutionPermit, SpentLedger};
+                pub fn f(ledger: &dyn SpentLedger, permit: &ExecutionPermit)
+                    -> Result<Claim, String> {
+                    ledger.claim_single_use(permit)
                 }
             "#,
         },
@@ -384,6 +479,81 @@ fn cases() -> Vec<Case> {
                 }
             "#,
         },
+        // R3's confirmation, B02: it did not need a root re-export. `transport`
+        // was a PUBLIC module, so `pub` on the raw items inside it republished
+        // the whole bypass through `kovee_effects::transport::*` — and the gate,
+        // which looked only at root re-exports, stayed green while an old
+        // no-permit `send` consumer compiled again.
+        //
+        // Every module is private now, so the nested path is not a second door
+        // to check: it is closed by construction. This case is the machine
+        // check on that — one fragment per module, so re-publishing ANY of them
+        // turns the gate red even if the items inside stay private.
+        Case {
+            what: "reaching the internals by their nested module paths (R3-B02's second path)",
+            expect: &[
+                "error[E0603]",
+                "module `transport` is private",
+                "module `permit` is private",
+                "module `broker` is private",
+                "module `credential` is private",
+                "module `driver` is private",
+                "module `egress` is private",
+                "module `binding` is private",
+                "module `attempt` is private",
+                "module `disclosure` is private",
+                "module `keying` is private",
+                "module `manifest` is private",
+            ],
+            denied: r#"
+                use kovee_effects::transport::Egress;
+                use kovee_effects::permit::ExecutionPermit;
+                use kovee_effects::broker::dispatch;
+                use kovee_effects::credential::Credential;
+                use kovee_effects::driver::PreparedRequest;
+                use kovee_effects::egress::Origin;
+                use kovee_effects::binding::ModelProfile;
+                use kovee_effects::attempt::EffectState;
+                use kovee_effects::disclosure::DisclosureManifest;
+                use kovee_effects::keying::RecordDigestKey;
+                use kovee_effects::manifest::Segment;
+                pub fn f(_: &Egress<'_>, _: &ExecutionPermit, _: &Credential,
+                         _: &PreparedRequest, _: &Origin, _: &ModelProfile,
+                         _: EffectState, _: &DisclosureManifest, _: RecordDigestKey<'_>,
+                         _: &Segment) {
+                    let _ = dispatch;
+                }
+            "#,
+            control: r#"
+                use kovee_effects::{dispatch, Credential, DisclosureManifest, EffectState,
+                                    Egress, ExecutionPermit, ModelProfile, Origin,
+                                    PreparedRequest, RecordDigestKey, Segment};
+                pub fn f(_: &Egress<'_>, _: &ExecutionPermit, _: &Credential,
+                         _: &PreparedRequest, _: &Origin, _: &ModelProfile,
+                         _: EffectState, _: &DisclosureManifest, _: RecordDigestKey<'_>,
+                         _: &Segment) {
+                    let _ = dispatch;
+                }
+            "#,
+        },
+        // The same probe by its most direct route: the raw wire itself, named
+        // through the module rather than through the root.
+        Case {
+            what: "naming the raw transport through the module path (R3-B02's probe, step 3)",
+            expect: &["error[E0603]", "module `transport` is private"],
+            denied: r#"
+                use kovee_effects::transport::{HttpsTransport, RawResponse, Transport,
+                                               TransportError};
+                pub fn f(wire: &HttpsTransport) -> &dyn Transport { wire }
+                pub fn g(_: RawResponse, _: TransportError) {}
+            "#,
+            control: r#"
+                use kovee_effects::Egress;
+                pub fn f() -> Egress<'static> {
+                    Egress::live()
+                }
+            "#,
+        },
         Case {
             what: "handing the broker a wire of one's own",
             expect: &["error[E0308]", "mismatched types"],
@@ -408,7 +578,42 @@ fn cases() -> Vec<Case> {
                 }
             "#,
         },
-    ]
+    ];
+    // ------------------------------------------------- the daemon's door ----
+    // The last way to an authority is `take_daemon_authority`, and it is
+    // compiled only into a build that asks for the `daemon` feature — koveed's,
+    // and nothing else in this workspace. This case therefore asserts what THIS
+    // build is: without the feature the name does not exist, which is the whole
+    // of the external seal; with it, the name exists and the once-per-process
+    // grant is what limits it (`the_daemons_grant_is_taken_exactly_once_per_process`).
+    //
+    // The test binary and the rlib it reads are compiled from the same feature
+    // resolution, so this is never a guess about which artifact is on disk.
+    #[cfg(not(feature = "daemon"))]
+    cases.push(Case {
+        what: "taking the daemon's grant from a build that is not the daemon",
+        expect: &[
+            "error[E0432]",
+            "unresolved import `kovee_effects::take_daemon_authority`",
+            "unresolved imports `kovee_effects::DaemonGrant`, `kovee_effects::DurableClaim`",
+            "the item is gated behind the `daemon` feature",
+        ],
+        denied: r#"
+                use kovee_effects::take_daemon_authority;
+                use kovee_effects::{DaemonGrant, DurableClaim};
+                pub fn f() -> Option<DaemonGrant> {
+                    let _ = DurableClaim::new;
+                    take_daemon_authority("kovee-consumption-object:mine", [0xffu8; 32])
+                }
+            "#,
+        control: r#"
+                use kovee_effects::ConsumptionAuthority;
+                pub fn f(authority: &ConsumptionAuthority<'_>) -> String {
+                    authority.key_ref().to_owned()
+                }
+            "#,
+    });
+    cases
 }
 
 #[test]
@@ -448,7 +653,7 @@ fn the_authority_bearing_types_cannot_be_forged_copied_or_mutated() {
         }
         proven += 1;
     }
-    assert_eq!(proven, 18, "every case ran");
+    assert_eq!(proven, EXPECTED_CASES, "every case ran");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

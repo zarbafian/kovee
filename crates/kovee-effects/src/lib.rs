@@ -70,6 +70,15 @@
 //!   argument and no key argument anywhere a caller can reach. (R3's
 //!   confirmation authored the receipt JSON, chose the attestation secret,
 //!   and supplied a ledger that forgot — all three are gone.)
+//! - **…and the authority itself cannot be built from outside (R3-B01).**
+//!   `ConsumptionAuthority::new` is crate-private, [`SpentLedger`] is sealed
+//!   so no other crate can be a ledger, and the one public door —
+//!   `take_daemon_authority` — exists only in a build that asks for the
+//!   `daemon` feature and answers `Some` once per process. R3's third
+//!   confirmation built the authority itself and dispatched through it; that
+//!   program no longer compiles. What this does *not* establish is who, inside
+//!   a daemon build, is the daemon: see `permit`'s "What is closed, and what
+//!   is not".
 //! - **The destination is bound at authorization.** The permit carries the
 //!   provider binding's own origin and the one-origin egress policy derived
 //!   from it, and `dispatch` dials *that* and refuses a plan that names
@@ -95,17 +104,40 @@
 //!   (`koveed::model_broker`), because they need the §12.2 command
 //!   transaction to be crash-honest.
 
-pub mod attempt;
-pub mod binding;
-pub mod broker;
-pub mod credential;
-pub mod disclosure;
-pub mod driver;
-pub mod egress;
-pub mod keying;
-pub mod manifest;
-pub mod permit;
-pub mod transport;
+// Every module is **private**, and the crate's whole surface is the `pub use`
+// list below (R3-B02, third confirmation).
+//
+// Why, concretely: `transport` used to be a public module, so `pub` on a raw
+// item inside it — the `Transport` trait, `HttpsTransport`, `RawResponse` —
+// republished the direct-`send` bypass through `kovee_effects::transport::*`
+// while the compile gate, which checked only the absence of root re-exports,
+// stayed green. R3's confirmation did exactly that and recompiled the old
+// no-permit consumer. With the modules private there is no second path to
+// check: a regression has to appear in this list, where the gate looks, and
+// `tests/compile_gate.rs` additionally proves each module name is unreachable
+// from outside.
+mod attempt;
+mod binding;
+mod broker;
+mod credential;
+mod disclosure;
+mod driver;
+mod egress;
+mod keying;
+mod manifest;
+mod permit;
+mod transport;
+
+/// The seal behind [`permit::SpentLedger`].
+///
+/// It is `pub` inside a private module on purpose: that makes it a name no
+/// crate outside this one can write, so `impl SpentLedger for MyLedger` is a
+/// compile error out there while staying ordinary in here. A ledger that
+/// forgets was the last input R3's confirmation still got to choose.
+mod sealed {
+    /// Implemented only by this crate's own ledgers.
+    pub trait LedgerSeal {}
+}
 
 /// The exact `serde_json` this build links, re-exported so
 /// `tests/compile_gate.rs` compiles its snippets against **this** crate's own
@@ -149,6 +181,14 @@ pub const SOURCE_FINGERPRINT: u64 = {
             b"-testing"
         },
     );
+    h = fnv1a(
+        h,
+        if cfg!(feature = "daemon") {
+            b"+daemon"
+        } else {
+            b"-daemon"
+        },
+    );
     h
 };
 
@@ -167,20 +207,22 @@ const fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
 pub use attempt::{next, EffectEvent, EffectState, TransitionError};
 pub use binding::{
     BindingError, CredentialRef, ModelProfile, ModelProviderBinding, ProfileError, ProviderKind,
-    RequestLimits, Status,
+    RequestLimits, Status, BINDING_TAG, PROFILE_TAG,
 };
 pub use broker::{
     dispatch, external_idempotency_key, host_effect_binding, host_effect_binding_digest, plan,
     BrokerError, CallPlan, Outcome, PlanInput, PlanKeys, DEFAULT_TIMEOUT,
-    HOST_EFFECT_BINDING_FIELDS, HOST_EFFECT_BINDING_TAG,
+    HOST_EFFECT_BINDING_FIELDS, HOST_EFFECT_BINDING_TAG, PROVIDER_RESPONSE_DOMAIN,
 };
 pub use credential::{resolve, Credential, CredentialError};
 pub use disclosure::{
     DisclosureError, DisclosureItem, DisclosureManifest, ProviderClaims, Transformation,
+    DISCLOSURE_TAG, RECIPIENT_MODEL_PROVIDER,
 };
 pub use driver::{
-    adapter_version, driver_for, AuthScheme, DriverError, ModelDriver, ModelReply, ModelRequest,
-    PreparedRequest, Usage, ANTHROPIC, ANTHROPIC_MODEL, ANTHROPIC_VERSION, OPENAI, OPENAI_MODEL,
+    adapter_version, driver_for, AnthropicDriver, AuthScheme, DriverError, ModelDriver, ModelReply,
+    ModelRequest, OpenaiDriver, PreparedRequest, Usage, ANTHROPIC, ANTHROPIC_MODEL,
+    ANTHROPIC_VERSION, OPENAI, OPENAI_MODEL,
 };
 pub use egress::{
     check_origin, check_resolved_address, check_resolved_for, EgressError, EgressPolicy, Origin,
@@ -188,17 +230,22 @@ pub use egress::{
 pub use keying::{object_key_ref, record_digest, RecordDigestKey};
 pub use manifest::{
     ByomSourceFields, ManifestError, ProviderContextManifest, RecordRef, Segment, SegmentKind,
-    SourceItem,
+    SourceItem, MANIFEST_TAG, PROVIDER_REQUEST_DOMAIN, SOURCE_FRAGMENT_TAG,
 };
 #[cfg(any(test, feature = "testing"))]
 pub use permit::MemorySpentLedger;
+/// The daemon's one-time door to the one authority (R3-B01). It is the whole
+/// difference between koveed and every other crate: no `daemon` feature, no
+/// such name, and no way to construct the value [`dispatch`] trusts.
+#[cfg(feature = "daemon")]
+pub use permit::{take_daemon_authority, DaemonGrant, DurableClaim};
 pub use permit::{
     Claim, ConsumedReceipt, ConsumptionAuthority, EpisodeFence, ExecutionConsumptionReceipt,
     ExecutionPermit, Expectation, PermitError, SpentLedger, BROKER_DRIVER_AUDIENCE,
     OWNER_PROTOCOL_BYOM, PERMIT_SEAL_TAG, PHASE_PRE_EGRESS, RECEIPT_ADMISSION_TAG,
     RECEIPT_PROVENANCE_TAG,
 };
-pub use transport::{Egress, PROFILE_HTTPS, PROFILE_RECORDING};
+pub use transport::{Egress, PROFILE_HTTPS, PROFILE_RECORDING, RESPONSE_MAX_BYTES};
 #[cfg(any(test, feature = "testing"))]
 pub use transport::{RecordingTransport, SentRequest};
 
