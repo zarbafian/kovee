@@ -22,6 +22,16 @@ Registry version `k2-1` adds three entries and changes nothing else; the
 K1 rows are byte-identical to `k0-2`. Its extraction is documented in
 "K2 slice 1" below.
 
+Registry version `k2-4` adds and removes no entries — every `k2-3` row is
+byte-identical. It records a *schema* change: byom amendment A9 narrows
+`KoveeGovernanceOwnerBinding.governance_owner` to `byom | none`, and the
+`governance_show/enable/disable` result schemas here narrow with it. A
+narrowing is a spec revision with a registry revision behind it, never a
+silent schema change (`schemas/README.md`). byom publishes the narrowed
+record as the successor schema `kovee-governance-owner-binding-v2`; its v1
+remains published and unchanged, which is why the pinned-name resolution
+tables further down still read as they did.
+
 A minimal entry, and where each field comes from:
 
 ```json
@@ -82,8 +92,9 @@ order; the parity test carries an independent copy):
 | 20 | realm authority binding | `realm_authority_binding` |
 | 21 | external Sage visibility proof | `external_visibility_proof` |
 
-Category 21: §9.2 (pinned) writes "external Sage visibility proof";
-amendment A1 retargets every governance-authority Sage reference to byom,
+Category 21: §9.2 (pinned) writes "external Sage visibility proof" — the
+left column above quotes that frozen wording. Amendment A1 retargets every
+governance-authority reference in the pinned text to byom,
 and the §11.6.1 read row itself writes "external visibility proof" — the
 token is frozen protocol-neutral as `external_visibility_proof`. This is the
 A1 descriptive retargeting, not a new category.
@@ -308,8 +319,8 @@ three**, and `a5_renames_applied` in `registry.json` now records exactly
 those three pairs. The remaining left-hand names — and the unchanged-name
 rows (`collaboration_context_bundle_prepare/show`, `workspace_*`) — belong to
 the bundle's formation half and are reserved for K2 slice 2. No operation
-name in this registry contains `sage` or `mission` (asserted by the parity
-test), so no Sage-era wire name survives.
+name in this registry contains either banned substring (asserted by the
+parity test), so no superseded-era wire name survives.
 
 Amendment **A1** (byom is the sole governance owner) does touch two
 descriptive fields: the §11.6.1 fence cells "Sage fence when bound" (worker
@@ -520,9 +531,9 @@ five-fact `ExternalCommandResultQuery` union) and §16.6 item 3
 | `mission_promotion_reconcile` | `endeavor_promotion_reconcile` |
 | `sage_turn_binding_show` | `byom_episode_binding_show` |
 
-Amendment A1 retargets the governance owner from Sage to byom, so the
-Sage-named row becomes the byom-named one; there is no `sage_*` operation in
-this stack.
+Amendment A1 retargets the governance owner to byom, so each pinned row on
+the left becomes the byom-named one on the right; no operation in this stack
+carries a predecessor-era name.
 
 ### Surface and placement
 

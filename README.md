@@ -35,17 +35,19 @@ Kovee Spaces · lenses · attention · local commitments
             |
 Kovee context · runtime · artifacts · effects
             |
-Sage missions · aspects · sessions · gates · knowledge
+Byom societies · endeavors · pledges · mandates · decisions · memory
             |
 Akson signed remote contracts · sovereign federation
 ```
 
-[Sage](../sage/README.md) remains the authority for governed missions, plans,
-aspects, sessions, leases, gates, mission budgets, governed-deliverable review,
-directories, and engrams.
-Promoting an exact Space/Branch frontier creates a Sage mission; Kovee then
-renders source-qualified mission views rather than duplicating Sage state.
-Cross-installation work remains Sage delegation carried through
+[Byom](../byom/README.md) is the governance authority for governed endeavors,
+pledges, mandates, episodes, leases, act decisions, endeavor budgets,
+governed-deliverable review, evidence directories, and engrams. Kovee reaches
+it over the **Byom Participation Protocol (BPP)** through the `kovee-byom`
+adapter; Kovee never decides governance itself.
+Promoting an exact Space/Branch frontier forms a Byom Endeavor; Kovee then
+renders source-qualified endeavor views rather than duplicating Byom state.
+Cross-installation work remains Byom delegation carried through
 [Akson](../axon/README.md), never a Kovee commitment or shared broker subject.
 
 The safety substrate is intentionally conventional: authenticated commands,
@@ -68,8 +70,8 @@ kovee need open <space-id> --branch <branch-id> --outcome patch.v1 \
   --ask @diagnostician --review
 
 # Add governance only when the work needs it:
-kovee mission enable --sage local
-kovee mission promote <space-id> --branch <branch-id> \
+kovee governance enable --byom local
+kovee endeavor promote <space-id> --branch <branch-id> \
   --frontier <frontier-id> --goal <goal-contribution-id> --review
 ```
 

@@ -49,10 +49,11 @@ pub const HISTORICAL_RECOVERY_MODES: [&str; 2] = ["disabled", "exact_formation_i
 /// after a rollback.
 pub const BINDING_STATUSES: [&str; 3] = ["pending", "active", "void"];
 
-/// Closed `KoveeGovernanceOwnerBinding.governance_owner` enum, verbatim
-/// §16.6. The `sage` arm exists for spec fidelity and is never exercised
-/// in this stack (amendment A1).
-pub const GOVERNANCE_OWNERS: [&str; 3] = ["sage", "byom", "none"];
+/// Closed `KoveeGovernanceOwnerBinding.governance_owner` enum, per byom
+/// amendment A9 (`kovee-governance-owner-binding-v2.schema.json`). Two
+/// arms, because a governed scope is in exactly one of two states: byom
+/// owns it, or nothing does.
+pub const GOVERNANCE_OWNERS: [&str; 2] = ["byom", "none"];
 
 /// Closed `KoveeGovernanceOwnerBinding.status` enum, verbatim §16.6.
 pub const OWNER_STATUSES: [&str; 2] = ["active", "frozen"];
@@ -147,8 +148,8 @@ pub struct EnableSubject {
     pub endpoint_incarnation: String,
     pub exact_scope_selector: String,
     pub society_mapping_revision: u64,
-    /// Always `none->byom` for the greenfield saga; the `sage->none->byom`
-    /// cutover is a different machine (amendment A2).
+    /// Always `none->byom`: greenfield enablement is the only owner
+    /// transition there is (amendment A9 withdrew the re-owning cutover).
     pub owner_binding_transition: String,
 }
 
@@ -218,8 +219,8 @@ impl KoveeSocietyMapping {
     }
 }
 
-/// §16.6 `KoveeGovernanceOwnerBinding`, field list verbatim with the full
-/// `sage | byom | none` enum (amendment A1).
+/// §16.6 `KoveeGovernanceOwnerBinding`, field list verbatim, with the
+/// owner enum narrowed to `byom | none` (amendment A9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KoveeGovernanceOwnerBinding {
@@ -233,8 +234,11 @@ pub struct KoveeGovernanceOwnerBinding {
     pub owner_endpoint_ref: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub owner_binding_ref: Option<String>,
-    /// Set only by a byom §25 `GovernanceCutover`; the greenfield saga
-    /// never sets it.
+    /// Reserved: no machine in this stack sets it. Amendment A9 withdrew
+    /// the re-owning cutover that would have, and the greenfield saga
+    /// never did. Kept so a future governed re-owning transition has a
+    /// member to record its authority in, rather than widening this
+    /// closed shape later.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cutover_ref: Option<String>,
     pub status: String,
@@ -250,15 +254,13 @@ impl KoveeGovernanceOwnerBinding {
         digests.digest(TAG_OWNER_BINDING, &projection)
     }
 
-    /// The schema's `oneOf`: `none` carries no owner refs; an owning arm
-    /// names both. Enforced here because JSON Schema cannot check it
-    /// against the stored row.
+    /// The schema's `oneOf`: `none` carries no owner refs; `byom` names
+    /// both. Enforced here because JSON Schema cannot check it against
+    /// the stored row.
     pub fn owner_arm_is_coherent(&self) -> bool {
         match self.governance_owner.as_str() {
             "none" => self.owner_endpoint_ref.is_none() && self.owner_binding_ref.is_none(),
-            "byom" | "sage" => {
-                self.owner_endpoint_ref.is_some() && self.owner_binding_ref.is_some()
-            }
+            "byom" => self.owner_endpoint_ref.is_some() && self.owner_binding_ref.is_some(),
             _ => false,
         }
     }
@@ -363,6 +365,15 @@ mod tests {
         // Changing a covered member does not.
         row.revision = 2;
         assert_ne!(row.compute_digest(&d).unwrap(), first);
+    }
+
+    #[test]
+    fn the_owner_enum_admits_exactly_byom_and_none() {
+        // Amendment A9: two arms, and the withdrawn third one is not a
+        // coherent owner however well-formed the rest of the row is.
+        assert_eq!(GOVERNANCE_OWNERS, ["byom", "none"]);
+        assert!(!owner_binding("sage").owner_arm_is_coherent());
+        assert!(!owner_binding("kovee").owner_arm_is_coherent());
     }
 
     #[test]

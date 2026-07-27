@@ -1,6 +1,6 @@
 {
   "title": "Kovee KCP operation registry — K0 frozen (K1 bundles) + K2 slices 1-2 (governed_work_binding_v1 binding + formation halves)",
-  "registry_version": "k2-3",
+  "registry_version": "k2-4",
   "bundles": [
     "core_v1",
     "shared_space_v1",
@@ -9,8 +9,8 @@
   ],
   "sources": {
     "design": "DESIGN.md §11.6 (feature bundles) and §11.6.1 (normative authority matrix), with §9.2 as the AuthorizationDependencySet category key",
-    "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text)",
-    "revision": "k2-3: the developer_assistant_v1 worker row `model_complete` added for the K2 model broker — the §11.6.1 worker-operations family's `model` operation — extracted from DESIGN.md §16.1-§16.3 and byom DESIGN.md §13.1-§13.3 (act_intent_prepare/position/finalize then execution_permit_consume); the k2-2 rows are unchanged. k2-2: the governed_work_binding_v1 formation rows (endeavor_promotion_prepare/start/show/cancel/reconcile, byom_episode_binding_show) added for K2 slice 2, extracted from byom DESIGN.md §16.3/§16.6 item 3 and the Kovee-owned descriptors endeavor-formation.json / byom-episode-binding.json; the k2-1 rows are unchanged (spec/registry-README.md)"
+    "amendment": "design/2026-07-25-amendment-governance-owner.md §A5 (wire-name resolution) and §A1 (governance owner retargeting in descriptive text), plus design/2026-07-27-amendment-governance-owner-enum.md §A9 (the governance owner enum is byom|none)",
+    "revision": "k2-4: no entry changes — the k2-3 rows are byte-identical. This revision records the schema narrowing of amendment A9: governance_show/enable/disable result schemas carry the owner enum byom|none, matching byom's kovee-governance-owner-binding-v2 successor schema. A narrowing is a spec revision with a registry revision behind it, never a silent schema change (spec/schemas/README.md). k2-3: the developer_assistant_v1 worker row `model_complete` added for the K2 model broker — the §11.6.1 worker-operations family's `model` operation — extracted from DESIGN.md §16.1-§16.3 and byom DESIGN.md §13.1-§13.3 (act_intent_prepare/position/finalize then execution_permit_consume); the k2-2 rows are unchanged. k2-2: the governed_work_binding_v1 formation rows (endeavor_promotion_prepare/start/show/cancel/reconcile, byom_episode_binding_show) added for K2 slice 2, extracted from byom DESIGN.md §16.3/§16.6 item 3 and the Kovee-owned descriptors endeavor-formation.json / byom-episode-binding.json; the k2-1 rows are unchanged (spec/registry-README.md)"
   },
   "dependency_category_tokens": [
     "principal_status",

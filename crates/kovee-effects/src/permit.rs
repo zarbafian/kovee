@@ -118,7 +118,8 @@ use crate::keying::{record_digest, RecordDigestKey};
 pub const BROKER_DRIVER_AUDIENCE: &str = "kovee-model-broker";
 
 /// byom's protocol name in Kovee's `ExternalAuthorizationConsumption`
-/// record (§16.1). Governance is byom's; there is no Sage lineage.
+/// record (§16.1). Byom is the one governance owner: every governed
+/// consumption is qualified by this protocol and no other.
 pub const OWNER_PROTOCOL_BYOM: &str = "byom";
 /// The §16.1 phase of a model-egress consumption: consumed BEFORE egress,
 /// never fabricated alongside it.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kovee.example/kcp/v0/ops/byom-episode-binding-show-request.schema.json",
-  "title": "KCP byom_episode_binding_show request (amendment A5 wire name for DESIGN.md §11.6's sage_turn_binding_show; byom §16.6 item 3)",
+  "title": "KCP byom_episode_binding_show request (amendment A5 resolved wire name for the corresponding pinned DESIGN.md §11.6 row — see spec/registry-README.md; byom §16.6 item 3)",
   "description": "Read (no meta at all; §11.2 / R0 KENV-01). The recorded hosted-Episode bindings with their DUAL fence epochs — including fenced rows, which are retained for audit and orphan-result diagnostics. Registry (governed_work_binding_v1): surface operator / human realm-owner principal only — never a service identity, session, assistant, or connector. Surface and actor kind are registry-enforced, not schema-expressible.",
   "type": "object",
   "additionalProperties": false,

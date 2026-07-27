@@ -10,9 +10,10 @@ is the family's proven repository shape: a Cargo workspace of small crates,
 a pinned toolchain, `cargo-deny` dependency policy, CI that runs everything
 `--locked` against a committed `Cargo.lock`, and golden vectors re-derived by
 independent non-Rust checkers. Kovee's design fixes the crate list
-(DESIGN.md §24) but names `kovee-sage` as the governance adapter; amendment
-A1 (`design/2026-07-25-amendment-governance-owner.md`, plan D1) re-targets
-governance to byom and the Byom Participation Protocol. The alternative —
+(DESIGN.md §24), where the governance adapter is named for a predecessor
+design; amendment A1 (`design/2026-07-25-amendment-governance-owner.md`,
+plan D1) re-targets governance to byom and the Byom Participation
+Protocol. The alternative —
 inventing kovee-local conventions — was not seriously considered: family
 repos should differ only where their designs differ.
 
@@ -25,9 +26,10 @@ Kovee is a Cargo workspace (`resolver = "2"`) of fourteen crates under
   `kovee-store`, `kovee-auth`, `kovee-space`, `kovee-attention`,
   `kovee-commitment`, `kovee-runtime`, `kovee-effects`, `kovee-artifacts`,
   `kovee-bus`, **`kovee-byom`**, `kovee-akson`, and the binaries `koveed`
-  and `kovee-cli` (binary name `kovee`). There is no `kovee-sage` crate and
-  never will be; the `sage` arm of `KoveeGovernanceOwnerBinding` stays
-  spec-only.
+  and `kovee-cli` (binary name `kovee`). `kovee-byom` is the one governance
+  adapter and there will never be a second; byom amendment A9 narrows
+  `KoveeGovernanceOwnerBinding.governance_owner` to `byom | none` so the
+  wire cannot name one either.
 - **Toolchain**: `rust-toolchain.toml` pins 1.95.0 with rustfmt and clippy
   (akson's exact pin; installed and used for this scaffold's green build —
   no delta); `rust-version = "1.85"` in `[workspace.package]`.

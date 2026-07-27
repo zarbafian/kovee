@@ -1,8 +1,8 @@
 //! The byom governance adapter (design §24 as amended by A1): protocol,
 //! provider, and projection adapter speaking the Byom Participation
-//! Protocol (BPP). Replaces the design's `kovee-sage` — there is no
-//! `kovee-sage` crate and Sage is never wired in; this crate implements
-//! the `governed_work_binding_v1` KCP feature bundle.
+//! Protocol (BPP). Byom is kovee's one governance layer — this crate is
+//! the only way in, and it implements the `governed_work_binding_v1` KCP
+//! feature bundle.
 //!
 //! K2 slice 1 delivers the binding half:
 //!

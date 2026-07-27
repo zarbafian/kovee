@@ -611,8 +611,8 @@ pub const KCP_OPS: [OpSpec; 96] = [
         project_id: FieldRule::Forbidden,
     },
     // ------------------------- K2 slice 2: governed_work_binding_v1 ----
-    // The formation half (amendment A5 wire names for §11.6's
-    // `mission_promotion_*` and `sage_turn_binding_show` rows). A
+    // The formation half, under amendment A5's resolved wire names for the
+    // corresponding pinned §11.6 rows (see spec/registry-README.md). A
     // promotion is realm-scoped: the project, space, and branch it forms
     // over are read from the pinned frontier, never from the envelope, so
     // one command cannot name one project and pin another's frontier.

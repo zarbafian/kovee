@@ -656,8 +656,11 @@ fn connector_authority_split_holds_in_both_directions() -> Result<(), Box<dyn Er
 }
 
 #[test]
-fn no_sage_era_operation_name_survives() -> Result<(), Box<dyn Error>> {
-    // Amendment A5: no Sage-era wire name survives the K0 extraction.
+fn no_superseded_era_operation_name_survives() -> Result<(), Box<dyn Error>> {
+    // Amendment A5: the K0 extraction resolved every pinned §11.6 wire name
+    // to its live one, so no superseded-era spelling reaches the registry.
+    // The banned substrings are the guard itself — they are the predecessor
+    // vocabulary this registry must never re-admit, not a live use of it.
     let doc = load_registry()?;
     for entry in entries(&doc)? {
         let operation = entry["operation"]
@@ -666,7 +669,7 @@ fn no_sage_era_operation_name_survives() -> Result<(), Box<dyn Error>> {
         for banned in ["sage", "mission"] {
             assert!(
                 !operation.to_lowercase().contains(banned),
-                "Sage-era operation name survives: `{operation}` contains `{banned}`"
+                "superseded-era operation name survives: `{operation}` contains `{banned}`"
             );
         }
     }

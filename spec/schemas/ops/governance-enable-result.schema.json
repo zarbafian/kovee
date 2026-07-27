@@ -305,11 +305,10 @@
         "governance_owner": {
           "type": "string",
           "enum": [
-            "sage",
             "byom",
             "none"
           ],
-          "description": "Full byom §16.6 enum verbatim; the sage arm exists for spec fidelity and is never exercised in this stack (amendment A1)."
+          "description": "The owner enum, byom §16.6 as narrowed by byom amendment A9: byom owns the scope, or nothing does. There is no third owner."
         },
         "owner_endpoint_ref": {
           "$ref": "#/$defs/identifier"
@@ -333,7 +332,7 @@
           "$ref": "#/$defs/digestRef"
         }
       },
-      "description": "KoveeGovernanceOwnerBinding, field list verbatim from byom §16.6 with the full sage|byom|none enum. The owner-arm rule (governance_owner none carries no owner refs; an owning arm names both) is a cross-member constraint enforced in code."
+      "description": "KoveeGovernanceOwnerBinding, field list verbatim from byom §16.6 with the owner enum narrowed to byom|none (byom amendment A9; kovee-governance-owner-binding-v2.schema.json). The owner-arm rule (governance_owner none carries no owner refs; byom names both) is a cross-member constraint enforced in code."
     },
     "society": {
       "type": "object",

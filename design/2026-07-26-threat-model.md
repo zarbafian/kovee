@@ -5,9 +5,10 @@ K0 milestone sheet. It names what Kovee protects, whom it defends against,
 and where each defense is realized — in the delivered K0 spec artifacts or
 in a named later milestone. Section references (§) point at `DESIGN.md`;
 governance authority is **byom** throughout, per amendment A1
-(`design/2026-07-25-amendment-governance-owner.md`) — Sage is never wired
-in, and the only surviving `sage` spelling is the never-exercised enum arm
-of `KoveeGovernanceOwnerBinding` kept for spec fidelity (C2 bundle).
+(`design/2026-07-25-amendment-governance-owner.md`) and A9
+(`design/2026-07-27-amendment-governance-owner-enum.md`) — byom is the only
+governance layer this stack has, and `KoveeGovernanceOwnerBinding` admits
+exactly two owner arms, `byom` and `none` (C2 bundle).
 
 K0 delivers **shape enforcement**: the frozen operation registry, the
 envelope/acceptance caps, and the per-operation schema + negative-vector
@@ -54,8 +55,8 @@ The §20.1 tiers, with the byom placement made explicit:
    process with its own narrow identity: it is the governance owner
    (admits activations, allocates budgets, owns seats, mandates, and
    decisions) and is reached only through the two contracted seams —
-   **C2** (`byom_governed_work_v1`: the `kovee-byom` adapter speaking BPP;
-   there is no `kovee-sage`) and **C3** (C3a MCP candidate/participant
+   **C2** (`byom_governed_work_v1`: the `kovee-byom` adapter speaking BPP,
+   the only governance seam that exists) and **C3** (C3a MCP candidate/participant
    profiles, C3b worker/episode binding with `ByomEpisodeBinding` dual
    fences). The trust is narrow in both directions: byomd never calls a
    model, never executes effects, and never holds Akson credentials
@@ -152,10 +153,14 @@ a system prompt asking the model to behave.
   Kovee, MCP elicitation, a participant token, and candidate acceptance
   can each *not* perform `participant_admit` — no harness prompt
   substitutes for a candidate- or governance-surface operation.
-- **The `sage` enum arm exists but is dead.** `KoveeGovernanceOwnerBinding`
-  keeps the full `sage | byom | none` enum for spec fidelity (A1); the
-  `sage` arm is never exercised in this stack and no `kovee-sage` crate
-  exists (ADR-0001).
+- **The governance owner enum is closed at two arms.**
+  `KoveeGovernanceOwnerBinding.governance_owner` is `byom | none` (A9): a
+  governed scope is owned by byom or by nothing, and there is no third
+  owner a confused-deputy path could name. The narrowing is machine-checked
+  on both sides — byom's `kovee-governance-owner-binding-v2` schema and its
+  negative vector, and `kovee-byom`'s `GOVERNANCE_OWNERS` constant. Only the
+  `kovee-byom` adapter reaches governance; no other adapter crate exists
+  (ADR-0001).
 - **Rate limits, quotas, and DoS handling** (§20.2) are K3 team-mode work;
   the K0/K1 surface is a local socket.
 - **Physical access, kernel compromise, and side channels** are out of
