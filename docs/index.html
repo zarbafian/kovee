@@ -440,6 +440,7 @@ img, svg { max-width: 100%; }
       <a href="#akson">Akson</a>
       <a href="#api">API</a>
       <a href="#status">Status</a>
+      <a href="/guide/">Docs</a>
       <a href="https://github.com/zarbafian/kovee">GitHub</a>
     </nav>
   </div>
@@ -1100,6 +1101,16 @@ img, svg { max-width: 100%; }
       One UX, one SDK, and one trace — but never one omnipotent token, one generic
       approval, or one source of authority.
     </blockquote>
+    <div class="prose reveal">
+      <p>
+        The two blocks above are the proposed shape, not the shipped surface. What
+        runs today is a personal-profile daemon with a six-verb CLI, an MCP server
+        and a stdlib Python assistant SDK — <a href="/guide/">the guide</a> walks
+        through it with real commands and their real output, and
+        <a href="/reference/">the reference</a> is generated from the operation
+        registry itself.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -1215,7 +1226,7 @@ img, svg { max-width: 100%; }
         <a class="tn tk" href="https://github.com/zarbafian/kovee">kovee</a>
         <div class="tinfo">
           <span class="badge bg-k">pre-release</span>
-          <span class="tl">working personal-profile daemon · 96 operations across four bundles · spaces, branches, exact context assembly · MCP-drivable · governed via byom · developer profile only — no confinement, no team mode, not production-ready</span>
+          <span class="tl">working personal-profile daemon · <span data-claim="op_count">96</span> operations across <span data-claim="bundle_count">4</span> bundles (<span data-claim="advertised_bundle_count">3</span> advertised) · spaces, typed contributions, pinned frontiers, exact context assembly · MCP-drivable · governed via byom · developer profile only — no confinement, no team mode, not production-ready · <a href="/guide/">documentation</a></span>
         </div>
       </div>
       <div class="track">
@@ -1269,6 +1280,7 @@ img, svg { max-width: 100%; }
 
 <footer>
   <div class="wrap">
+    <p>Documentation: <a href="/guide/">Guide</a> · <a href="/concepts/">Concepts</a> · <a href="/reference/">Reference</a> · <a href="/internals/">Internals</a> · <a href="/security/">Security &amp; limits</a></p>
     <p>Kovee · Byom · Akson — the AKB family. Source: <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a> · <a href="https://github.com/zarbafian/byom">byom</a> · <a href="https://github.com/zarbafian/akson">akson</a>. Planned license: Apache-2.0. Copy on this page is drawn from the family's normative designs and interface recommendation, 2026-07. Component maturity is stated per system; no integration claim beyond what each design documents.</p>
   </div>
 </footer>

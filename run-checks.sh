@@ -16,6 +16,9 @@ cargo test --workspace --locked
 echo "== mcp check (C3a tool bundle)"
 python3 mcp/check.py
 
+echo "== docs check (site claims vs. the tree)"
+python3 docs-tools/check_docs.py
+
 echo "== xcheck (Python independent rederiver)"
 python3 xcheck/run.py spec/vectors
 

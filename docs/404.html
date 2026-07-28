@@ -14,12 +14,21 @@ main { text-align: center; display: flex; flex-direction: column; gap: 0.8rem; p
 h1 { font-size: 1.6rem; margin: 0; }
 a { color: #177E6E; }
 @media (prefers-color-scheme: dark) { a { color: #4CC5B2; } }
+nav { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.78rem;
+  letter-spacing: 0.06em; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; justify-content: center; }
 </style>
 </head>
 <body>
 <main>
 <h1>Page not found.</h1>
 <p>Nothing lives at this address — <a href="/">kovee.cc</a> does.</p>
+<nav>
+  <a href="/guide/">Guide</a>
+  <a href="/concepts/">Concepts</a>
+  <a href="/reference/">Reference</a>
+  <a href="/internals/">Internals</a>
+  <a href="/security/">Security &amp; limits</a>
+</nav>
 </main>
 </body>
 </html>

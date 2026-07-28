@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Internals — kovee</title>
+<meta name="description" content="How kovee is built: the one atomic command transaction and its crash-honesty, the SQLite store and its ledger, and the sealed consumption authority that gates model egress.">
+<link rel="canonical" href="https://kovee.cc/internals/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Internals — kovee">
+<meta property="og:description" content="One transaction, one store, one door: the mechanisms behind kovee's durability and its egress gate.">
+<meta property="og:url" content="https://kovee.cc/internals/">
+<meta property="og:site_name" content="kovee.">
+<meta property="og:image" content="https://kovee.cc/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<script>
+(function (root) {
+  try {
+    var saved = localStorage.getItem("kovee-theme");
+    if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  } catch (e) {}
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+
+<div class="shell">
+<aside class="rail">
+  <div class="rail-head">
+    <a class="rail-mark" href="../">kovee<span class="dot">.</span></a>
+    <button class="themer" id="themer" type="button" aria-label="Switch colour theme">theme</button>
+  </div>
+  <p class="rail-sub">Internals</p>
+  <nav id="nav" aria-label="Documentation">
+    <div class="grp">Docs</div>
+    <a href="../">Home</a>
+    <a href="../guide/">Guide</a>
+    <a href="../concepts/">Concepts</a>
+    <a href="../reference/">Reference</a>
+    <a href="./" class="here" aria-current="page">Internals</a>
+    <a href="../security/">Security &amp; limits</a>
+    <a href="https://github.com/zarbafian/kovee">GitHub</a>
+    <div class="grp">The transaction</div>
+    <a href="#txn">One command, one transaction</a>
+    <a href="#idempotency">Replay and refusal</a>
+    <a href="#crash">Crash-honesty</a>
+    <div class="grp">The store</div>
+    <a href="#store">SQLite, WAL, migrations</a>
+    <a href="#ledger">The ledger and its cursors</a>
+    <a href="#audit">The audit chain</a>
+    <div class="grp">The egress gate</div>
+    <a href="#authority">The sealed authority</a>
+    <a href="#door">One door per process</a>
+    <a href="#compilegate">Proved against rustc</a>
+    <a href="#notclosed">What is not closed</a>
+    <div class="grp">Map</div>
+    <a href="#crates">The crate map</a>
+  </nav>
+</aside>
+
+<main id="top">
+
+<header class="hero">
+  <p class="eyebrow">Internals</p>
+  <h1>One transaction, one store, one door.</h1>
+  <p class="lede">
+    Three mechanisms carry most of kovee's weight: every authoritative mutation is
+    a single SQL transaction that either happened or did not; one SQLite database
+    holds both the query model and the immutable ledger; and every byte that leaves
+    for a model provider passes an authority no call site can construct.
+  </p>
+</header>
+
+<h2 id="txn">One command, one transaction</h2>
+<p>
+  An authoritative mutation performs <strong>one</strong> transaction. Design
+  §12.2 sets the requirement plainly:
+</p>
+<blockquote class="note">
+  <p>
+    "If the process dies after commit and before reply, replay returns the stored
+    result. If it dies before commit, none of state, event, outbox, budget, or
+    idempotency result exists."
+  </p>
+  <p>
+    "Normalized state is the query model, and the immutable ledger is the
+    audit/attention record. They commit together and recovery tests prove they
+    cannot diverge."
+  </p>
+</blockquote>
+<p>
+  The implementation puts every one of those things inside the same
+  <code>IMMEDIATE</code> transaction, so a check-and-act is a real
+  compare-and-swap rather than a hopeful read followed by a write:
+</p>
+<div class="ascii" role="img" aria-label="Ordered steps of the command transaction: authenticate the channel, authorize, then open one transaction covering idempotency lookup, head lock, transition validation, state update, event append, outbox enqueue, audit, result bounds and the idempotency record, then commit, then reply.">
+  <b>outside the transaction</b>
+    1  authenticate the channel      SO_PEERCRED, same UID
+    2  authorize                     re-read the dependency set
+
+  <b>inside ONE transaction</b>
+    3  idempotency lookup            (actor_scope, operation, idempotency_key)
+    4  lock the head / CAS           expected revision, expected head digest
+    5  validate the transition       closed enums, caps, state machine
+    6  update normalized state       the query model
+    7  append event(s)               dense per-stream and per-project sequences
+    8  enqueue outbox row(s)         written by the same append
+    9  judge result bounds, then store the canonical result bytes
+       audit row                     hash-linked, body-free
+
+  <b>then</b>
+   10  commit  →  reply
+</div>
+<p>
+  Two details matter more than they look. The §11.8 result-size bound is judged
+  <em>inside</em> the transaction, so an over-large result is refused rather than
+  committed and then found unreturnable. And the event append enqueues its own
+  outbox notification, so there is no window where an event exists with nobody
+  told about it.
+</p>
+
+<h2 id="idempotency">Replay and refusal</h2>
+<p>
+  The dedup key is a triple — <code>(actor_scope, operation, idempotency_key)</code>
+  — and <code>actor_scope</code> encodes the surface, the actor and the realm. A
+  worker's key is scoped to its invocation; an owner's to its realm. Two actors
+  cannot collide, and neither can two surfaces.
+</p>
+<p>
+  What is compared on a repeat is not the raw bytes but a canonical request digest
+  over version, surface, operation, realm, project, expected revision, arguments
+  and extensions — <strong>deliberately excluding the request id and trace
+  headers</strong>, so a genuine retry of the same intent matches even though its
+  envelope differs. Three outcomes:
+</p>
+<div class="tw">
+<table>
+  <tr><th>Situation</th><th>What happens</th></tr>
+  <tr><td>Same key, same canonical request</td>
+      <td class="wrap">The stored result is returned byte for byte. The work is <strong>not</strong> re-executed. Before those bytes are released, an operation-specific replay authorizer runs inside the same transaction — so a replay cannot hand out receipts an actor is no longer entitled to.</td></tr>
+  <tr><td>Same key, different canonical request</td>
+      <td class="wrap">Refused: <code>same scoped idempotency key, different canonical request</code>. Never a silent overwrite.</td></tr>
+  <tr><td>Worker-surface command with no replay authorizer</td>
+      <td class="wrap">A hard internal refusal at the store boundary. The path fails closed rather than defaulting to "allow".</td></tr>
+</table>
+</div>
+
+<h2 id="crash">Crash-honesty</h2>
+<p>
+  The interesting claim is not that the transaction is atomic — SQLite gives you
+  that — but that the daemon around it does not leak or duplicate at the two
+  moments that matter. That is tested by <strong>killing the real process</strong>,
+  not by mocking a failure.
+</p>
+<p>
+  The store carries two crash hooks, armed from the environment as
+  <code>KOVEED_ABORT=&lt;phase&gt;:&lt;operation&gt;</code>. The phase names a point
+  — immediately before <code>commit()</code>, or after commit but before the reply
+  is written — and at that point the process calls
+  <code>std::process::abort()</code>. No unwinding, no destructors, no flushing:
+  the same thing a power cut does.
+</p>
+<div class="ascii">
+  KOVEED_ABORT=before_commit:space_create   →  daemon dies with the txn open
+  KOVEED_ABORT=after_commit:space_create    →  daemon dies with the txn committed,
+                                               before the client hears anything
+</div>
+<p>
+  The crash matrix spawns the actual <code>koveed</code> binary armed this way,
+  fires the target command, asserts the daemon dies <em>before replying</em>, then
+  restarts on the same database and checks:
+</p>
+<ul>
+  <li><strong>before commit</strong> — the committed event count is exactly what it
+    was. Nothing survives.</li>
+  <li><strong>after commit</strong> — the count is exactly one higher. The
+    transaction survived exactly once.</li>
+  <li>project sequences are still dense, 1..n with no gaps, in both cases;</li>
+  <li>the client's idempotent retry produces exactly one committed effect;</li>
+  <li>a second retry is <strong>byte-identical</strong> to the first and commits
+    nothing new.</li>
+</ul>
+<p>
+  Twenty such matrices cover project, space, contribution, relation, frontier,
+  assembly and invocation creation, artifact upload and finalize, lifecycle
+  changes, prepared widening, participants, grants, dispositions, lenses,
+  reactions, aliases and application events — each at both phases. One further
+  test crashes <em>after</em> an artifact finalize commits, confirms the plaintext
+  staging copy really does survive the crash, and then that the startup sweep
+  removes it and that replaying the cleanup is idempotent.
+</p>
+<p>
+  The acceptance test goes further and cuts the worst possible moment in a live
+  agent loop: a real Python assistant, over the worker socket, with the daemon
+  armed to die <em>after</em> its synthesis contribution commits but
+  <em>before</em> the reply reaches the SDK. On restart the SDK's bounded retries
+  replay, and the ledger is asserted to hold exactly one synthesis, exactly one
+  <code>addresses</code> relation, one succeeded invocation, and a context assembly
+  holding exactly the question with zero omissions. Re-running a
+  <em>completed</em> invocation is refused as stale rather than handed its old
+  receipts.
+</p>
+
+<h2 id="store" class="chapter-start">The store</h2>
+<p>
+  One SQLite database, <code>&lt;data-dir&gt;/kovee.db</code>, opened with:
+</p>
+<div class="tw">
+<table>
+  <tr><th>Pragma</th><th>Why</th></tr>
+  <tr><td><code>journal_mode = WAL</code></td><td class="wrap">Readers do not block the writer. The daemon <strong>refuses to run</strong> if the mode it gets back is not WAL — a network filesystem silently downgrades it, and a silent downgrade would quietly weaken every durability claim on this page.</td></tr>
+  <tr><td><code>synchronous = FULL</code></td><td class="wrap">"After commit" means on disk, which is what makes the crash matrix meaningful.</td></tr>
+  <tr><td><code>foreign_keys = on</code></td><td class="wrap">Referential integrity enforced by the database, not by convention.</td></tr>
+  <tr><td><code>secure_delete = on</code></td><td class="wrap">Freed pages are overwritten — erasure has to reach the file, not just the row.</td></tr>
+  <tr><td><code>busy_timeout = 5000</code></td><td class="wrap">Bounded waiting rather than immediate failure under contention.</td></tr>
+</table>
+</div>
+<p>
+  Schema changes are numbered migrations keyed to SQLite's own
+  <code>user_version</code>; there are <span data-claim="migration_count">10</span>
+  of them today. The DDL and the version bump commit together, so a crash between
+  them cannot strand the database half-migrated.
+</p>
+<p>
+  First start bootstraps the installation identity, the personal realm, and the
+  key material the rest depends on — the cursor secret, the privacy chain key, the
+  governance scope key and the realm object key. Bootstrap is idempotent, and an
+  older database missing a key mints it at open rather than failing.
+</p>
+
+<h2 id="ledger">The ledger and its cursors</h2>
+<p>
+  Events carry two dense sequences — one per stream, one per project — both
+  allocated inside the transaction, so an aborted transaction consumes no number
+  and a gap in the sequence is a real anomaly rather than routine. Uniqueness is a
+  database constraint on both pairs, not a check in Rust.
+</p>
+<p>
+  Clients never see a raw sequence. A cursor is
+  <code>kc1.&lt;hex payload&gt;.&lt;hex HMAC&gt;</code>, minted under the
+  installation's cursor secret and bound to the source it was minted for. A cursor
+  from another installation, another source, or a truncated paste is
+  indistinguishable from a forgery and returns <em>invalid</em>. Possession still
+  grants nothing: authorization is rechecked at read time, every time.
+</p>
+<p>
+  <code data-op="events_read">events_read</code> pages forward from a cursor with a
+  limit capped at <span data-claim="events_limit_max">512</span>.
+  <code data-op="events_wait">events_wait</code> long-polls from one — and it takes
+  the store lock only while it looks, releasing it between polls, so a waiting
+  reader never blocks a writer. Replies are capped at
+  <span data-claim="reply_max_mib">1</span> MiB and requests at 256 KiB.
+</p>
+
+<h2 id="audit">The audit chain</h2>
+<p>
+  Alongside the ledger there is an append-only audit log, hash-linked:
+  each entry's hash covers the previous hash, the sequence, the timestamp and the
+  length-framed event and detail, starting from a genesis of thirty-two zero bytes.
+  It is body-free — it records that a command happened and under what authority,
+  not what was said — and it is written <em>inside</em> the command transaction,
+  so there is no committed command without a matching audit row. A verifier walks
+  the chain and re-derives it.
+</p>
+
+<h2 id="authority" class="chapter-start">The sealed consumption authority</h2>
+<p>
+  Model egress is gated by one type. The rule it enforces:
+  <strong>no byte leaves without a valid byom execution-consumption receipt for
+  this exact execution key</strong>.
+</p>
+<p>
+  Four operations exist on that authority, and each verifies the previous one's
+  keyed tag rather than assuming it, so the chain is authenticated end to end under
+  a single secret the call site never supplies:
+</p>
+<div class="ascii">
+  byom reply
+     │  <b>admit</b>      parse and stamp a keyed admission tag
+     ▼
+  ExecutionConsumptionReceipt
+     │  <b>attest</b>     bind it to the committed consumption row
+     ▼
+  ConsumedReceipt
+     │  <b>authorize</b>  check admission, provenance, one-shot, execution key,
+     ▼             audience, digests, incarnation, epoch, fence, expiry
+  ExecutionPermit  (sealed over all 14 recorded members)
+     │  <b>dispatch</b>   verify the seal, claim the single use in the ledger,
+     ▼             and only then open the socket
+  one request
+</div>
+<p>Every property in that diagram is a compile error to violate, not a convention:</p>
+<ul>
+  <li>every field is private; no type has a public constructor;</li>
+  <li>no type implements <code>Deserialize</code>, so no permit can be conjured
+    from JSON;</li>
+  <li><code>ExecutionPermit</code> is not <code>Clone</code>, and dispatch takes it
+    <strong>by value</strong> — using one twice is a use-of-moved-value error;</li>
+  <li>the spent ledger is a <em>sealed</em> trait: its supertrait lives in a
+    private module, so no outside crate can implement it and no call site can
+    supply a ledger that forgets;</li>
+  <li>the transport trait and the live HTTPS wire are crate-private, so nobody
+    hands the broker their own wire.</li>
+</ul>
+
+<h2 id="door">One door per process</h2>
+<p>
+  In a build with the <code>daemon</code> feature — only <code>koveed</code>
+  enables it — there is exactly one public function that yields the authority. It
+  answers <strong>once</strong>: a process-wide atomic flag is swapped on the first
+  call, and every later call returns nothing, including one made with different key
+  material. koveed takes it behind a lock so two threads racing cannot burn the
+  grant, and if it ever comes back empty the daemon refuses the model call rather
+  than proceeding under an authority it did not make.
+</p>
+<p>
+  The durable single-use claim is one conditional <code>UPDATE</code> that moves a
+  consumption row from unspent to spent, and it happens <em>before</em> the socket
+  opens. If the update moves no row — because the consumption never existed, or
+  was already spent — dispatch terminalizes without sending anything. A ledger
+  error is a refusal too: a use that cannot be recorded is a use that does not
+  happen.
+</p>
+
+<h2 id="compilegate">Proved against rustc</h2>
+<p>
+  Those refusals are checked by a test that shells out to <code>rustc</code>
+  directly. For each case it compiles a control snippet that must succeed and a
+  denied snippet that must fail, and asserts that rustc's own stderr contains the
+  expected error code and wording. There are
+  <span data-claim="compile_gate_cases">24</span> such cases in a build without the
+  daemon feature, and the count itself is asserted, so deleting a case fails the
+  test.
+</p>
+<p>
+  Why not a <code>compile_fail</code> doctest: one of those passes when the snippet
+  fails to compile <em>for any reason</em>, including a typo, and rustdoc does not
+  enforce the error code even when you write one. The gate also refuses to guess
+  which build artifact it is testing — it compiles a fingerprint witness against
+  every candidate library and demands exactly one survivor, because an earlier
+  mtime-based pick once read a stale artifact and reported a mutant as green.
+</p>
+
+<h2 id="notclosed">What is not closed</h2>
+<div class="note limit">
+  <span class="tag">Read this before quoting any of the above</span>
+  <p>
+    The module's own documentation states the boundary, and the site does not
+    claim more than it does: closing the constructors removes the
+    <strong>external-crate</strong> path — the one every probe so far exercised.
+    It does not, and cannot, distinguish the daemon from other code compiled into
+    the daemon. Code inside a <code>daemon</code> build that runs before koveed
+    takes the grant can take it instead; code holding a reference to the daemon's
+    authority can call admit, attest and authorize with material of its own.
+  </p>
+  <p>
+    Even then a forged permit must claim its single use in the daemon's own
+    durable ledger, which moves a row that only a real byom consumption created —
+    so a fabricated consumption reference still sends nothing, and there is a test
+    that mints a permit from an attacker-built authority with identical key
+    material and proves not one byte leaves. But note what bounds that forgery:
+    <strong>the durable ledger, not cryptography</strong>. Closing the rest needs
+    byom to sign its receipts so kovee can verify provenance against a peer key;
+    that is a cross-boundary protocol change and it is deferred.
+  </p>
+  <p>
+    And none of it is a confinement claim: see
+    <a href="../security/#bypass">provider bypass</a>.
+  </p>
+</div>
+
+<h2 id="crates" class="chapter-start">The crate map</h2>
+<p><span data-claim="crate_count">15</span> crates in one workspace.</p>
+<div class="tw">
+<table>
+  <tr><th>Crate</th><th>Holds</th></tr>
+  <tr><td><code>kovee-core</code></td><td class="wrap">Records, closed enums, limits, canonical digests, the branch-head fold, and the operation table.</td></tr>
+  <tr><td><code>kovee-store</code></td><td class="wrap">SQLite, migrations, the command transaction, the event ledger and cursors, the audit chain.</td></tr>
+  <tr><td><code>kovee-auth</code></td><td class="wrap">Principals, actor scopes, and the authorization dependency sets re-read per command.</td></tr>
+  <tr><td><code>kovee-space</code></td><td class="wrap">Space, contribution, relation, frontier and lens logic.</td></tr>
+  <tr><td><code>kovee-artifacts</code></td><td class="wrap">Staged uploads, per-object secrets, sealed blobs, erasure.</td></tr>
+  <tr><td><code>kovee-effects</code></td><td class="wrap">Disclosure, the permit gate, the broker's dispatch path, the compile gate.</td></tr>
+  <tr><td><code>kovee-runtime</code></td><td class="wrap">Invocations, attempts, fences, deployments.</td></tr>
+  <tr><td><code>kovee-byom</code></td><td class="wrap">The one governance adapter. There is never a second.</td></tr>
+  <tr><td><code>kovee-akson</code></td><td class="wrap">The cross-installation edge.</td></tr>
+  <tr><td><code>kovee-bus</code></td><td class="wrap">Outbox delivery.</td></tr>
+  <tr><td><code>kovee-commitment</code></td><td class="wrap">Local commitment records.</td></tr>
+  <tr><td><code>kovee-attention</code></td><td class="wrap"><span class="no">A two-line stub.</span> The attention machinery is not built.</td></tr>
+  <tr><td><code>koveed</code></td><td class="wrap">The daemon: sockets, dispatch, handlers, the model broker, governance and formation sagas.</td></tr>
+  <tr><td><code>kovee-cli</code></td><td class="wrap">The six-verb client. No argument-parsing dependency; it is one file.</td></tr>
+  <tr><td><code>kovee-mcp</code></td><td class="wrap">The stdio MCP server and its schema interpreter.</td></tr>
+</table>
+</div>
+<p>
+  <code>unsafe_code</code> is denied across the workspace; the one documented
+  exception is a <code>geteuid</code> call in the CLI. Everything canonicalized or
+  digested lands with golden vectors that two independent re-derivers — one
+  Python, one TypeScript, sharing no code with the Rust — check in CI:
+  <span data-claim="vector_count">415</span> vectors against
+  <span data-claim="schema_count">197</span> schemas.
+</p>
+
+<footer class="page">
+  <p>
+    Mechanisms described here were read out of the tree at the commit this site was
+    built from. Source:
+    <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a>.
+    Pre-release, under active development — see
+    <a href="../security/">security &amp; limits</a>.
+  </p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  document.documentElement.classList.add("has-js");
+  var t = document.getElementById("themer");
+  if (t) {
+    t.addEventListener("click", function () {
+      var root = document.documentElement;
+      var now = root.getAttribute("data-theme");
+      if (!now) {
+        now = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      var next = now === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("kovee-theme", next); } catch (e) {}
+    });
+  }
+})();
+</script>
+</body>
+</html>

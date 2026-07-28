@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concepts — kovee</title>
+<meta name="description" content="The records kovee actually keeps: spaces, contributions, relations, frontiers, lenses, exact context assemblies, erasure-safe artifacts, assistants, the MCP server, governance over byom, and the model broker.">
+<link rel="canonical" href="https://kovee.cc/concepts/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Concepts — kovee">
+<meta property="og:description" content="Spaces, contributions, relations, frontiers, lenses, exact context assemblies, erasure-safe artifacts, and the two boundaries kovee does not cross.">
+<meta property="og:url" content="https://kovee.cc/concepts/">
+<meta property="og:site_name" content="kovee.">
+<meta property="og:image" content="https://kovee.cc/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<script>
+(function (root) {
+  try {
+    var saved = localStorage.getItem("kovee-theme");
+    if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  } catch (e) {}
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+
+<div class="shell">
+<aside class="rail">
+  <div class="rail-head">
+    <a class="rail-mark" href="../">kovee<span class="dot">.</span></a>
+    <button class="themer" id="themer" type="button" aria-label="Switch colour theme">theme</button>
+  </div>
+  <p class="rail-sub">Concepts</p>
+  <nav id="nav" aria-label="Documentation">
+    <div class="grp">Docs</div>
+    <a href="../">Home</a>
+    <a href="../guide/">Guide</a>
+    <a href="./" class="here" aria-current="page">Concepts</a>
+    <a href="../reference/">Reference</a>
+    <a href="../internals/">Internals</a>
+    <a href="../security/">Security &amp; limits</a>
+    <a href="https://github.com/zarbafian/kovee">GitHub</a>
+    <div class="grp">The record</div>
+    <a href="#spaces">Spaces</a>
+    <a href="#contributions">Contributions</a>
+    <a href="#relations">Relations</a>
+    <a href="#branches">Branches</a>
+    <a href="#frontiers">Frontiers</a>
+    <a href="#lenses">Lenses</a>
+    <div class="grp">Agents</div>
+    <a href="#assembly">ContextAssembly</a>
+    <a href="#artifacts">Artifacts</a>
+    <a href="#assistants">Assistants</a>
+    <a href="#mcp">MCP server</a>
+    <div class="grp">Beyond kovee</div>
+    <a href="#governance">Governance &amp; byom</a>
+    <a href="#broker">The model broker</a>
+    <a href="#akson">Akson</a>
+  </nav>
+</aside>
+
+<main id="top">
+
+<header class="hero">
+  <p class="eyebrow">Concepts</p>
+  <h1>The records kovee keeps, and what each one is for.</h1>
+  <p class="lede">
+    Everything named on this page exists in the daemon today — each section names the
+    operations that reach it, and every operation named here is checked against
+    <a href="../reference/">the registry</a> when this site is built. Where a
+    concept is only half built, the limit is in the section, not in a footnote.
+  </p>
+</header>
+
+<h2 id="spaces">Spaces</h2>
+<p>
+  A <strong>space</strong> is the unit of shared work and of visibility. It lives
+  in a project, in a realm; the personal profile has exactly one realm,
+  <code>realm-personal</code>. A space has a title, a status, a default
+  classification, a policy set, and — from the moment it is created — a main
+  branch.
+</p>
+<div class="tw">
+<table>
+  <tr><th>What you do</th><th>Operations</th></tr>
+  <tr><td>Create, read, list, retitle</td>
+      <td class="wrap"><code data-op="space_create">space_create</code>,
+        <code data-op="space_show">space_show</code>,
+        <code data-op="space_list">space_list</code>,
+        <code data-op="space_update_metadata">space_update_metadata</code></td></tr>
+  <tr><td>Change its lifecycle</td>
+      <td class="wrap"><code data-op="space_freeze">space_freeze</code>,
+        <code data-op="space_archive">space_archive</code>,
+        <code data-op="space_reopen">space_reopen</code></td></tr>
+  <tr><td>Narrow who can see it</td>
+      <td class="wrap"><code data-op="space_restrict">space_restrict</code>,
+        <code data-op="space_policy_narrow">space_policy_narrow</code></td></tr>
+  <tr><td>Widen who can see it</td>
+      <td class="wrap"><code data-op="space_access_widen_prepare">space_access_widen_prepare</code>,
+        <code data-op="space_access_widen_confirm">…_confirm</code>,
+        <code data-op="space_access_widen_cancel">…_cancel</code>,
+        <code data-op="space_access_widen_show">…_show</code>,
+        <code data-op="space_access_widen_list">…_list</code></td></tr>
+  <tr><td>Manage participants and grants</td>
+      <td class="wrap"><code data-op="space_participant_add">space_participant_add</code>,
+        <code data-op="space_participant_activate">…_activate</code>,
+        <code data-op="space_participant_update">…_update</code>,
+        <code data-op="space_participant_remove">…_remove</code>,
+        <code data-op="space_access_grant_create">space_access_grant_create</code>,
+        <code data-op="space_access_grant_revoke">…_revoke</code></td></tr>
+</table>
+</div>
+<p>
+  The asymmetry between narrowing and widening is deliberate. Restricting a space
+  is one operation. <strong>Widening it is a prepared, two-step path</strong>:
+  prepare states exactly what would become visible to whom, and a separate confirm
+  applies it — so nobody widens visibility as a side effect of editing a field.
+</p>
+
+<h2 id="contributions">Contributions</h2>
+<p>
+  A <strong>contribution</strong> is one immutable, typed entry appended to a
+  branch. It carries body parts (media type and text), an author, a
+  classification, a retention policy, its position in the space and on the
+  branch, and a content digest that later records bind to.
+</p>
+<p>
+  The kind is a closed enum of <span data-claim="contribution_kind_count">12</span>
+  values — <code>utterance</code>, <code>goal</code>, <code>question</code>,
+  <code>claim</code>, <code>observation</code>, <code>evidence</code>,
+  <code>proposal</code>, <code>critique</code>, <code>synthesis</code>,
+  <code>result</code>, <code>decision_reference</code>,
+  <code>system_notice</code>. An unknown kind is refused, not stored as free text.
+  A contribution may also carry an epistemic posture —
+  <code>asserted</code>, <code>tentative</code>, <code>observed</code>,
+  <code>reported</code> or <code>contested</code> — because "I think" and "I
+  measured" are different claims about the same sentence.
+</p>
+<div class="note ok">
+  <span class="tag">Immutable, but not unchangeable</span>
+  <p>
+    Nothing edits a contribution in place. Three operations move the record
+    forward instead:
+    <code data-op="contribution_supersede">contribution_supersede</code> points at
+    a replacement, <code data-op="contribution_withdraw">contribution_withdraw</code>
+    marks it withdrawn, and
+    <code data-op="contribution_redact">contribution_redact</code> destroys the key
+    material that made its content verifiable — see
+    <a href="#artifacts">erasure</a>. All three leave the original position and
+    provenance in place.
+  </p>
+</div>
+<p>
+  Appending is a compare-and-swap. The caller presents the branch and the head
+  digest it expects, and a writer working from a stale view is refused rather than
+  interleaved. The CLI computes that expected head client-side, by folding the
+  authorized event ledger — a client, not a privileged reader.
+</p>
+
+<h2 id="relations">Relations</h2>
+<p>
+  A <strong>relation</strong> connects two exact revisions and is attributed to
+  whoever asserted it:
+  <code data-op="relation_assert">relation_assert</code> and
+  <code data-op="relation_retract">relation_retract</code>. The kind is closed too,
+  at <span data-claim="relation_kind_count">11</span> values:
+  <code>addresses</code>, <code>supports</code>, <code>challenges</code>,
+  <code>refines</code>, <code>qualifies</code>, <code>supersedes</code>,
+  <code>depends_on</code>, <code>derived_from</code>, <code>produced_by</code>,
+  <code>quotes</code>, <code>evaluates</code>. A synthesis <em>addresses</em> a
+  question; evidence <em>supports</em> a claim. Because both endpoints are exact
+  revisions, a relation does not quietly follow an edit.
+</p>
+<p>
+  A relation is a claim about the work, not a decision about it, and it is recorded
+  as one — an assistant's relation is stored with its class and its author, not
+  merged into the record as fact.
+</p>
+
+<h2 id="branches">Branches</h2>
+<div class="note limit">
+  <span class="tag">Record model only</span>
+  <p>
+    Every space has a main branch, every contribution carries an origin branch and
+    a branch sequence, and the branch head is a fold over the contributions on it.
+    But <strong data-absent="branch_">there is no <code>branch_*</code> operation
+    in the registry</strong>: nothing forks a branch and nothing merges one. The
+    forking and digest-bound adoption in kovee's design are not built. What the
+    branch model buys today is the compare-and-swap on append, and an honest place
+    to put the sequence.
+  </p>
+</div>
+
+<h2 id="frontiers">Frontiers</h2>
+<p>
+  A <strong>frontier</strong> pins an exact point in a space so that a later read
+  means what it meant then:
+  <code data-op="frontier_pin">frontier_pin</code> and
+  <code data-op="frontier_show">frontier_show</code>. Every
+  <a href="#assembly">context assembly</a> pins its own frontier in the same
+  transaction that creates it, which is what makes "exactly what the assistant was
+  shown" a checkable statement rather than a hopeful one.
+</p>
+<p>
+  Reads that are not pinned are still positioned:
+  <code data-op="events_read">events_read</code> pages by an authenticated cursor,
+  <code data-op="events_wait">events_wait</code> long-polls from one, and list
+  reads hand back a boundary cursor for the position their answer was true at.
+</p>
+
+<h2 id="lenses">Lenses</h2>
+<p>
+  A <strong>lens</strong> changes presentation, never visibility or authority. Two
+  are seeded into every new space with deterministic identifiers, so they are there
+  the moment the space exists:
+</p>
+<div class="tw">
+<table>
+  <tr><th>Lens</th><th>Renders</th></tr>
+  <tr><td><code>stream</code></td><td class="wrap">Every visible contribution, chronologically, by branch sequence.</td></tr>
+  <tr><td><code>workbench</code></td><td class="wrap">Typed cards — every non-<code>utterance</code> contribution — each with its asserted relations in and out attached.</td></tr>
+</table>
+</div>
+<p>
+  Six operations reach them:
+  <code data-op="lens_read">lens_read</code>,
+  <code data-op="lens_create">lens_create</code>,
+  <code data-op="lens_show">lens_show</code>,
+  <code data-op="lens_list">lens_list</code>,
+  <code data-op="lens_update">lens_update</code>,
+  <code data-op="lens_revoke">lens_revoke</code>. Items a lens returns are
+  projections: they confer no visibility, no authority, and no invocation.
+</p>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    <code>lens_create</code> accepts <span data-claim="lens_kind_count">7</span>
+    kinds — <code>stream</code>, <code>workbench</code>, <code>pulse</code>,
+    <code>branch_compare</code>, <code>ensemble</code>, <code>provenance</code>,
+    <code>custom</code> — but only <code>workbench</code> renders differently
+    today. The query grammar that would make the other five distinct is not
+    pinned yet, so they all serve the chronological projection. Creating a
+    <code>pulse</code> lens gets you a stream with a different name.
+  </p>
+</div>
+
+<h2 id="assembly" class="chapter-start">ContextAssembly</h2>
+<p>
+  When an assistant is invoked, what it was given is recorded as an immutable
+  <strong>ContextAssembly</strong>:
+  <code data-op="context_assembly_create">context_assembly_create</code> and
+  <code data-op="context_assembly_show">context_assembly_show</code>. It is
+  evidence of selection — never a bearer capability, and never a thing you can
+  hand someone to gain access.
+</p>
+<p>The record names, for one exact frontier:</p>
+<ul>
+  <li>every <strong>item</strong>: object reference, revision, digest, size,
+    classification, role, order, and the reason it was included;</li>
+  <li>the <strong>relations</strong> among those items, by reference and digest;</li>
+  <li><strong>transformations</strong> applied, each with a source and result
+    digest;</li>
+  <li><strong>omissions</strong> — visible candidates that were left out, and
+    why;</li>
+  <li>the audience, the purpose, the triggers, the selection policy and its
+    digest, the authority digest, and totals in items, bytes and estimated
+    tokens.</li>
+</ul>
+<p>
+  "Exact" is enforced at both ends. Creating an assembly pins its frontier in the
+  same transaction; a required reference that cannot be resolved, or that belongs
+  to another space or branch, <strong>fails the assembly</strong> rather than being
+  quietly dropped or substituted. Reading one re-resolves every item and compares
+  digests: if an item is gone or has changed, the read returns
+  <em>unavailable</em> rather than serving a different selection under the same
+  identifier.
+</p>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    One selection policy is served: <code>explicit_refs_v1</code>, which includes
+    exactly the references the caller named. Under it <code>omissions</code> and
+    <code>transformations</code> are always empty and every item's inclusion
+    reason is <code>explicit_ref</code> — the record has room for a richer
+    selection story than anything shipped can put in it. Recipe-driven assembly is
+    refused as a later capability.
+  </p>
+</div>
+
+<h2 id="artifacts">Artifacts and erasure-safe digests</h2>
+<p>
+  Bytes attach through a staged upload — begin, credential, finalize, with abort
+  and show — and become an <strong>artifact</strong> only when the finalizing
+  transaction commits. The interesting part is how they are addressed.
+</p>
+<p>
+  An artifact's content digest is not a plain SHA-256 of the bytes. It is an
+  <strong>HMAC under a 32-byte secret minted for that one object</strong>, stored
+  wrapped under the realm key, never kept raw beside the object and never derived
+  from a root key. That single design choice is what "erasure-safe" means:
+</p>
+<div class="tw">
+<table>
+  <tr><th>Digest class</th><th>Destroying the key…</th></tr>
+  <tr><td><code>portable_public</code></td><td class="wrap">Unkeyed SHA-256. Nothing to destroy; the digest keeps proving what the bytes were, forever.</td></tr>
+  <tr><td><code>scope_erasure_safe</code></td><td class="wrap">Keyed per scope. Destroying the scope key erases verifiability for everything in that scope.</td></tr>
+  <tr><td><code>local_erasure_safe</code></td><td class="wrap">Keyed per object. Destroying that one secret erases verifiability for <strong>exactly that object</strong> and nothing else. This is what artifacts use.</td></tr>
+</table>
+</div>
+<p>
+  So erasing an artifact is not a flag. It removes the sealed blob and the staging
+  copies, then null-columns the secret, the content digest, the storage reference,
+  the size and the media type, leaving identity and provenance behind. Redacting a
+  contribution does the same to its key material: the digest <em>value</em> stays
+  as the object's address, and is now unverifiable — which is precisely what
+  erasure means. There is no retained plaintext hash anywhere to undo it, and the
+  tests for this grep the database file, its WAL and the artifact store for the
+  plaintext rather than trusting the code path.
+</p>
+<div class="note limit">
+  <span class="tag">Limits</span>
+  <p>
+    Uploads are capped at <span data-claim="max_upload_mib">64</span> MiB and
+    expire after an hour. Verification checks size, the declared raw digest, the
+    media type and the typed content digest — <strong>no malware or secret
+    scanning is performed or claimed</strong>; the scanner set is pinned empty and
+    says so in the record.
+  </p>
+</div>
+
+<h2 id="assistants">Assistants</h2>
+<p>
+  An assistant is registered, given revisions, deployed, aliased, and then
+  invoked — <code data-op="assistant_create">assistant_create</code>,
+  <code data-op="assistant_revision_register">assistant_revision_register</code>,
+  <code data-op="deployment_create">deployment_create</code>,
+  <code data-op="deployment_activate">deployment_activate</code>,
+  <code data-op="assistant_alias_bind">assistant_alias_bind</code>,
+  <code data-op="invocation_create">invocation_create</code>,
+  <code data-op="invocation_show">invocation_show</code>,
+  <code data-op="invocation_cancel">invocation_cancel</code>.
+</p>
+<p>
+  The running assistant does not use the client socket. It claims an attempt on
+  the <strong>worker socket</strong>, receives an attempt id and a fence epoch, and
+  every mutation it makes carries them — so a stale attempt, or a second run of a
+  completed one, is refused rather than handed the old receipts. The Python SDK
+  wraps this: subclass <code>Assistant</code>, implement <code>run</code>, and give
+  every mutating call an <code>operation_key</code> that becomes its durable
+  idempotency key.
+</p>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    Invocation is explicit — some client decides to run the assistant and names
+    what it should look at. Nothing wakes an assistant on its own: there is
+    <strong data-absent="attention_">no <code>attention_*</code> operation</strong>
+    and <code>crates/kovee-attention</code> is a two-line stub.
+  </p>
+</div>
+
+<h2 id="mcp">The MCP server</h2>
+<p>
+  <code>kovee-mcp</code> exposes <span data-claim="mcp_tool_count">14</span> tools
+  over stdio JSON-RPC. It is not a hand-written adapter: each tool's input schema
+  is <em>derived</em> from the operation's own request schema, minus the fields the
+  channel already fixes — realm, project, actor, attempt, fence, and the envelope.
+  A check re-derives all fourteen from the registry and the schemas on every run,
+  and refuses to start the server if the embedded bundle disagrees with the build.
+  The <a href="../reference/#mcp">tool table</a> lists every one of them.
+</p>
+<p>Three rules the server enforces rather than documents:</p>
+<ul>
+  <li><strong>No worker or operator operation is ever a tool.</strong> That is
+    re-derived from the registry's per-surface rows, so it cannot rot into being
+    false.</li>
+  <li><strong>Gating follows the schema, not an opinion.</strong> An operation is
+    a mutation exactly when its request schema requires <code>meta</code>;
+    mutations are gated, reads are marked safe to allow. The one recorded
+    exception is <code>kovee_artifact_upload_credential</code> — a read that stays
+    gated because its result carries a live storage credential.</li>
+  <li><strong>Idempotency keys are derived, not invented.</strong> The key is an
+    HMAC over the canonical tool call under a per-process session salt, so the same
+    harness retrying the same call is a replay, not a second record.</li>
+</ul>
+
+<h2 id="governance" class="chapter-start">Governance is byom's, over BPP</h2>
+<p>
+  Kovee never decides governance. When a personal installation is bound to
+  governance, the owner is <strong>byom</strong>, reached over the Byom
+  Participation Protocol through the <code>kovee-byom</code> adapter. The owner
+  enum has exactly two arms — <code>byom</code> and <code>none</code> — and the
+  code rejects anything else.
+</p>
+<p>
+  Enablement is a greenfield saga, not a cutover:
+  <code data-op="governance_enable">governance_enable</code> creates the realm
+  binding and the society mapping inert, then swings the owner binding from
+  <code>none</code> to <code>byom</code> by compare-and-swap at an expected
+  revision. Kovee is never the genesis governance actor — that rule is enforced by
+  reading byomd's own projection, not by trusting the request.
+  <code data-op="governance_show">governance_show</code> reads the binding, and
+  <code data-op="governance_disable">governance_disable</code> takes it back.
+</p>
+<p>
+  Promoting work is the other half:
+  <code data-op="endeavor_promotion_prepare">endeavor_promotion_prepare</code>,
+  <code data-op="endeavor_promotion_start">…_start</code>,
+  <code data-op="endeavor_promotion_show">…_show</code>,
+  <code data-op="endeavor_promotion_cancel">…_cancel</code>,
+  <code data-op="endeavor_promotion_reconcile">…_reconcile</code>, with
+  <code data-op="byom_episode_binding_show">byom_episode_binding_show</code>
+  reading the resulting binding. A local row is committed before the peer is
+  called, so a process that dies in between restarts pending and reconciles
+  against what the peer really committed.
+</p>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    These nine operations are the built part of
+    <code>governed_work_binding_v1</code>, and the bundle has fourteen. Because a
+    bundle is atomic, <code>hello</code> advertises
+    <span data-claim="advertised_bundle_count">3</span> bundles, not
+    <span data-claim="bundle_count">4</span> — the nine dispatch, but a client
+    should not discover or depend on them yet. There is no CLI verb for any of
+    them; they are reachable over the socket only.
+  </p>
+</div>
+
+<h2 id="broker">The model broker and its one-shot permit</h2>
+<p>
+  An assistant that wants a model call does not hold a provider key and does not
+  open a socket. It calls <code data-op="model_complete">model_complete</code> on
+  the worker surface with a prompt, a model profile, a purpose and a
+  classification. <strong>No provider, no host, no URL, no header and no credential
+  reference appear in those arguments</strong> — that is the point of the
+  operation's shape. The daemon supplies all of them.
+</p>
+<p>What then happens, in order:</p>
+<ol>
+  <li>The attempt's binding is checked as current.</li>
+  <li>The <strong>disclosure</strong> — what would be sent, and to which class of
+    recipient — is committed locally first.</li>
+  <li>A local effect row is committed under a stable execution key, in state
+    <code>prepared</code>. No permit has been consumed and no byte has left.</li>
+  <li>Kovee calls byom's <code>execution_permit_consume</code> for that exact
+    execution key and stores the one immutable receipt it returns.</li>
+  <li>The receipt is admitted, attested against the committed consumption row, and
+    authorized into a permit — each step verifying the previous one's keyed tag.</li>
+  <li>The single use is claimed in kovee's durable ledger <strong>before the socket
+    opens</strong>, and only then does the request go out.</li>
+</ol>
+<p>
+  The permit is one-shot in a specific, mechanical sense: byom's receipt must
+  declare exactly one use, the permit type cannot be cloned or deserialized and is
+  passed to dispatch by value, and the durable claim is a conditional
+  <code>UPDATE</code> that moves a row only a real byom consumption created. A
+  second attempt at the same effect finds the row already spent and sends nothing.
+</p>
+<div class="note ok">
+  <span class="tag">Whose decision is whose</span>
+  <p>
+    The act chain that authorizes work is <strong>byom's</strong>, and kovee
+    neither authors nor widens it. Kovee calls exactly one byom operation here —
+    <code>execution_permit_consume</code> — and everything else it passes is a
+    notice byomd re-checks against its own committed values. A caller naming
+    another act's references gains nothing.
+  </p>
+</div>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    This constrains <em>the broker's</em> calls. It does not stop a different
+    process on the same machine from calling a provider itself, and inside one
+    process it is the durable ledger — not cryptography — that bounds a forgery.
+    Read <a href="../security/#bypass">provider bypass</a> before describing any of
+    this as prevention. Ambiguity is also reported honestly: once bytes may have
+    left, a transport failure terminalizes as <em>ambiguous</em>, never as failed.
+  </p>
+</div>
+
+<h2 id="akson">Akson, and what does not cross</h2>
+<p>
+  Work that crosses to an installation you do not control is
+  <span class="ak">akson's</span> concern, carried as byom delegation. It is never
+  a kovee commitment and never a shared broker subject. Nothing in this repository
+  opens a network listener: kovee's two sockets are local Unix sockets, and the
+  only outbound path is the brokered provider call above.
+</p>
+
+<footer class="page">
+  <p>
+    Every operation named on this page is checked against
+    <code>spec/registry.json</code> when the site is built, and every absence claim
+    is re-derived from it. Source:
+    <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a>.
+  </p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  document.documentElement.classList.add("has-js");
+  var t = document.getElementById("themer");
+  if (t) {
+    t.addEventListener("click", function () {
+      var root = document.documentElement;
+      var now = root.getAttribute("data-theme");
+      if (!now) {
+        now = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      var next = now === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("kovee-theme", next); } catch (e) {}
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security &amp; limits — kovee</title>
+<meta name="description" content="What kovee's developer assurance profile does and does not give you: no confinement, no provider-bypass prevention, no team mode, a partial governed-loop gate, and the local hardening that is real.">
+<link rel="canonical" href="https://kovee.cc/security/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Security &amp; limits — kovee">
+<meta property="og:description" content="The register is pre-release. Here is exactly what is claimed, what is not, and why.">
+<meta property="og:url" content="https://kovee.cc/security/">
+<meta property="og:site_name" content="kovee.">
+<meta property="og:image" content="https://kovee.cc/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<script>
+(function (root) {
+  try {
+    var saved = localStorage.getItem("kovee-theme");
+    if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  } catch (e) {}
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+
+<div class="shell">
+<aside class="rail">
+  <div class="rail-head">
+    <a class="rail-mark" href="../">kovee<span class="dot">.</span></a>
+    <button class="themer" id="themer" type="button" aria-label="Switch colour theme">theme</button>
+  </div>
+  <p class="rail-sub">Security &amp; limits</p>
+  <nav id="nav" aria-label="Documentation">
+    <div class="grp">Docs</div>
+    <a href="../">Home</a>
+    <a href="../guide/">Guide</a>
+    <a href="../concepts/">Concepts</a>
+    <a href="../reference/">Reference</a>
+    <a href="../internals/">Internals</a>
+    <a href="./" class="here" aria-current="page">Security &amp; limits</a>
+    <a href="https://github.com/zarbafian/kovee">GitHub</a>
+    <div class="grp">Not claimed</div>
+    <a href="#register">The register</a>
+    <a href="#profile">Assurance profile</a>
+    <a href="#bypass">Provider bypass</a>
+    <a href="#team">Team mode</a>
+    <a href="#gate">The governed-loop gate</a>
+    <a href="#fleet">Two-host tooling</a>
+    <div class="grp">What is real</div>
+    <a href="#does">Local hardening</a>
+    <a href="#erasure">Erasure</a>
+    <a href="#checked">How this is checked</a>
+    <div class="grp">Practical</div>
+    <a href="#threat">If you run it anyway</a>
+    <a href="#reporting">Reporting</a>
+  </nav>
+</aside>
+
+<main id="top">
+
+<header class="hero">
+  <p class="eyebrow">Security &amp; limits</p>
+  <h1>What kovee does not claim, said first.</h1>
+  <p class="lede">
+    Kovee is <strong>pre-release, under active development, not production-ready
+    and not audited</strong>. No compatibility claim is made. Everything below is
+    a limit that also appears next to the capability it limits, because a limit
+    that only lives in a footer is a limit nobody reads.
+  </p>
+  <div class="pills">
+    <span class="pill off">developer assurance profile</span>
+    <span class="pill off">no confinement</span>
+    <span class="pill off">no team mode</span>
+    <span class="pill off">not audited</span>
+  </div>
+</header>
+
+<h2 id="register">The register</h2>
+<p>
+  This project is at the stage where the interesting question is whether the
+  mechanisms are right, not whether they are hardened. It runs; its durability
+  claims are tested by killing the process; its wire format is re-derived by two
+  independent implementations. It has been through five adversarial review rounds
+  <em>inside</em> the program that builds it, and their most common finding was
+  claims outrunning evidence — which is why this page exists and why the rest of
+  the site is machine-checked against the tree. None of that is an external audit,
+  and none of it makes kovee safe to put something valuable behind.
+</p>
+
+<h2 id="profile">The assurance profile is <code>developer</code></h2>
+<p>Concretely, and by design rather than by omission:</p>
+<div class="tw">
+<table>
+  <tr><th>Not provided</th><th>What that means for you</th></tr>
+  <tr><td><strong>No UID separation</strong></td>
+      <td class="wrap">The daemon, the CLI, the MCP server and any assistant all run as you. A process that can read your home directory can read kovee's database directly and bypass every check on this site.</td></tr>
+  <tr><td><strong>No attested process identity</strong></td>
+      <td class="wrap">The daemon authenticates its peer's UID with <code>SO_PEERCRED</code>. It cannot tell <em>which</em> of your programs connected, only that it is one of yours.</td></tr>
+  <tr><td><strong>No asymmetric endpoint identity</strong></td>
+      <td class="wrap">There are no endpoint keys and no signatures on the local wire. Authority is a local socket you can reach.</td></tr>
+</table>
+</div>
+<p>
+  Non-developer deployment profiles are <strong>refused rather than faked</strong>:
+  the daemon does not accept a production profile and then quietly run without the
+  isolation that profile implies. The confined workers, immutable production
+  packages and brokered egress in kovee's design are unbuilt.
+</p>
+
+<h2 id="bypass">Provider-bypass prevention is not claimed</h2>
+<p>
+  This is the easiest claim on this site to overstate, so it gets stated twice.
+  Kovee's model broker discloses, permits and meters <em>its own</em> calls to a
+  model provider. It does not prevent bypass. There are two separate limits, at two
+  different levels.
+</p>
+<h3>1. At the operating-system level</h3>
+<p>
+  A same-UID assistant can skip the daemon entirely and call a provider itself with
+  its own key. Nothing in kovee observes that, let alone stops it. Enforced
+  broker-only egress would need confinement kovee does not have, and it is a later
+  milestone.
+</p>
+<h3>2. Inside one process</h3>
+<p>
+  The <strong>external</strong> path to minting an execution permit is closed at
+  the crate boundary — no public constructor, no <code>Deserialize</code>, a sealed
+  spent-ledger trait, a crate-private transport, and one public door in the daemon
+  build that answers once per process. Those refusals are proved against rustc's own
+  diagnostics rather than asserted; see
+  <a href="../internals/#compilegate">the compile gate</a>.
+</p>
+<p>
+  That closes the external-crate path and nothing more. It cannot distinguish the
+  daemon from other code compiled into the daemon: code that runs before koveed
+  takes the grant can take it instead, and code holding a reference to the
+  authority can drive it with material of its own.
+</p>
+<div class="note limit">
+  <span class="tag">What actually bounds a forgery</span>
+  <p>
+    <strong>The durable ledger, not cryptography.</strong> A fabricated permit
+    still has to claim its single use by moving a row that only a real byom
+    consumption created, so it sends nothing — and there is a test that builds an
+    attacker's authority from identical key material and proves not one byte
+    leaves. But the property is "the ledger refuses", not "the forgery is
+    detected". Closing the rest needs byom to sign its receipts so kovee can verify
+    provenance against a peer key. That is a cross-boundary protocol change, and
+    it is deferred.
+  </p>
+  <p>
+    If any wording on this site is stronger than the module documentation in
+    <code>crates/kovee-effects/src/permit.rs</code> — its section is called "What
+    is closed, and what is not" — then the site is wrong and the code is right.
+  </p>
+</div>
+
+<h2 id="team">Team mode does not exist</h2>
+<p>
+  There is no PostgreSQL, no OIDC, no realtime channel and no NATS. Kovee binds
+  two Unix domain sockets and has <strong>no network listener at all</strong>. The
+  personal profile has one realm and one principal. Multi-person installations are
+  a later milestone, and nothing shipped should be read as a preview of one.
+</p>
+
+<h2 id="gate">The governed-loop gate is partial</h2>
+<p>
+  The end-to-end gate that exercises kovee under byom governance is recorded as
+  <strong>partial</strong>, and the tag says why: of thirteen items, five are
+  exercised with nothing standing in and <strong>eight are explicitly
+  simulated</strong>.
+</p>
+<div class="tw">
+<table>
+  <tr><th>Simulated</th><th>Because</th></tr>
+  <tr><td>The attention trigger</td><td class="wrap"><code>crates/kovee-attention</code> is a two-line stub; nothing wakes an assistant.</td></tr>
+  <tr><td>Manifestation variety</td><td class="wrap">byom mints only attached-harness manifestations.</td></tr>
+  <tr><td>Onboarding</td><td class="wrap">kovee ships no onboarding code.</td></tr>
+  <tr><td>Provider calls on the ambiguous-effect and broker paths</td><td class="wrap">A recording transport stands in for a real provider.</td></tr>
+</table>
+</div>
+<p>
+  The gate derives that breakdown from the daemons' own records rather than from a
+  checklist: each coverage query runs against the daemon that owns the record,
+  simulation status is re-probed every run, and a cell whose declaration disagrees
+  with what the probes observed <strong>fails</strong> instead of being promoted. A
+  no-op cell fails naming the item and the query, and skipping a real harness
+  returns a non-zero exit rather than a pass. That is a property worth more than
+  the number: the gate is built so that this page cannot quietly become false while
+  the gate stays green.
+</p>
+
+<h2 id="fleet">The two-host tooling has never run</h2>
+<p>
+  Scripts exist under <code>harness/fleet/</code> that would stand up two hosts,
+  run the cross-installation gate and destroy them. They are written and dry-run
+  validated. <strong>No cloud resource has ever been created by them</strong>, and
+  most of their scenarios need a per-side driver that does not exist yet. Treat the
+  directory as intent, not as evidence.
+</p>
+
+<h2 id="does" class="chapter-start">What is real</h2>
+<p>Within a single trusted user account, these are properties, not aspirations:</p>
+<ul>
+  <li><strong>Same-UID peer authentication.</strong> Every connection is checked
+    with <code>SO_PEERCRED</code>. The socket directory is created <code>0700</code>
+    and each socket file <code>0600</code>; a stale socket is removed before
+    binding.</li>
+  <li><strong>No inbound network surface.</strong> Two Unix sockets, nothing
+    else.</li>
+  <li><strong>Fail-closed durability.</strong> The store refuses to run if SQLite
+    does not confirm WAL mode, because a filesystem that silently downgrades it
+    would silently weaken every crash guarantee.</li>
+  <li><strong>Atomic commands, tested by process abort.</strong> State, events,
+    outbox, audit and the idempotency record commit together or not at all —
+    checked by killing the real daemon at both sides of the commit. See
+    <a href="../internals/#crash">crash-honesty</a>.</li>
+  <li><strong>Authenticated cursors.</strong> Ledger positions are MAC'd and bound
+    to the installation and source; possession grants nothing and authorization is
+    rechecked on every read.</li>
+  <li><strong>Closed enums and hard caps</strong> on kinds, list sizes, request
+    and reply bytes, page limits and identifiers — refusal rather than
+    truncation.</li>
+  <li><strong>A hash-linked audit chain</strong> written inside the command
+    transaction, so there is no committed command without an audit row. It records
+    that a command happened, not what was said.</li>
+  <li><strong>Deny-by-absence on the agent surface.</strong> No worker- or
+    operator-surface operation is exposed as an MCP tool, and that is re-derived
+    from the registry rather than maintained by hand.</li>
+</ul>
+
+<h2 id="erasure">Erasure is real, and narrow</h2>
+<p>
+  Artifact content is addressed by an HMAC under a secret minted for that one
+  object, so destroying that secret erases verifiability for exactly that object.
+  Erasing removes the sealed blob and the staging copies and null-columns the key,
+  digest, storage reference, size and media type, keeping identity and provenance.
+  There is no retained plaintext hash to undo it, freed database pages are
+  overwritten, and the tests grep the database file, its write-ahead log and the
+  artifact store for the plaintext rather than trusting the code path.
+</p>
+<div class="note limit">
+  <span class="tag">Limits</span>
+  <p>
+    Erasure covers what kovee stores. It cannot reach a copy something else made,
+    an operating-system backup, or a snapshot of the volume. And nothing is scanned:
+    verification checks size, declared digest, media type and content digest —
+    <strong>no malware or secret scanning is performed or claimed</strong>, and the
+    record says so by pinning an empty scanner set.
+  </p>
+</div>
+
+<h2 id="checked">How the claims on this site are checked</h2>
+<p>
+  This program's most common defect across five review rounds was documentation
+  and tests that keep passing after the thing they describe changes. So the site is
+  wired against that:
+</p>
+<ul>
+  <li>The <a href="../reference/">reference</a> is <strong>generated</strong> from
+    <code>spec/registry.json</code>, the per-operation schemas, and the CLI's own
+    source. It is not transcribed.</li>
+  <li>Every count on every page — operations, entries, bundles, CLI verbs, MCP
+    tools, schemas, vectors, migrations, caps — is tagged in the HTML and
+    re-derived from those sources by <code>docs-tools/check_docs.py</code>, which
+    runs in <code>./run-checks.sh</code>. A number that drifts fails the build.</li>
+  <li>Every operation name mentioned in prose is checked to exist in the
+    registry.</li>
+  <li>Every <em>absence</em> claim — no <code>branch_*</code>, no
+    <code>attention_*</code>, no <code>need_*</code> / <code>offer_*</code> /
+    <code>commitment_*</code> operation — is re-derived too. If someone ships one
+    of those, the pages that say it does not exist go red rather than going
+    stale.</li>
+</ul>
+<p>
+  That is a defence against the site rotting, not a proof that the code is correct.
+</p>
+
+<h2 id="threat">If you run it anyway</h2>
+<ul>
+  <li>Run it as a user account whose home directory you would be comfortable
+    handing to any agent you invoke, because effectively you are.</li>
+  <li>Keep the data directory on a real local filesystem — the WAL check will
+    refuse a network filesystem, which is the point.</li>
+  <li>Do not put secrets in contributions. Redaction destroys verifiability, not
+    other people's copies.</li>
+  <li>Treat provider keys as if the broker were not there, because for any other
+    process on that machine it is not.</li>
+  <li>Expect breaking changes. No compatibility claim is made, and the protocol
+    version is <code>0.1</code>.</li>
+</ul>
+
+<h2 id="reporting">Reporting</h2>
+<p>
+  There is no security contact address and no advisory process yet — consistent
+  with the register. For now, open an issue at
+  <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a>. If
+  you find a claim on this site that the code does not support, that is the most
+  useful issue you can file: it has happened before, and correcting it in public is
+  the intended outcome.
+</p>
+
+<footer class="page">
+  <p>
+    Pre-release, under active development. Not production-ready, not audited, no
+    compatibility claim. Source:
+    <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a>.
+  </p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  document.documentElement.classList.add("has-js");
+  var t = document.getElementById("themer");
+  if (t) {
+    t.addEventListener("click", function () {
+      var root = document.documentElement;
+      var now = root.getAttribute("data-theme");
+      if (!now) {
+        now = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      var next = now === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("kovee-theme", next); } catch (e) {}
+    });
+  }
+})();
+</script>
+</body>
+</html>

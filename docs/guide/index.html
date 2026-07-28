@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide — kovee</title>
+<meta name="description" content="Build koveed, start it, and drive a real space from the CLI — every command in this guide was run against a live daemon, with its actual output.">
+<link rel="canonical" href="https://kovee.cc/guide/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Guide — kovee">
+<meta property="og:description" content="Build it, run it, make a space, append a contribution, read the ledger. Real commands, real output.">
+<meta property="og:url" content="https://kovee.cc/guide/">
+<meta property="og:site_name" content="kovee.">
+<meta property="og:image" content="https://kovee.cc/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<script>
+(function (root) {
+  try {
+    var saved = localStorage.getItem("kovee-theme");
+    if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+  } catch (e) {}
+})(document.documentElement);
+</script>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#top">Skip to content</a>
+
+<div class="shell">
+<aside class="rail">
+  <div class="rail-head">
+    <a class="rail-mark" href="../">kovee<span class="dot">.</span></a>
+    <button class="themer" id="themer" type="button" aria-label="Switch colour theme">theme</button>
+  </div>
+  <p class="rail-sub">Guide</p>
+  <nav id="nav" aria-label="Documentation">
+    <div class="grp">Docs</div>
+    <a href="../">Home</a>
+    <a href="./" class="here" aria-current="page">Guide</a>
+    <a href="../concepts/">Concepts</a>
+    <a href="../reference/">Reference</a>
+    <a href="../internals/">Internals</a>
+    <a href="../security/">Security &amp; limits</a>
+    <a href="https://github.com/zarbafian/kovee">GitHub</a>
+    <div class="grp">Start</div>
+    <a href="#what">What kovee is</a>
+    <a href="#isnot">What it is not</a>
+    <a href="#requirements">Requirements</a>
+    <a href="#build">Build it</a>
+    <div class="grp">Do it</div>
+    <a href="#quickstart">Quickstart</a>
+    <a href="#reading">Reading the output</a>
+    <a href="#idempotency">Running it twice</a>
+    <div class="grp">Beyond the CLI</div>
+    <a href="#surfaces">The other three surfaces</a>
+    <a href="#mcp">MCP server</a>
+    <a href="#sdk">Assistant SDK</a>
+    <div class="grp">When it breaks</div>
+    <a href="#trouble">Troubleshooting</a>
+    <a href="#next">Where next</a>
+  </nav>
+</aside>
+
+<main id="top">
+
+<header class="hero">
+  <p class="eyebrow">Guide · Linux</p>
+  <h1>A durable record of shared work, on your own machine.</h1>
+  <p class="lede">
+    Kovee is a daemon and a small set of clients. You build it, start it, and it
+    keeps an immutable, typed record of what people and agents contributed to a
+    shared <strong>space</strong> — with the context given to an assistant recorded
+    exactly, and every committed change on one event ledger you can page through.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="#quickstart">Quickstart</a>
+    <a class="btn" href="#requirements">Requirements</a>
+    <a class="btn" href="../reference/">Operation reference</a>
+  </div>
+  <div class="pills">
+    <span class="pill">Linux · Unix sockets</span>
+    <span class="pill">SQLite, WAL</span>
+    <span class="pill">Single user, same UID</span>
+    <span class="pill off">Pre-release</span>
+  </div>
+</header>
+
+<div class="note warn">
+  <span class="tag">Pre-release</span>
+  <p>
+    Kovee is under active development and has not been audited. It runs, and
+    everything on this page was executed against a live <code>koveed</code>, but
+    the assurance profile is <strong>developer</strong> — same-UID, no
+    confinement, no team mode. Read
+    <a href="../security/">security &amp; limits</a> before you put anything you
+    care about in it.
+  </p>
+</div>
+
+<h2 id="what">What kovee is</h2>
+<p>
+  One daemon, <code>koveed</code>, holding a SQLite database and listening on two
+  Unix domain sockets — one for clients, one for assistant workers. Everything
+  else talks to it: the <code>kovee</code> CLI, an MCP server your agent harness
+  can launch, and a Python SDK an assistant runs inside.
+</p>
+
+<div class="ascii" role="img" aria-label="Diagram: the kovee CLI, an MCP server and a Python assistant all speak to koveed over two Unix sockets; koveed owns a SQLite store; koveed alone speaks to byomd over BPP and to a model provider.">
+   kovee CLI        MCP server          assistant (Python SDK)
+       |                 |                  |            |
+       |  kovee.sock     |                  |            |  kovee-worker.sock
+       +--------+--------+------------------+            |
+                |                                        |
+             <b>koveed</b>  ------------------------------------+
+                |
+                +-- SQLite (WAL) . . . . . . the durable record
+                +-- <span class="by">byomd</span> over BPP  . . . . . . governance, permits
+                +-- provider HTTPS . . . . . only under a byom permit
+</div>
+
+<p>The records are ordinary and inspectable:</p>
+<ul>
+  <li>A <strong>space</strong> is the unit of shared work and visibility.</li>
+  <li>A <strong>contribution</strong> is one immutable, typed entry appended to a
+    branch of that space — a question, a claim, evidence, a synthesis.</li>
+  <li>A <strong>relation</strong> connects two exact revisions, attributed to
+    whoever asserted it.</li>
+  <li>A <strong>frontier</strong> pins an exact point in the space so a later read
+    means the same thing it meant then.</li>
+  <li>A <strong>ContextAssembly</strong> records exactly what an assistant was
+    given at such a point, item by item.</li>
+  <li>Every committed change lands on a per-project <strong>event ledger</strong>
+    with dense sequence numbers and an authenticated cursor.</li>
+</ul>
+<p>
+  <a href="../concepts/">Concepts</a> takes each of these apart. The full operation
+  set is in the <a href="../reference/">reference</a>.
+</p>
+
+<h2 id="isnot">What it is not</h2>
+<p>
+  Kovee's design describes considerably more than kovee ships. This table is the
+  short version; each "not shipped" row is checked against the operation registry
+  on every build of this site.
+</p>
+<div class="tw">
+<table>
+  <tr><th>You might expect</th><th>Today</th></tr>
+  <tr>
+    <td>Fork a branch, merge by adoption</td>
+    <td class="wrap"><span class="no">Not shipped.</span> Branching is a
+      <em>record model</em>: every space has a main branch and every contribution
+      carries an origin branch and sequence. There is
+      <strong data-absent="branch_">no <code>branch_*</code> operation</strong> in
+      the registry — nothing forks and nothing merges.</td>
+  </tr>
+  <tr>
+    <td>An attention contract that wakes an assistant</td>
+    <td class="wrap"><span class="no">Not shipped.</span> There is
+      <strong data-absent="attention_">no <code>attention_*</code> operation</strong>;
+      <code>crates/kovee-attention</code> is a two-line stub. An assistant is
+      invoked explicitly, by a client that says so.</td>
+  </tr>
+  <tr>
+    <td>Needs, offers, formation proposals, commitments</td>
+    <td class="wrap"><span class="no">Not shipped.</span> No
+      <strong data-absent="need_,offer_,commitment_,formation_proposal_"><code>need_*</code>,
+      <code>offer_*</code> or <code>commitment_*</code> operation</strong> exists.</td>
+  </tr>
+  <tr>
+    <td>Team mode — several people, a server, sign-in</td>
+    <td class="wrap"><span class="no">Does not exist.</span> No PostgreSQL, no
+      OIDC, no realtime, no NATS. Kovee binds Unix sockets and authenticates its
+      peer by <code>SO_PEERCRED</code> same-UID. There is no network listener at
+      all.</td>
+  </tr>
+  <tr>
+    <td>A sandbox that contains an agent</td>
+    <td class="wrap"><span class="no">Not claimed.</span> The assurance profile is
+      <code>developer</code>: no UID separation, no attested process identity, no
+      asymmetric endpoint identity. A same-UID process can do anything you can.</td>
+  </tr>
+  <tr>
+    <td>A gateway that stops an agent reaching a model directly</td>
+    <td class="wrap"><span class="no">Not claimed.</span> The broker's own calls
+      are disclosed, permitted and metered. Nothing stops a different process on
+      your machine from calling a provider itself. See
+      <a href="../security/#bypass">provider bypass</a>.</td>
+  </tr>
+  <tr>
+    <td>A chat app, a UI, a hosted account</td>
+    <td class="wrap"><span class="no">None of those.</span> There is no web
+      interface in this repository. The clients are a CLI, an MCP server, and a
+      Python SDK.</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="requirements">Requirements</h2>
+<div class="tw">
+<table>
+  <tr><th>You need</th><th>Why</th></tr>
+  <tr><td>Linux</td>
+      <td class="wrap">Both sockets are Unix domain sockets, and the daemon authenticates its peer per connection by reading a <code>ucred</code> through <code>SO_PEERCRED</code> — a Linux interface. Nothing here has been built or tested on another platform.</td></tr>
+  <tr><td>A Rust toolchain</td>
+      <td class="wrap">The tree pins one in <code>rust-toolchain.toml</code>; <code>rustup</code> will fetch it. This guide was run on <code data-observed="toolchain">cargo 1.95.0 / rustc 1.95.0</code>.</td></tr>
+  <tr><td>A C compiler</td>
+      <td class="wrap">SQLite is compiled in through <code>rusqlite</code>'s <code>bundled</code> feature, so there is no system SQLite to install — but there is C to build.</td></tr>
+  <tr><td>Python 3 (optional)</td>
+      <td class="wrap">Only for the assistant SDK and for <code>mcp/check.py</code>. The SDK is stdlib-only.</td></tr>
+  <tr><td>A short runtime directory</td>
+      <td class="wrap">A Unix socket path has a hard length limit. See <a href="#trouble">troubleshooting</a>.</td></tr>
+</table>
+</div>
+
+<h2 id="build">Build it</h2>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">your machine</span></div>
+<pre><code>git clone https://github.com/zarbafian/kovee
+cd kovee
+cargo build --workspace --locked</code></pre>
+</div>
+<p>
+  That produces three binaries under <code>target/debug/</code>:
+  <code>koveed</code> (the daemon), <code>kovee</code> (the CLI) and
+  <code>kovee-mcp</code> (the MCP server). Put <code>target/debug</code> on your
+  <code>PATH</code>, or call them by path — this guide writes them as
+  <code>koveed</code> and <code>kovee</code>.
+</p>
+<p>
+  To validate the tree, run <code>./run-checks.sh</code>: formatting, clippy under
+  <code>-D warnings</code>, the whole test suite, the MCP tool-bundle check, the
+  check that keeps this website honest, and two independent re-derivers of the
+  golden vectors — one in Python, one in TypeScript, sharing no code with the
+  Rust. CI runs most of those; the MCP and docs checks are local-only today.
+</p>
+
+<h2 id="quickstart" class="chapter-start">Quickstart</h2>
+<p>
+  Six verbs, in order, from an empty store. <strong>Every block below is the real
+  output of the command above it</strong>, captured from one run on
+  2026-07-28; only the identifiers will differ on your machine, because they are
+  minted per installation.
+</p>
+
+<h3>1. Start the daemon</h3>
+<p>
+  <code>koveed</code> takes one optional flag, <code>--data-dir</code>. Anything
+  else is a hard error. Here it is pointed at a scratch directory with two
+  environment variables so nothing lands in your real profile:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 1</span></div>
+<pre><code>export KOVEE_DATA_DIR=/tmp/kvqs/data
+export KOVEE_RUNTIME_DIR=/tmp/kvqs/run
+mkdir -p "$KOVEE_DATA_DIR" "$KOVEE_RUNTIME_DIR"
+koveed &amp;
+
+<span class="out">koveed: personal profile; store /tmp/kvqs/data/kovee.db; listening on /tmp/kvqs/run/kovee.sock (external) and /tmp/kvqs/run/kovee-worker.sock (worker)</span></code></pre>
+</div>
+<p>
+  Without those variables the store goes to <code>$XDG_DATA_HOME/kovee</code>
+  (falling back to <code>~/.local/share/kovee</code>) and the sockets to
+  <code>$XDG_RUNTIME_DIR/kovee</code> (falling back to
+  <code>/tmp/kovee-&lt;uid&gt;</code>). The directory is created <code>0700</code>
+  and each socket file <code>0600</code>.
+</p>
+
+<h3>2. Say hello</h3>
+<p>
+  Every client starts here. <code data-op="hello">hello</code> negotiates a protocol
+  version and reports which feature bundles this installation actually serves.
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee hello
+
+<span class="out">{
+  "features": [
+    "core_v1",
+    "shared_space_v1",
+    "developer_assistant_v1"
+  ],
+  "implementation": "koveed",
+  "implementation_version": "0.0.1",
+  "installation_id": "inst-bffac71619de79b979c4a9c9263fa393",
+  "limits_digest": "3ee3bd3169b8f32fad61b1e3a8bec77a9065c8052e8cfbda8df80e1e0441ada9",
+  "selected_version": "0.1",
+  "server_time": "2026-07-28T03:00:40Z"
+}</span></code></pre>
+</div>
+<p>
+  Three bundles, not four. A bundle is atomic — a client may assume all of it or
+  none of it — so the fourth bundle,
+  <code>governed_work_binding_v1</code>, is deliberately not advertised while it
+  is built out at <span data-claim="gwb_built">9</span> of its fourteen
+  operations. Its operations do dispatch over the socket; they are simply not
+  something a client should discover and depend on yet. Capability discovery is
+  this list, never a version number.
+</p>
+
+<h3>3. Initialise</h3>
+<p>
+  <code>kovee init</code> is three operations in one verb:
+  <code data-op="hello">hello</code>, <code data-op="realm_show">realm_show</code>,
+  and a <code data-op="project_create">project_create</code> under a fixed
+  idempotency key, so running it again returns the same project instead of
+  minting a second one.
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee init
+
+<span class="out">installation: inst-bffac71619de79b979c4a9c9263fa393
+realm:        realm-personal
+project:      proj-b9e7413a81a4596bd34ac8c374b8c44b (name "personal")</span></code></pre>
+</div>
+<p>
+  The personal profile has exactly one realm, <code>realm-personal</code>, minted
+  at first start. Keep that project id — every later command needs it.
+</p>
+
+<h3>4. Create a space</h3>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee space create --project proj-b9e7413a81a4596bd34ac8c374b8c44b \
+  --title "Flaky test triage"
+
+<span class="out">{
+  "created_at": "2026-07-28T03:00:40Z",
+  "created_by": "prin-owner",
+  "default_classification_ref": "class-default",
+  "main_branch_id": "branch-9b988617a2fb9bfe1cce041219052847",
+  "next_space_sequence": 1,
+  "policy_set_ref": "policy-default",
+  "project_id": "proj-b9e7413a81a4596bd34ac8c374b8c44b",
+  "realm_id": "realm-personal",
+  "revision": 1,
+  "space_id": "space-88b7a591ca55b98e0a2c59507bf380b8",
+  "status": "open",
+  "title": "Flaky test triage",
+  "visibility": "project"
+}</span>
+<span class="c">event_cursor: kc1.7b2265706f…2c2276223a317d.73e93652bb…7f136ef63e   (on stderr, elided)</span></code></pre>
+</div>
+<p>
+  Note three things. The space came with a <strong>main branch</strong> already —
+  branches are a record model, not something you create. Its
+  <code>visibility</code> defaulted to <code>project</code>; the other accepted
+  value is <code>restricted</code>, and widening it later is a separate prepared
+  path rather than an edit. And the result printed to stdout while the
+  <code>event_cursor</code> went to <strong>stderr</strong>, which is what lets you
+  pipe the JSON somewhere without losing the cursor.
+</p>
+
+<h3>5. Append contributions</h3>
+<p>
+  A contribution is typed. <code>--kind</code> takes one value from a closed
+  enum and defaults to <code data-claim="cli_default_kind">utterance</code>; here
+  a question and then the evidence that answers it.
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee space contribute --project proj-b9e7413a81a4596bd34ac8c374b8c44b \
+  --space space-88b7a591ca55b98e0a2c59507bf380b8 \
+  --kind question --text "Why does k1_crash_matrix flake only on CI?"
+
+<span class="out">{
+  "author_actor_ref": "prin-owner",
+  "body_parts": [
+    {
+      "media_type": "text/plain",
+      "text": "Why does k1_crash_matrix flake only on CI?"
+    }
+  ],
+  "classification_ref": "class-default",
+  "content_digest": "2aecf827087cb2267118e469914ba56f0795fc88c44f8c7c431eb520dcdee51c",
+  "contribution_id": "contrib-08ef618663d43b7416a0c6b5c5ee0f12",
+  "created_at": "2026-07-28T03:00:40Z",
+  "kind": "question",
+  "origin_branch_id": "branch-9b988617a2fb9bfe1cce041219052847",
+  "origin_branch_sequence": 1,
+  "project_id": "proj-b9e7413a81a4596bd34ac8c374b8c44b",
+  "realm_id": "realm-personal",
+  "retention_policy_ref": "ret-default",
+  "revision": 1,
+  "schema_ref": "schema:contribution-body-v1",
+  "source_refs": [],
+  "space_id": "space-88b7a591ca55b98e0a2c59507bf380b8",
+  "space_sequence": 1,
+  "subject_refs": []
+}</span></code></pre>
+</div>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee space contribute --project proj-b9e7413a81a4596bd34ac8c374b8c44b \
+  --space space-88b7a591ca55b98e0a2c59507bf380b8 \
+  --kind evidence --text "Ten reruns: three failures, all under the WAL checkpoint path."
+
+<span class="out">{ …
+  "content_digest": "f5a3c0d75fbc91ea29f58b02201c363ad5ccb1e9d6beab79cae65d33617c886c",
+  "contribution_id": "contrib-a48910a8f8117f458031ae6ca880e7e9",
+  "kind": "evidence",
+  "origin_branch_sequence": 2,
+  "space_sequence": 2,
+  … }</span></code></pre>
+</div>
+<p>
+  A wrong kind is refused rather than coerced, and the daemon says which rule it
+  broke:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span> — real failure</div>
+<pre><code>kovee space contribute --project $P --space $S --kind banana --text hi
+
+<span class="out">kovee: problem urn:kovee:error:invalid: invalid operation arguments
+  kind is not in the closed ContributionKind enum</span>
+<span class="c">exit status 1</span></code></pre>
+</div>
+
+<h3>6. Read the space, then the ledger</h3>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee space show --project proj-b9e7413a81a4596bd34ac8c374b8c44b \
+  space-88b7a591ca55b98e0a2c59507bf380b8
+
+<span class="out">{ …
+  "next_space_sequence": 3,
+  "revision": 3,
+  "status": "open",
+  "title": "Flaky test triage",
+  "visibility": "project" }</span></code></pre>
+</div>
+<p>
+  The space is at revision 3 after two appends: creating it was revision 1, and
+  each contribution moved it. Now the ledger:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee events --project proj-b9e7413a81a4596bd34ac8c374b8c44b --limit 4
+
+<span class="out">   1  2026-07-28T03:00:40Z  dev.kovee.project.created.v1  proj-b9e7413a81a4596bd34ac8c374b8c44b
+   2  2026-07-28T03:00:40Z  dev.kovee.space.created.v1  space-88b7a591ca55b98e0a2c59507bf380b8
+   3  2026-07-28T03:00:40Z  dev.kovee.space.contribution-appended.v1  contrib-08ef618663d43b7416a0c6b5c5ee0f12
+   4  2026-07-28T03:00:40Z  dev.kovee.space.contribution-appended.v1  contrib-a48910a8f8117f458031ae6ca880e7e9</span>
+<span class="c">next_cursor: kc1.7b2265706f…2c2276223a317d.eee9e1a3c8…931a38343b7e   (on stderr, elided)</span></code></pre>
+</div>
+<p>
+  Paging is by cursor, not by offset. Feed the cursor back with
+  <code>--after</code> and you get everything committed since — the same events
+  from 3 onwards here, because the cursor above was taken after event 2:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee events --project proj-b9e7413a81a4596bd34ac8c374b8c44b \
+  --after "kc1.7b2265706f…2c2276223a317d.73e93652bb…7f136ef63e" --limit 5
+
+<span class="out">   3  2026-07-28T03:00:40Z  dev.kovee.space.contribution-appended.v1  contrib-08ef618663d43b7416a0c6b5c5ee0f12
+   4  2026-07-28T03:00:40Z  dev.kovee.space.contribution-appended.v1  contrib-a48910a8f8117f458031ae6ca880e7e9</span></code></pre>
+</div>
+<p>That is the whole shipped CLI. Everything else is reached over the socket.</p>
+
+<h2 id="reading">Reading the output</h2>
+<div class="tw">
+<table>
+  <tr><th>Field</th><th>What it tells you</th></tr>
+  <tr><td><code>revision</code></td><td class="wrap">Optimistic-concurrency counter for that record. Send it back as <code>expected_revision</code> and a mutation that raced you is refused as stale rather than silently applied.</td></tr>
+  <tr><td><code>space_sequence</code>, <code>origin_branch_sequence</code></td><td class="wrap">Dense per-space and per-branch positions. Dense means no gaps — a rolled-back transaction consumes no number.</td></tr>
+  <tr><td><code>content_digest</code></td><td class="wrap">The address of that contribution's body. Relations and assemblies bind to it, so they name an exact revision rather than "the latest".</td></tr>
+  <tr><td><code>event_cursor</code> / <code>next_cursor</code></td><td class="wrap">An opaque, authenticated position on the project ledger: <code>kc1.&lt;hex payload&gt;.&lt;hex MAC&gt;</code>. It is minted per installation and per source, so a cursor from elsewhere is refused as invalid. Possession grants nothing; authorization is rechecked on every read.</td></tr>
+  <tr><td>Event types</td><td class="wrap">Reverse-domain and versioned, e.g. <code>dev.kovee.space.contribution-appended.v1</code>. Reads may filter by type prefix.</td></tr>
+  <tr><td><code>limits_digest</code></td><td class="wrap">A digest over the protocol limits this installation enforces, so a client can tell two installations apart without probing them.</td></tr>
+</table>
+</div>
+
+<h2 id="idempotency">Running it twice</h2>
+<p>
+  Every mutation carries an idempotency key. The CLI mints a random one per
+  invocation, except for <code>init</code>, which uses a fixed key — that is why
+  running <code>init</code> twice prints the same project id rather than making a
+  second project. Both mutating verbs accept
+  <code>--idempotency-key &lt;key&gt;</code>, which is not in the usage block but is
+  real:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span></div>
+<pre><code>kovee space create --project $P --title "Once" --idempotency-key mine-1 | grep space_id
+kovee space create --project $P --title "Once" --idempotency-key mine-1 | grep space_id
+
+<span class="out">  "space_id": "space-94f631c6e948f614832cbb57dd2f10e6",
+  "space_id": "space-94f631c6e948f614832cbb57dd2f10e6",</span>
+<span class="c"># the second call returned the first result — one space, not two</span></code></pre>
+</div>
+<p>
+  Reusing the key with <em>different</em> arguments is an error, not a silent
+  overwrite. The daemon compares a canonical digest of the request — one that
+  deliberately excludes the request id and trace headers, so a genuine retry still
+  matches — and refuses a mismatch:
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span> — real failure</div>
+<pre><code>kovee space create --project $P --title "Twice" --idempotency-key mine-1
+
+<span class="out">kovee: problem urn:kovee:error:idempotency-mismatch: same scoped idempotency key, different canonical request
+  reusing an idempotency key with changed arguments is refused</span>
+<span class="c">exit status 1</span></code></pre>
+</div>
+<p>
+  This is the same mechanism that makes a crashed client safe to retry — see
+  <a href="../internals/#txn">the command transaction</a>.
+</p>
+
+<h2 id="surfaces" class="chapter-start">The other three surfaces</h2>
+<p>
+  The CLI covers six verbs of
+  <strong data-claim="op_count">96</strong> operations. The rest are reached by
+  writing a JSON command line to the socket yourself, or through the MCP server or
+  the SDK. All four surfaces speak the same protocol: one JSON object per line in,
+  one reply line out, connection closed.
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">terminal 2</span> — the wire, by hand</div>
+<pre><code>python3 - "$P" &lt;&lt;'PY'
+import json, os, socket, sys
+cmd = {"version": "0.1", "op": "space_list", "realm_id": "realm-personal",
+       "project_id": sys.argv[1], "args": {"limit": 3}}
+s = socket.socket(socket.AF_UNIX)
+s.connect(os.path.join(os.environ["KOVEE_RUNTIME_DIR"], "kovee.sock"))
+s.sendall((json.dumps(cmd) + "\n").encode())
+s.shutdown(socket.SHUT_WR)
+print(json.dumps(json.loads(s.makefile().readline()), indent=2))
+PY
+
+<span class="out">{
+  "outcome": "ok",
+  "result": {
+    "boundary_event_cursor": "kc1.7b2265706f…2c2276223a317d.ab68d0a5c8…36371e9d45",
+    "items": [
+      {
+        "created_at": "2026-07-28T02:57:21Z",
+        "created_by": "prin-owner",
+        …
+        "space_id": "space-442e84b453eb9aa04ccd7a32ba556c5f",
+        "status": "open",
+        "title": "Flaky test triage",
+        "visibility": "project"
+      },
+      …</span></code></pre>
+</div>
+<p>
+  A reply is either <code>{"outcome":"ok", "result": …}</code> or
+  <code>{"outcome":"problem", "problem": …}</code>. Problems are typed —
+  <code>urn:kovee:error:invalid</code>,
+  <code>urn:kovee:error:idempotency-mismatch</code> and so on — with a human
+  detail line, which is what the CLI prints. Note the
+  <code>boundary_event_cursor</code>: a list read hands back the ledger position
+  its answer was true at, so a client can follow the ledger from there rather than
+  polling the list.
+</p>
+
+<h2 id="mcp">MCP server</h2>
+<p>
+  <code>kovee-mcp</code> is a stdio JSON-RPC MCP server exposing
+  <strong data-claim="mcp_tool_count">14</strong> tools to an agent harness. It
+  parses no command-line arguments at all: the harness launches the binary and
+  speaks MCP on its stdin and stdout. The one configuration line in the tree is
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">your harness</span></div>
+<pre><code>claude mcp add kovee -- kovee-mcp</code></pre>
+</div>
+<p>
+  It needs a running <code>koveed</code>, finds the socket the same way the CLI
+  does, and scopes itself to one project: set <code>KOVEE_PROJECT</code>, or leave
+  it unset and let it use the single project if there is exactly one.
+</p>
+<p>
+  Each tool is derived from a registry operation, not hand-written — the tool
+  <code>kovee_contribution_append</code> is the operation
+  <code data-op="contribution_append">contribution_append</code> minus the fields
+  the channel already fixes. Read-only tools are marked safe to allow; mutations
+  and the one credential-bearing read are marked gated, for your harness to prompt
+  on. The <a href="../reference/#mcp">tool table</a> lists all fourteen with the
+  operation each one binds; <a href="../concepts/#mcp">concepts</a> explains how
+  they are derived.
+</p>
+
+<h2 id="sdk">Assistant SDK</h2>
+<p>
+  An assistant is a Python class with a <code>run</code> method. The SDK
+  (<code>sdk/python/kovee_sdk.py</code>, stdlib only, no package to install — put
+  the directory on <code>sys.path</code>) does the rest: it creates the context
+  assembly, creates the invocation on the client socket, claims the attempt on the
+  worker socket, runs you, and completes.
+</p>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">assistant</span> — the shape of one</div>
+<pre><code>from kovee_sdk import Assistant, run_one_shot
+
+class DeterministicReviewer(Assistant):
+    def run(self, ctx):
+        question = ctx.trigger_contribution
+        synthesis = ctx.contribute(
+            kind="synthesis",
+            parts=[{"media_type": "text/plain", "text": "…"}],
+            operation_key="synthesis-v1",
+        )
+        ctx.relate("addresses", synthesis.ref, question["contribution_id"],
+                   operation_key="addresses-v1")
+        ctx.result_ref = synthesis.ref
+
+run_one_shot(DeterministicReviewer(), project_id=…, space_id=…, branch_id=…,
+             question_ref=…, invocation_key="review-1",
+             deadline="2027-01-01T00:00:00Z")</code></pre>
+</div>
+<p>
+  That is condensed from <code>assistants/deterministic_reviewer.py</code>, which
+  is not an illustration: the acceptance test runs that exact file against a real
+  daemon, kills the daemon mid-flow, and asserts the ledger ends with exactly one
+  synthesis and exactly one relation. The mandatory
+  <code>operation_key</code> on every mutating call is what makes that true — it
+  becomes the durable idempotency key, so a retry after a crash replays instead of
+  duplicating.
+</p>
+<div class="note limit">
+  <span class="tag">Limit</span>
+  <p>
+    <code>run_one_shot</code> is a <em>direct</em> invocation: your code decides to
+    run the assistant and names the contribution it should look at. Nothing in
+    kovee wakes an assistant on its own — the attention machinery that would is
+    <a href="#isnot">not shipped</a>.
+  </p>
+</div>
+
+<h2 id="trouble" class="chapter-start">Troubleshooting</h2>
+
+<h3>The CLI cannot reach the daemon</h3>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">real output</span></div>
+<pre><code><span class="out">kovee: cannot reach koveed at /tmp/kvdoc/nope/kovee.sock (No such file or directory (os error 2)); is the daemon running?</span></code></pre>
+</div>
+<p>
+  The CLI and the daemon resolve the socket by the same rules, so this almost
+  always means the two disagree about <code>KOVEE_RUNTIME_DIR</code>. Check what
+  the daemon printed when it started — it names both socket paths.
+</p>
+
+<h3>The daemon will not bind</h3>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">real output</span></div>
+<pre><code><span class="out">koveed: bind socket: socket io: path must be shorter than SUN_LEN</span></code></pre>
+</div>
+<p>
+  A Unix socket path is limited to about a hundred bytes by the kernel, and a deep
+  <code>KOVEE_RUNTIME_DIR</code> blows past it. Use a short one.
+</p>
+
+<h3>A cursor is refused</h3>
+<div class="cmd">
+  <div class="cmd-head"><span class="who">real output</span></div>
+<pre><code><span class="out">kovee: problem urn:kovee:error:invalid: invalid cursor
+  not a cursor this installation minted for this source</span></code></pre>
+</div>
+<p>
+  Cursors are authenticated against an installation secret and bound to the source
+  they were minted for, so one from another store — or a truncated copy-paste —
+  is indistinguishable from a forgery and is refused as invalid. In
+  <code>zsh</code>, note that <code>2&gt;&amp;1 &gt;/dev/null</code> does
+  <em>not</em> mean what it means in <code>bash</code>: with <code>MULTIOS</code>
+  on you capture the event lines too. Capture the cursor with
+  <code>grep -o 'kc1\.[^ ]*'</code> instead.
+</p>
+
+<h3>An unknown verb, or a missing flag</h3>
+<p>
+  There is no <code>--help</code>. Any unrecognised verb or missing required flag
+  prints the usage block on stderr and exits <code>2</code>; a rejected operation
+  exits <code>1</code>.
+</p>
+
+<h2 id="next">Where next</h2>
+<ul>
+  <li><a href="../concepts/">Concepts</a> — what a space, a frontier, a lens, an
+    assembly and an artifact digest actually are.</li>
+  <li><a href="../reference/">Reference</a> — every operation, its authority and
+    its arguments, generated from the registry; and the CLI grammar.</li>
+  <li><a href="../internals/">Internals</a> — the one atomic command transaction,
+    the store, and the sealed consumption authority.</li>
+  <li><a href="../security/">Security &amp; limits</a> — read this before quoting
+    any capability.</li>
+</ul>
+
+<footer class="page">
+  <p>
+    Every command on this page was run against <code>koveed</code> built from this
+    tree on 2026-07-28. Source:
+    <a href="https://github.com/zarbafian/kovee">github.com/zarbafian/kovee</a>.
+    Pre-release, under active development.
+  </p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  document.documentElement.classList.add("has-js");
+  var t = document.getElementById("themer");
+  if (t) {
+    t.addEventListener("click", function () {
+      var root = document.documentElement;
+      var now = root.getAttribute("data-theme");
+      if (!now) {
+        now = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      var next = now === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("kovee-theme", next); } catch (e) {}
+    });
+  }
+  var links = Array.prototype.slice.call(document.querySelectorAll(".rail nav a[href^='#']"));
+  var targets = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+  if ("IntersectionObserver" in window) {
+    var seen = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      var active = null;
+      targets.forEach(function (t, i) { if (t && seen[t.id] && !active) active = links[i]; });
+      links.forEach(function (a) { a.classList.remove("active"); });
+      if (active) active.classList.add("active");
+    }, { rootMargin: "-10% 0px -75% 0px" });
+    targets.forEach(function (t) { if (t) io.observe(t); });
+  }
+})();
+</script>
+</body>
+</html>
